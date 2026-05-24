@@ -14,6 +14,9 @@ class EngineConfig:
         self.device = config.get("device", "cpu")
         self.compute_type = config.get("compute_type", "float32")
         self.max_duration = config.get("max_duration")  # 最大音频时长（秒）
+        # 云端引擎配置
+        self.api_key = config.get("api_key", "")
+        self.base_url = config.get("base_url", "")
         # 如果指定了 model_dir，则构建本地模型路径
         self.model_path = model_dir / name if model_dir else None
 

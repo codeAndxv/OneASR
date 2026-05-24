@@ -2,10 +2,14 @@ from app.core.config import app_config, EngineConfig
 from app.engines.base import ASREngine
 from app.engines.whisper_engine import WhisperEngine
 from app.engines.firered_engine import FireRedEngine
+from app.engines.openai_engine import OpenAIEngine
+from app.engines.mimo_engine import MiMoEngine
 
 _engine_classes: dict[str, type[ASREngine]] = {
     "whisper": WhisperEngine,
     "firered": FireRedEngine,
+    "openai": OpenAIEngine,
+    "mimo": MiMoEngine,
 }
 
 _instances: dict[str, ASREngine] = {}

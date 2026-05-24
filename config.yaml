@@ -20,3 +20,16 @@ engines:
     model_name: aed
     device: cpu
     max_duration: 60  # 最大 60 秒，超过会自动切分
+
+  # 云端引擎示例（取消注释并填写 API Key 即可使用）
+  # openai:
+  #   type: cloud
+  #   model_name: whisper-1
+  #   api_key: sk-xxx  # 或设置环境变量 OPENAI_API_KEY
+  #   base_url: https://api.openai.com/v1
+
+  # mimo:
+  #   type: cloud
+  #   model_name: mimo-audio
+  #   api_key: xxx  # 小米 MiMo API Key
+  #   base_url: https://api.xiaomimimo.com

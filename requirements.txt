@@ -10,3 +10,4 @@ faster-whisper==1.2.1
 fireredasr>=0.0.2
 silero-vad>=6.0
 torchaudio>=2.0
+openai>=1.0.0
