@@ -16,3 +16,11 @@ build/
 .ruff_cache/
 *.log
 .DS_Store
+
+# 模型文件
+models/**/*.pth.tar
+models/**/*.bin
+models/**/*.pt
+models/**/*.onnx
+models/**/.msc
+models/**/._____temp/
