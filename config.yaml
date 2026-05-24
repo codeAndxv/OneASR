@@ -1,0 +1,22 @@
+# OneASR 模型配置文件
+
+# 默认引擎
+default_engine: whisper
+
+# 模型根目录（取消注释并指定路径可强制使用本地模型）
+# model_dir: ./models
+
+# 引擎配置
+engines:
+  whisper:
+    type: local  # local 或 cloud
+    model_name: base
+    device: cpu
+    compute_type: int8
+    max_duration: null  # 无时长限制
+
+  firered:
+    type: local
+    model_name: aed
+    device: cpu
+    max_duration: 60  # 最大 60 秒，超过会自动切分

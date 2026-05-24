@@ -29,25 +29,54 @@ uvicorn app.main:app --reload
 |------|------|------|
 | `/api/v1/transcribe/file` | POST | 上传文件识别 |
 | `/api/v1/transcribe/url` | POST | URL 下载识别 |
+| `/api/v1/engines` | GET | 列出可用引擎 |
+| `/api/v1/formats` | GET | 列出输出格式 |
 | `/ws/transcribe/stream` | WebSocket | 流式识别 |
 | `/health` | GET | 健康检查 |
 
-## 配置
+## 输出格式
 
-通过环境变量配置：
+支持以下输出格式：
+
+| 格式 | 说明 |
+|------|------|
+| `text` | 纯文本（默认） |
+| `srt` | SRT 字幕格式 |
+| `vtt` | WebVTT 字幕格式 |
+| `json` | JSON 格式（含时间轴） |
+| `tsv` | TSV 格式（制表符分隔） |
+
+**使用示例：**
 
 ```bash
-# ASR 引擎
-ONEASR_DEFAULT_ENGINE=whisper       # 默认引擎
+# 上传文件，返回 SRT 字幕
+curl -X POST http://localhost:8000/api/v1/transcribe/file \
+  -F "file=@audio.mp3" -F "format=srt" -o subtitle.srt
 
-# Whisper 配置
-ONEASR_WHISPER_MODEL_SIZE=base      # base/small/medium/large-v3
-ONEASR_WHISPER_DEVICE=cpu           # cpu/cuda/auto
-ONEASR_WHISPER_COMPUTE_TYPE=int8    # int8/float16/float32
+# URL 识别，返回 JSON
+curl -X POST http://localhost:8000/api/v1/transcribe/url \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://example.com/audio.mp3", "format": "json"}'
+```
 
-# 其他
-ONEASR_DEBUG=false
-ONEASR_MAX_FILE_SIZE_MB=500
+## 配置
+
+编辑 `config.yaml` 配置引擎：
+
+```yaml
+default_engine: whisper
+model_dir: ./models
+
+engines:
+  whisper:
+    type: local
+    model_name: base
+    device: cpu
+    compute_type: int8
+  firered:
+    type: local
+    model_name: FireRedASR-AED
+    device: cpu
 ```
 
 ## 项目结构
@@ -62,7 +91,12 @@ app/
 ├── engines/
 │   ├── base.py          # 引擎抽象基类
 │   ├── whisper_engine.py # faster-whisper 实现
+│   ├── firered_engine.py # FireRedASR 实现
 │   └── registry.py      # 引擎注册中心
 ├── models/schemas.py    # 数据模型
-└── utils/download.py    # URL 下载工具
+└── utils/
+    ├── download.py      # URL 下载工具
+    └── format.py        # 输出格式转换
+models/                  # 模型存放目录
+config.yaml              # 引擎配置文件
 ```

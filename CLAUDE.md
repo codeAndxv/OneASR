@@ -11,7 +11,7 @@
 
 - **语言**: Python 3.11+
 - **框架**: FastAPI
-- **ASR 引擎**: faster-whisper（默认）
+- **ASR 引擎**: faster-whisper、FireRedASR
 - **依赖管理**: requirements.txt
 - **虚拟环境**: `.venv`
 
@@ -24,10 +24,18 @@ OneASR/
 │   ├── api/
 │   │   ├── file.py          # 文件识别接口（上传/URL → 完整结果）
 │   │   └── stream.py        # 流式识别接口（WebSocket 音频流 → 结果流）
-│   ├── core/                # 配置、依赖注入、公共工具
-│   ├── engines/             # ASR 引擎适配层（统一接口，不同实现）
-│   ├── models/              # Pydantic 请求/响应模型
-│   └── utils/               # 通用工具函数
+│   ├── core/config.py       # 配置管理
+│   ├── engines/
+│   │   ├── base.py          # 引擎抽象基类
+│   │   ├── whisper_engine.py # faster-whisper 实现
+│   │   ├── firered_engine.py # FireRedASR 实现
+│   │   └── registry.py      # 引擎注册中心
+│   ├── models/schemas.py    # 数据模型
+│   └── utils/download.py    # URL 下载工具
+├── models/                  # 模型存放目录
+│   ├── whisper/
+│   └── firered/
+├── config.yaml              # 引擎配置文件
 ├── tests/
 ├── requirements.txt
 ├── README.md
@@ -36,11 +44,25 @@ OneASR/
 
 ## 引擎配置
 
-通过环境变量配置 Whisper 引擎：
+编辑 `config.yaml` 配置引擎：
 
-- `ONEASR_WHISPER_MODEL_SIZE` — 模型大小（base/small/medium/large-v3）
-- `ONEASR_WHISPER_DEVICE` — 设备（cpu/cuda/auto）
-- `ONEASR_WHISPER_COMPUTE_TYPE` — 计算类型（int8/float16/float32）
+```yaml
+default_engine: whisper
+model_dir: ./models
+
+engines:
+  whisper:
+    type: local
+    model_name: base
+    device: cpu
+    compute_type: int8
+  firered:
+    type: local
+    model_name: FireRedASR-AED
+    device: cpu
+```
+
+模型路径规则：`{model_dir}/{engine_name}/`
 
 ## 开发规范
 
@@ -49,3 +71,4 @@ OneASR/
 - 每次功能变更后同步更新 README.md
 - 使用类型注解（type hints）
 - 错误处理：区分用户输入校验（4xx）和服务内部错误（5xx）
+- 在修改api后， 在tests下同步写测试代码
