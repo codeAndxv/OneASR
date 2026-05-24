@@ -27,12 +27,17 @@ def load_audio_with_ffmpeg(audio_path: str | Path, sample_rate: int = 16000) -> 
     return torch.from_numpy(audio_np).unsqueeze(0)
 
 
-def get_speech_timestamps(audio_path: str | Path, sample_rate: int = 16000) -> list[dict]:
+def get_speech_timestamps(
+    audio_path: str | Path,
+    sample_rate: int = 16000,
+    min_silence_duration_ms: int = 300,
+) -> list[dict]:
     """使用 silero-vad 检测语音时间段。
 
     Args:
         audio_path: 音频文件路径
         sample_rate: 采样率
+        min_silence_duration_ms: 最小静默时长（毫秒），越大切分越少
 
     Returns:
         语音时间段列表，每个元素包含 start 和 end（秒）
@@ -51,7 +56,7 @@ def get_speech_timestamps(audio_path: str | Path, sample_rate: int = 16000) -> l
         threshold=0.5,
         sampling_rate=sample_rate,
         min_speech_duration_ms=250,
-        min_silence_duration_ms=100,
+        min_silence_duration_ms=min_silence_duration_ms,
     )
 
     # 转换为秒
@@ -68,36 +73,56 @@ def get_speech_timestamps(audio_path: str | Path, sample_rate: int = 16000) -> l
 def split_audio_by_vad(
     audio_path: str | Path,
     max_duration: float = 60.0,
+    merge_segments: bool = True,
+    max_segment_duration: float = 10.0,
+    padding_ms: int = 100,
     sample_rate: int = 16000,
-) -> list[Path]:
+) -> list[tuple[Path, float, float]]:
     """使用 VAD 切分长音频。
-
-    在语音静默处切分，确保每段不超过 max_duration 秒。
 
     Args:
         audio_path: 音频文件路径
-        max_duration: 每段最大时长（秒）
+        max_duration: 每段最大时长（秒），仅在 merge_segments=True 时生效
+        merge_segments: 是否合并短片段，True 用于 ASR 引擎，False 用于字幕生成
+        max_segment_duration: 字幕模式下每段最大时长（秒），超过会二次切分
+        padding_ms: 前后填充时长（毫秒），防止切分边界漏字
         sample_rate: 采样率
 
     Returns:
-        切分后的音频文件路径列表
+        切分后的音频文件路径和时间戳列表，每个元素为 (path, start, end)
     """
     audio_path = Path(audio_path)
 
     # 获取音频总时长
     duration = _get_audio_duration(audio_path)
-    if duration <= max_duration:
-        return [audio_path]
 
-    # 使用 VAD 检测语音时间段
-    speech_timestamps = get_speech_timestamps(audio_path, sample_rate)
+    # 对于字幕模式，使用更短的静默检测
+    min_silence = 500 if merge_segments else 300
+    speech_timestamps = get_speech_timestamps(audio_path, sample_rate, min_silence)
 
     if not speech_timestamps:
         # 如果没有检测到语音，按固定时长切分
-        return _split_by_fixed_duration(audio_path, max_duration)
+        if merge_segments:
+            return _split_by_fixed_duration(audio_path, max_duration)
+        else:
+            return [(audio_path, 0.0, duration)]
 
-    # 在语音间隔处切分
-    return _split_at_silence(audio_path, speech_timestamps, max_duration)
+    # 应用前后填充
+    padding_sec = padding_ms / 1000.0
+    padded_timestamps = []
+    for ts in speech_timestamps:
+        padded_start = max(0.0, ts["start"] - padding_sec)
+        padded_end = min(duration, ts["end"] + padding_sec)
+        padded_timestamps.append({"start": padded_start, "end": padded_end})
+
+    if merge_segments:
+        # ASR 模式：合并短片段直到达到 max_duration
+        if duration <= max_duration:
+            return [(audio_path, 0.0, duration)]
+        return _split_at_silence(audio_path, padded_timestamps, max_duration)
+    else:
+        # 字幕模式：每个 VAD 片段作为一个字幕段，超长片段二次切分
+        return _split_subtitles(audio_path, padded_timestamps, max_segment_duration)
 
 
 def _get_audio_duration(audio_path: Path) -> float:
@@ -119,8 +144,8 @@ def _split_at_silence(
     audio_path: Path,
     speech_timestamps: list[dict],
     max_duration: float,
-) -> list[Path]:
-    """在语音静默处切分音频。"""
+) -> list[tuple[Path, float, float]]:
+    """在语音静默处切分音频，合并短片段直到达到 max_duration。"""
     segments = []
     current_start = 0.0
     current_duration = 0.0
@@ -146,7 +171,33 @@ def _split_at_silence(
     return _extract_segments(audio_path, segments)
 
 
-def _split_by_fixed_duration(audio_path: Path, max_duration: float) -> list[Path]:
+def _split_subtitles(
+    audio_path: Path,
+    speech_timestamps: list[dict],
+    max_segment_duration: float = 10.0,
+) -> list[tuple[Path, float, float]]:
+    """按 VAD 检测的语音段切分，超长片段进行二次切分。"""
+    segments = []
+    for ts in speech_timestamps:
+        start = ts["start"]
+        end = ts["end"]
+        duration = end - start
+
+        if duration <= max_segment_duration:
+            # 短片段直接使用
+            segments.append((start, end))
+        else:
+            # 长片段按固定时长二次切分
+            current = start
+            while current < end:
+                chunk_end = min(current + max_segment_duration, end)
+                segments.append((current, chunk_end))
+                current = chunk_end
+
+    return _extract_segments(audio_path, segments)
+
+
+def _split_by_fixed_duration(audio_path: Path, max_duration: float) -> list[tuple[Path, float, float]]:
     """按固定时长切分音频。"""
     duration = _get_audio_duration(audio_path)
     segments = []
@@ -160,9 +211,9 @@ def _split_by_fixed_duration(audio_path: Path, max_duration: float) -> list[Path
     return _extract_segments(audio_path, segments)
 
 
-def _extract_segments(audio_path: Path, segments: list[tuple[float, float]]) -> list[Path]:
+def _extract_segments(audio_path: Path, segments: list[tuple[float, float]]) -> list[tuple[Path, float, float]]:
     """提取音频片段。"""
-    output_paths = []
+    result = []
 
     for i, (start, end) in enumerate(segments):
         output_path = audio_path.parent / f"{audio_path.stem}_part{i:03d}.wav"
@@ -180,6 +231,6 @@ def _extract_segments(audio_path: Path, segments: list[tuple[float, float]]) -> 
             capture_output=True,
             check=True,
         )
-        output_paths.append(output_path)
+        result.append((output_path, start, end))
 
-    return output_paths
+    return result

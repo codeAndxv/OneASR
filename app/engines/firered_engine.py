@@ -33,40 +33,58 @@ class FireRedEngine(ASREngine):
             tmp_path = Path(tmp.name)
 
         wav_path = None
-        audio_parts = []
+        audio_segments = []
         try:
             # 转换为 WAV 格式
             wav_path = convert_to_wav(tmp_path)
 
-            # 检查是否需要切分
+            # 检查是否需要切分，返回 (path, start, end) 元组
+            # 使用 merge_segments=False 按自然停顿切分，生成短字幕
             max_duration = self.config.max_duration
             if max_duration:
-                audio_parts = split_audio_by_vad(wav_path, max_duration)
+                audio_segments = split_audio_by_vad(wav_path, max_duration, merge_segments=False)
             else:
-                audio_parts = [wav_path]
+                duration = self._get_duration(wav_path)
+                audio_segments = [(wav_path, 0.0, duration)]
 
             # 识别每个片段
+            segments = []
             all_text = []
-            for part_path in audio_parts:
+            for part_path, start, end in audio_segments:
                 results = self.model.transcribe(
                     batch_uttid=["utt001"],
                     batch_wav_path=[str(part_path)],
                 )
                 if results:
-                    all_text.append(results[0]["text"])
+                    text = results[0]["text"]
+                    all_text.append(text)
+                    segments.append(Segment(start=start, end=end, text=text))
 
-            text = " ".join(all_text)
-            # FireRedASR 不返回时间轴，整段返回
-            segments = [Segment(start=0.0, end=0.0, text=text)] if text else []
-            return text, segments
+            full_text = " ".join(all_text)
+            return full_text, segments
         finally:
             tmp_path.unlink(missing_ok=True)
             if wav_path and wav_path.exists():
                 wav_path.unlink(missing_ok=True)
             # 清理切分的临时文件
-            for part in audio_parts:
-                if part != wav_path and part.exists():
-                    part.unlink(missing_ok=True)
+            for part_path, _, _ in audio_segments:
+                if part_path != wav_path and part_path.exists():
+                    part_path.unlink(missing_ok=True)
+
+    def _get_duration(self, audio_path: Path) -> float:
+        """获取音频时长（秒）。"""
+        import subprocess
+        result = subprocess.run(
+            [
+                "ffprobe", "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                str(audio_path),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        return float(result.stdout.strip())
 
     async def transcribe_stream(self, audio_chunk: bytes) -> str | None:
         raise NotImplementedError("FireRedEngine 暂不支持流式识别")
