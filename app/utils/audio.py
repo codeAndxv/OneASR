@@ -1,5 +1,6 @@
 """音频转换工具函数。"""
 
+import base64
 import subprocess
 from pathlib import Path
 
@@ -31,3 +32,18 @@ def convert_to_wav(input_path: str | Path, sample_rate: int = 16000, channels: i
     )
 
     return output_path
+
+
+def audio_to_base64(file_path: str | Path) -> str:
+    """将音频文件转换为 Base64 编码字符串。
+
+    Args:
+        file_path: 音频文件路径
+
+    Returns:
+        Base64 编码的字符串
+    """
+    file_path = Path(file_path)
+    with open(file_path, "rb") as f:
+        audio_bytes = f.read()
+    return base64.b64encode(audio_bytes).decode("utf-8")

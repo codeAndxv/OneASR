@@ -31,8 +31,68 @@ uvicorn app.main:app --reload
 | `/api/v1/transcribe/url` | POST | URL 下载识别 |
 | `/api/v1/engines` | GET | 列出可用引擎 |
 | `/api/v1/formats` | GET | 列出输出格式 |
-| `/ws/transcribe/stream` | WebSocket | 流式识别 |
+| `/ws/transcribe/stream` | WebSocket | 流式识别（基于 WhisperLiveKit） |
 | `/health` | GET | 健康检查 |
+
+## 流式识别
+
+基于 [WhisperLiveKit](https://github.com/QuentinFuxa/WhisperLiveKit) 实现的实时语音识别，支持：
+
+- **VAD/VAC** — Silero 语音活动检测，自动识别语音/静音边界
+- **SimulStreaming** — 低延迟流式策略（默认），或 LocalAgreement 高准确策略
+- **时间戳对齐** — 每行文本附带精确的开始/结束时间
+- **说话人分离** — 可选的说话人识别（需额外模型）
+- **多语言** — 自动语言检测或指定语言
+
+### WebSocket 连接
+
+```javascript
+const ws = new WebSocket("ws://localhost:8000/ws/transcribe/stream?language=zh");
+
+// 接收识别结果
+ws.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+  if (data.type === "config") {
+    console.log("连接配置:", data);
+  } else if (data.type === "ready_to_stop") {
+    console.log("识别完成");
+  } else {
+    // data.status: "active_transcription" | "no_audio_detected" | "error"
+    // data.lines: [{speaker, text, start, end}, ...]  // 已确认的行
+    // data.buffer_transcription: "部分文本..."         // 未确认的缓冲区
+    console.log(data.lines);
+  }
+};
+
+// 发送音频数据（PCM s16le 16kHz mono 或其他格式）
+ws.send(audioChunk);
+
+// 结束识别
+ws.send(new Uint8Array(0));
+```
+
+### 响应格式
+
+```json
+{
+  "status": "active_transcription",
+  "lines": [
+    {"speaker": 1, "text": "你好世界", "start": "0:00:01.00", "end": "0:00:03.00"}
+  ],
+  "buffer_transcription": "这是一段",
+  "buffer_diarization": "",
+  "buffer_translation": "",
+  "remaining_time_transcription": 0.0,
+  "remaining_time_diarization": 0.0
+}
+```
+
+| 字段 | 说明 |
+|------|------|
+| `status` | 识别状态：`active_transcription` / `no_audio_detected` / `error` |
+| `lines` | 已确认的文本行，包含说话人、时间戳 |
+| `buffer_transcription` | 正在处理中但尚未确认的部分文本 |
+| `remaining_time_transcription` | 转录延迟（秒） |
 
 ## 输出格式
 
@@ -77,6 +137,17 @@ engines:
     type: local
     model_name: FireRedASR-AED
     device: cpu
+  wlk:
+    type: local
+    model_name: base
+    device: cpu
+    compute_type: int8
+    backend: auto
+    backend_policy: simulstreaming
+    language: auto
+    vac: true
+    diarization: false
+    pcm_input: false
 ```
 
 ## 项目结构
@@ -86,12 +157,13 @@ app/
 ├── main.py              # FastAPI 入口
 ├── api/
 │   ├── file.py          # 文件识别接口
-│   └── stream.py        # 流式识别接口
+│   └── stream.py        # 流式识别接口（WhisperLiveKit）
 ├── core/config.py       # 配置管理
 ├── engines/
 │   ├── base.py          # 引擎抽象基类
 │   ├── whisper_engine.py # faster-whisper 实现
 │   ├── firered_engine.py # FireRedASR 实现
+│   ├── wlk_engine.py    # WhisperLiveKit 实现（流式+文件）
 │   └── registry.py      # 引擎注册中心
 ├── models/schemas.py    # 数据模型
 └── utils/

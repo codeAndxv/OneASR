@@ -35,3 +35,21 @@ class FileResponse(BaseModel):
 class StreamResponse(BaseModel):
     text: str
     is_final: bool
+
+
+class StreamLine(BaseModel):
+    """流式识别中的一行已确认文本，包含时间戳和说话人信息。"""
+    speaker: int = 1
+    text: str
+    start: str = ""
+    end: str = ""
+
+
+class WLKStreamResponse(BaseModel):
+    """WhisperLiveKit 风格的流式识别响应。"""
+    status: str = "active_transcription"  # active_transcription / no_audio_detected / error
+    lines: list[StreamLine] = []
+    buffer_transcription: str = ""
+    buffer_diarization: str = ""
+    buffer_translation: str = ""
+    error: str = ""

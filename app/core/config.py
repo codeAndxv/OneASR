@@ -19,6 +19,13 @@ class EngineConfig:
         self.base_url = config.get("base_url", "")
         # 如果指定了 model_dir，则构建本地模型路径
         self.model_path = model_dir / name if model_dir else None
+        # WhisperLiveKit 特有配置
+        self.backend = config.get("backend", "auto")
+        self.backend_policy = config.get("backend_policy", "simulstreaming")
+        self.language = config.get("language", "auto")
+        self.vac = config.get("vac", True)
+        self.diarization = config.get("diarization", False)
+        self.pcm_input = config.get("pcm_input", False)
 
 
 class AppConfig:

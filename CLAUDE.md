@@ -11,7 +11,7 @@
 
 - **语言**: Python 3.11+
 - **框架**: FastAPI
-- **ASR 引擎**: faster-whisper、FireRedASR
+- **ASR 引擎**: faster-whisper、FireRedASR、WhisperLiveKit
 - **依赖管理**: requirements.txt
 - **虚拟环境**: `.venv`
 
@@ -23,12 +23,13 @@ OneASR/
 │   ├── main.py              # FastAPI 入口
 │   ├── api/
 │   │   ├── file.py          # 文件识别接口（上传/URL → 完整结果）
-│   │   └── stream.py        # 流式识别接口（WebSocket 音频流 → 结果流）
+│   │   └── stream.py        # 流式识别接口（WhisperLiveKit WebSocket）
 │   ├── core/config.py       # 配置管理
 │   ├── engines/
 │   │   ├── base.py          # 引擎抽象基类
 │   │   ├── whisper_engine.py # faster-whisper 实现
 │   │   ├── firered_engine.py # FireRedASR 实现
+│   │   ├── wlk_engine.py    # WhisperLiveKit 实现（流式+文件）
 │   │   └── registry.py      # 引擎注册中心
 │   ├── models/schemas.py    # 数据模型
 │   └── utils/download.py    # URL 下载工具
@@ -60,6 +61,17 @@ engines:
     type: local
     model_name: FireRedASR-AED
     device: cpu
+  wlk:
+    type: local
+    model_name: base
+    device: cpu
+    compute_type: int8
+    backend: auto
+    backend_policy: simulstreaming
+    language: auto
+    vac: true
+    diarization: false
+    pcm_input: false
 ```
 
 模型路径规则：`{model_dir}/{engine_name}/`

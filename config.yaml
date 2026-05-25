@@ -28,8 +28,21 @@ engines:
   #   api_key: sk-xxx  # 或设置环境变量 OPENAI_API_KEY
   #   base_url: https://api.openai.com/v1
 
-  # mimo:
-  #   type: cloud
-  #   model_name: mimo-audio
-  #   api_key: xxx  # 小米 MiMo API Key
-  #   base_url: https://api.xiaomimimo.com
+  mimo:
+    type: cloud
+    model_name: mimo-audio
+    api_key:   # 小米 MiMo API Key
+    base_url:
+
+  # WhisperLiveKit 流式识别引擎（支持 VAD/VAC、实时转录、说话人分离）
+  wlk:
+    type: local
+    model_name: base           # Whisper 模型大小: tiny/base/small/medium/large-v3
+    device: cpu
+    compute_type: int8
+    backend: auto              # auto / faster-whisper / whisper / mlx-whisper
+    backend_policy: simulstreaming  # simulstreaming（低延迟） / localagreement（高准确）
+    language: auto             # auto / zh / en / ja 等
+    vac: true                  # 语音活动控制（Silero VAD）
+    diarization: false         # 说话人分离
+    pcm_input: true            # 接收原始 PCM s16le 16kHz mono（绕过 FFmpeg）
