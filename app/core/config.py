@@ -49,6 +49,9 @@ class AppConfig:
         for name, eng_conf in self._data.get("engines", {}).items():
             self.engines[name] = EngineConfig(name, eng_conf, self.model_dir)
 
+        # API Key 配置
+        self.api_key = self._data.get("api_key", "")
+
     def get_engine_config(self, name: str) -> EngineConfig:
         if name not in self.engines:
             raise ValueError(f"未知引擎: {name}，可用: {list(self.engines)}")

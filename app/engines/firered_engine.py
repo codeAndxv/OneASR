@@ -1,5 +1,6 @@
 import argparse
 import tempfile
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 import torch
@@ -71,6 +72,40 @@ class FireRedEngine(ASREngine):
             if wav_path and wav_path.exists():
                 wav_path.unlink(missing_ok=True)
             # 清理切分的临时文件
+            for part_path, _, _ in audio_segments:
+                if part_path != wav_path and part_path.exists():
+                    part_path.unlink(missing_ok=True)
+
+    async def transcribe_file_stream(self, audio_data: bytes) -> AsyncIterator[Segment]:
+        """流式识别：VAD 切分后逐段识别，每识别完一段即 yield。"""
+        with tempfile.NamedTemporaryFile(suffix=".tmp", delete=False) as tmp:
+            tmp.write(audio_data)
+            tmp_path = Path(tmp.name)
+
+        wav_path = None
+        audio_segments = []
+        try:
+            wav_path = convert_to_wav(tmp_path)
+
+            max_duration = self.config.max_duration
+            if max_duration:
+                audio_segments = split_audio_by_vad(wav_path, max_duration, merge_segments=False)
+            else:
+                duration = self._get_duration(wav_path)
+                audio_segments = [(wav_path, 0.0, duration)]
+
+            for part_path, start, end in audio_segments:
+                results = self.model.transcribe(
+                    batch_uttid=["utt001"],
+                    batch_wav_path=[str(part_path)],
+                )
+                if results:
+                    text = results[0]["text"]
+                    yield Segment(start=start, end=end, text=text)
+        finally:
+            tmp_path.unlink(missing_ok=True)
+            if wav_path and wav_path.exists():
+                wav_path.unlink(missing_ok=True)
             for part_path, _, _ in audio_segments:
                 if part_path != wav_path and part_path.exists():
                     part_path.unlink(missing_ok=True)

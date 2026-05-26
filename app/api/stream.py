@@ -3,6 +3,7 @@ import logging
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from app.api.auth import verify_ws_api_key
 from app.engines.registry import get_engine
 from app.engines.wlk_engine import WLKEngine
 
@@ -43,6 +44,13 @@ async def transcribe_stream(ws: WebSocket, engine: str | None = None, language: 
             "buffer_translation": ""
         }
     """
+    # 验证 API Key
+    if not verify_ws_api_key(ws):
+        await ws.accept()
+        await ws.send_json({"type": "error", "error": "API Key 无效"})
+        await ws.close()
+        return
+
     eng = get_engine(engine)
 
     if not isinstance(eng, WLKEngine):

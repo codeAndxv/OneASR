@@ -6,13 +6,14 @@
 
 1. **文件识别** — 接收音视频文件或音视频 URL，返回完整识别结果
 2. **流式识别** — 接收音频流，实时返回识别结果流（WebSocket）
+3. **Web 管理界面** — Vue.js 前端，支持文件/URL 识别、实时流式结果展示、SRT 导出
 
 ## 技术栈
 
-- **语言**: Python 3.11+
-- **框架**: FastAPI
+- **后端**: Python 3.11+、FastAPI
+- **前端**: Vue 3、Vite、Vue Router
 - **ASR 引擎**: faster-whisper、FireRedASR、WhisperLiveKit
-- **依赖管理**: requirements.txt
+- **依赖管理**: requirements.txt（后端）、npm（前端）
 - **虚拟环境**: `.venv`
 
 ## 项目结构
@@ -22,6 +23,7 @@ OneASR/
 ├── app/
 │   ├── main.py              # FastAPI 入口
 │   ├── api/
+│   │   ├── auth.py          # API Key 验证
 │   │   ├── file.py          # 文件识别接口（上传/URL → 完整结果）
 │   │   └── stream.py        # 流式识别接口（WhisperLiveKit WebSocket）
 │   ├── core/config.py       # 配置管理
@@ -33,10 +35,21 @@ OneASR/
 │   │   └── registry.py      # 引擎注册中心
 │   ├── models/schemas.py    # 数据模型
 │   └── utils/download.py    # URL 下载工具
+├── web/                     # Vue.js 前端
+│   ├── src/
+│   │   ├── api/index.js     # API 服务层
+│   │   ├── router/index.js  # 路由配置
+│   │   ├── views/
+│   │   │   ├── Layout.vue   # 主布局（侧边栏+内容区）
+│   │   │   └── Transcribe.vue # 语音识别页面
+│   │   └── assets/main.css  # 全局样式
+│   ├── index.html
+│   ├── vite.config.js       # Vite 配置（含 API 代理）
+│   └── package.json
 ├── models/                  # 模型存放目录
 │   ├── whisper/
 │   └── firered/
-├── config.yaml              # 引擎配置文件
+├── config.yaml              # API Key 和引擎配置
 ├── tests/
 ├── requirements.txt
 ├── README.md
@@ -45,9 +58,12 @@ OneASR/
 
 ## 引擎配置
 
-编辑 `config.yaml` 配置引擎：
+编辑 `config.yaml` 配置 API Key 和引擎：
 
 ```yaml
+# API Key（所有接口必须携带此 key）
+api_key: oneasr-key
+
 default_engine: whisper
 model_dir: ./models
 

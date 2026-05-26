@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html>
+<head><title>SSE 流式测试</title></head>
+<body>
+  <h2>SSE 流式识别测试</h2>
+  <div>
+    <input type="file" id="fileInput" accept="audio/*,video/*" />
+    <select id="engine">
+      <option value="whisper">whisper</option>
+      <option value="firered">firered</option>
+    </select>
+    <button onclick="startTest()">开始测试</button>
+    <button onclick="stopTest()">停止</button>
+  </div>
+  <pre id="log" style="background:#1e1e1e;color:#d4d4d4;padding:16px;min-height:300px;overflow:auto;font-family:monospace;"></pre>
+
+<script>
+let ctrl = null
+
+function log(msg) {
+  const el = document.getElementById('log')
+  el.textContent += msg + '\n'
+  el.scrollTop = el.scrollHeight
+}
+
+async function startTest() {
+  const file = document.getElementById('fileInput').files[0]
+  if (!file) return alert('请选择文件')
+
+  const engine = document.getElementById('engine').value
+  document.getElementById('log').textContent = ''
+  log(`开始: ${file.name} (${(file.size/1024/1024).toFixed(1)}MB)`)
+
+  const form = new FormData()
+  form.append('file', file)
+
+  const apiKey = localStorage.getItem('api_key') || 'oneasr-key'
+  const url = `http://127.0.0.1:8000/api/v1/transcribe/file/stream?engine=${engine}`
+
+  ctrl = new AbortController()
+
+  try {
+    const t0 = Date.now()
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'X-API-Key': apiKey },
+      body: form,
+      signal: ctrl.signal,
+    })
+
+    log(`响应状态: ${res.status}`)
+    const reader = res.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    let count = 0
+
+    while (true) {
+      const { value, done } = await reader.read()
+      if (done) break
+
+      const chunk = decoder.decode(value, { stream: true })
+      buffer += chunk
+
+      const parts = buffer.split('\n\n')
+      buffer = parts.pop()
+
+      for (const part of parts) {
+        const line = part.trim()
+        if (!line.startsWith('data: ')) continue
+        const data = JSON.parse(line.slice(6))
+        const elapsed = ((Date.now() - t0) / 1000).toFixed(1)
+        if (data.done) {
+          log(`[${elapsed}s] === 识别完成 ===`)
+        } else {
+          count++
+          log(`[${elapsed}s] #${count} ${data.start.toFixed(1)}~${data.end.toFixed(1)}s: ${data.text}`)
+        }
+      }
+    }
+    log(`共 ${count} 句, 耗时 ${((Date.now()-t0)/1000).toFixed(1)}s`)
+  } catch (e) {
+    if (e.name !== 'AbortError') log('错误: ' + e.message)
+  }
+}
+
+function stopTest() {
+  if (ctrl) ctrl.abort()
+}
+</script>
+</body>
+</html>

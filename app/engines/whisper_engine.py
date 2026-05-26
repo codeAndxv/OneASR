@@ -1,4 +1,5 @@
 import tempfile
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 from faster_whisper import WhisperModel
@@ -40,6 +41,19 @@ class WhisperEngine(ASREngine):
                 segments.append(Segment(start=seg.start, end=seg.end, text=seg.text.strip()))
                 full_text_parts.append(seg.text.strip())
             return " ".join(full_text_parts), segments
+        finally:
+            tmp_path.unlink(missing_ok=True)
+
+    async def transcribe_file_stream(self, audio_data: bytes) -> AsyncIterator[Segment]:
+        """流式识别：faster-whisper 的 transcribe 本身返回迭代器，逐句 yield。"""
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+            tmp.write(audio_data)
+            tmp_path = Path(tmp.name)
+
+        try:
+            segments_iter, info = self.model.transcribe(str(tmp_path), beam_size=5)
+            for seg in segments_iter:
+                yield Segment(start=seg.start, end=seg.end, text=seg.text.strip())
         finally:
             tmp_path.unlink(missing_ok=True)
 

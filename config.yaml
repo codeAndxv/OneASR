@@ -1,5 +1,8 @@
 # OneASR 模型配置文件
 
+# API Key（所有接口必须携带此 key）
+api_key: oneasr-key
+
 # 默认引擎
 default_engine: whisper
 
@@ -10,7 +13,7 @@ default_engine: whisper
 engines:
   whisper:
     type: local  # local 或 cloud
-    model_name: base
+    model_name: medium
     device: cpu
     compute_type: int8
     max_duration: null  # 无时长限制

@@ -1,13 +1,19 @@
-from fastapi import APIRouter, File, UploadFile, HTTPException
-from fastapi.responses import PlainTextResponse
+import json
+import logging
 
+from fastapi import APIRouter, Depends, File, UploadFile, HTTPException
+from fastapi.responses import PlainTextResponse, StreamingResponse
+
+from app.api.auth import get_api_key
+
+logger = logging.getLogger(__name__)
 from app.core.config import app_config
 from app.engines.registry import get_engine
 from app.models.schemas import FileRequest, FileResponse, OutputFormat
 from app.utils.download import download_url
 from app.utils.format import format_output
 
-router = APIRouter(prefix="/api/v1", tags=["file"])
+router = APIRouter(prefix="/api/v1", tags=["file"], dependencies=[Depends(get_api_key)])
 
 
 @router.get("/engines")
@@ -99,3 +105,65 @@ async def transcribe_url(req: FileRequest):
             media_type="text/plain",
             headers={"Content-Disposition": f"attachment; filename=transcript.{req.format.value}"},
         )
+
+
+async def _stream_sse(eng, data: bytes):
+    """SSE 生成器：逐句推送识别结果。"""
+    idx = 0
+    try:
+        async for seg in eng.transcribe_file_stream(data):
+            event = {"index": idx, "start": seg.start, "end": seg.end, "text": seg.text}
+            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+            idx += 1
+        yield "data: {\"done\": true}\n\n"
+    except (ConnectionResetError, BrokenPipeError, OSError) as e:
+        logger.info("SSE 流客户端已断开: %s", e)
+    except Exception as e:
+        logger.exception("SSE 流异常: %s", e)
+        yield f"data: {json.dumps({'error': str(e)}, ensure_ascii=False)}\n\n"
+
+
+@router.post("/transcribe/file/stream")
+async def transcribe_file_stream(
+    file: UploadFile = File(...),
+    engine: str | None = None,
+):
+    """上传音视频文件，以 SSE 流式返回每句识别结果。
+
+    每个 SSE 事件格式: `data: {"index": N, "start": 0.0, "end": 1.5, "text": "..."}`
+    结束标志: `data: {"done": true}`
+
+    - **file**: 音视频文件
+    - **engine**: 引擎名称（如 whisper、firered）
+    """
+    data = await file.read()
+    eng = get_engine(engine)
+    return StreamingResponse(
+        _stream_sse(eng, data),
+        media_type="text/event-stream",
+    )
+
+
+@router.post("/transcribe/url/stream")
+async def transcribe_url_stream(
+    req: FileRequest,
+):
+    """通过 URL 下载音视频文件，以 SSE 流式返回每句识别结果。
+
+    每个 SSE 事件格式: `data: {"index": N, "start": 0.0, "end": 1.5, "text": "..."}`
+    结束标志: `data: {"done": true}`
+
+    - **url**: 音视频 URL
+    - **engine**: 引擎名称（如 whisper、firered）
+    """
+    try:
+        path = await download_url(str(req.url))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    data = path.read_bytes()
+    eng = get_engine(req.engine)
+    return StreamingResponse(
+        _stream_sse(eng, data),
+        media_type="text/event-stream",
+    )
