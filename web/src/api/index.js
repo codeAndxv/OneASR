@@ -26,12 +26,15 @@ export async function getEngines() {
  * 通用 SSE 流式读取（fetch + ReadableStream）
  * 逐行解析 data: {...} 事件，调用 onSegment / onDone / onError
  */
-async function streamSse(url, body, onSegment, onDone, onError) {
+async function streamSse(url, body, onSegment, onDone, onError, ctrl) {
   try {
+    const isJson = typeof body === 'string'
     const res = await fetch(url, {
       method: 'POST',
+      signal: ctrl?.signal,
       headers: {
         'X-API-Key': getApiKey(),
+        ...(isJson ? { 'Content-Type': 'application/json' } : {}),
       },
       body,
     })
@@ -84,30 +87,29 @@ async function streamSse(url, body, onSegment, onDone, onError) {
 export function transcribeFileStream(file, engine, onSegment, onDone, onError) {
   const form = new FormData()
   form.append('file', file)
-  const params = engine ? `?engine=${engine}` : ''
+  if (engine) form.append('engine', engine)
 
   const ctrl = new AbortController()
   streamSse(
-    `${API_BASE}/api/v1/transcribe/file/stream${params}`,
+    `${API_BASE}/api/v1/transcribe/file/stream`,
     form,
     onSegment,
     onDone,
     onError,
+    ctrl,
   )
-  // 返回可中止的对象
   return { abort: () => ctrl.abort() }
 }
 
 export function transcribeUrlStream(url, engine, onSegment, onDone, onError) {
-  const params = engine ? `?engine=${engine}` : ''
-
   const ctrl = new AbortController()
   streamSse(
-    `${API_BASE}/api/v1/transcribe/url/stream${params}`,
+    `${API_BASE}/api/v1/transcribe/url/stream`,
     JSON.stringify({ url, engine }),
     onSegment,
     onDone,
     onError,
+    ctrl,
   )
   return { abort: () => ctrl.abort() }
 }

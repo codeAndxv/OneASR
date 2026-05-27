@@ -1,7 +1,7 @@
 import json
 import logging
 
-from fastapi import APIRouter, Depends, File, UploadFile, HTTPException
+from fastapi import APIRouter, Depends, File, Form, UploadFile, HTTPException
 from fastapi.responses import PlainTextResponse, StreamingResponse
 
 from app.api.auth import get_api_key
@@ -47,8 +47,8 @@ async def list_formats():
 @router.post("/transcribe/file")
 async def transcribe_file(
     file: UploadFile = File(...),
-    engine: str | None = None,
-    format: OutputFormat = OutputFormat.TEXT,
+    engine: str | None = Form(None),
+    format: OutputFormat = Form(OutputFormat.TEXT),
 ):
     """上传音视频文件进行识别。
 
@@ -126,7 +126,7 @@ async def _stream_sse(eng, data: bytes):
 @router.post("/transcribe/file/stream")
 async def transcribe_file_stream(
     file: UploadFile = File(...),
-    engine: str | None = None,
+    engine: str | None = Form(None),
 ):
     """上传音视频文件，以 SSE 流式返回每句识别结果。
 

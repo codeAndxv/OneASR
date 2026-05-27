@@ -4,13 +4,17 @@ import { setApiKey, getStoredApiKey } from '../api'
 
 const showSettings = ref(false)
 const apiKey = ref('')
+const language = ref(localStorage.getItem('asr_language') || 'auto')
+const outputFormat = ref(localStorage.getItem('asr_format') || 'srt')
 
 onMounted(() => {
   apiKey.value = getStoredApiKey()
 })
 
-function saveApiKey() {
+function saveSettings() {
   setApiKey(apiKey.value)
+  localStorage.setItem('asr_language', language.value)
+  localStorage.setItem('asr_format', outputFormat.value)
   showSettings.value = false
   location.reload()
 }
@@ -19,45 +23,85 @@ function saveApiKey() {
 <template>
   <div class="layout">
     <aside class="sidebar">
-      <div class="logo">OneASR</div>
+      <div class="logo">
+        <span class="logo-icon"> </span>
+        <span class="logo-text">OneASR</span>
+      </div>
       <nav>
-        <router-link to="/" class="nav-item active">
-          <span class="icon"> </span>
-          语音识别
+        <router-link to="/" class="nav-item">
+          <span class="nav-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+              <line x1="12" y1="19" x2="12" y2="23"/>
+              <line x1="8" y1="23" x2="16" y2="23"/>
+            </svg>
+          </span>
+          <span class="nav-label">语音识别</span>
         </router-link>
       </nav>
+      <div class="sidebar-footer">
+        <button class="settings-btn" @click="showSettings = !showSettings">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+          <span>设置</span>
+        </button>
+      </div>
     </aside>
     <div class="main-area">
-      <header class="topbar">
-        <div class="spacer"></div>
-        <button class="settings-btn" @click="showSettings = !showSettings">
-          ⚙ 设置
-        </button>
-      </header>
       <main class="content">
         <router-view />
       </main>
     </div>
 
-    <!-- API Key 弹窗 -->
-    <div v-if="showSettings" class="overlay" @click.self="showSettings = false">
-      <div class="modal">
-        <h3>设置</h3>
-        <div class="field">
-          <label>API Key</label>
-          <input
-            v-model="apiKey"
-            type="text"
-            placeholder="输入 API Key"
-            @keyup.enter="saveApiKey"
-          />
+    <!-- 设置弹窗 -->
+    <Teleport to="body">
+      <Transition name="fade">
+        <div v-if="showSettings" class="overlay" @click.self="showSettings = false">
+          <div class="modal">
+            <div class="modal-header">
+              <h3>设置</h3>
+              <button class="modal-close" @click="showSettings = false">&times;</button>
+            </div>
+            <div class="modal-body">
+              <div class="field">
+                <label>API Key</label>
+                <input
+                  v-model="apiKey"
+                  type="password"
+                  placeholder="输入 API Key"
+                  @keyup.enter="saveSettings"
+                />
+              </div>
+              <div class="field">
+                <label>识别语言</label>
+                <select v-model="language" class="field-select">
+                  <option value="auto">自动检测</option>
+                  <option value="zh">中文</option>
+                  <option value="en">英文</option>
+                  <option value="ja">日文</option>
+                  <option value="ko">韩文</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>默认输出格式</label>
+                <select v-model="outputFormat" class="field-select">
+                  <option value="srt">SRT 字幕</option>
+                  <option value="text">纯文本</option>
+                  <option value="vtt">WebVTT</option>
+                  <option value="json">JSON</option>
+                </select>
+              </div>
+            </div>
+            <div class="modal-actions">
+              <button class="btn-cancel" @click="showSettings = false">取消</button>
+              <button class="btn-save" @click="saveSettings">保存</button>
+            </div>
+          </div>
         </div>
-        <div class="modal-actions">
-          <button class="btn-cancel" @click="showSettings = false">取消</button>
-          <button class="btn-save" @click="saveApiKey">保存</button>
-        </div>
-      </div>
-    </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
@@ -68,8 +112,8 @@ function saveApiKey() {
 }
 
 .sidebar {
-  width: 220px;
-  background: #1a1a2e;
+  width: 200px;
+  background: linear-gradient(180deg, #1a1a2e 0%, #16213e 100%);
   color: #fff;
   display: flex;
   flex-direction: column;
@@ -77,159 +121,231 @@ function saveApiKey() {
 }
 
 .logo {
-  padding: 24px 20px;
-  font-size: 22px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 20px 18px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+
+.logo-icon {
+  font-size: 24px;
+}
+
+.logo-text {
+  font-size: 20px;
   font-weight: 700;
-  letter-spacing: 1px;
-  border-bottom: 1px solid rgba(255,255,255,0.1);
+  letter-spacing: 0.5px;
+  background: linear-gradient(135deg, #667eea, #a78bfa);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 
 nav {
   flex: 1;
-  padding: 12px 0;
+  padding: 16px 10px;
 }
 
 .nav-item {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 12px 20px;
-  color: rgba(255,255,255,0.7);
+  padding: 10px 14px;
+  color: rgba(255,255,255,0.6);
   text-decoration: none;
-  font-size: 15px;
+  font-size: 14px;
+  border-radius: 8px;
   transition: all 0.2s;
 }
 
-.nav-item:hover,
-.nav-item.active {
-  background: rgba(255,255,255,0.1);
+.nav-item:hover {
+  background: rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.9);
+}
+
+.nav-item.router-link-exact-active {
+  background: rgba(102, 126, 234, 0.2);
   color: #fff;
 }
 
-.nav-item .icon {
-  font-size: 18px;
+.nav-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+}
+
+.sidebar-footer {
+  padding: 12px 10px;
+  border-top: 1px solid rgba(255,255,255,0.08);
+}
+
+.settings-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 14px;
+  background: transparent;
+  border-radius: 8px;
+  font-size: 14px;
+  color: rgba(255,255,255,0.6);
+  transition: all 0.2s;
+}
+
+.settings-btn:hover {
+  background: rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.9);
 }
 
 .main-area {
   flex: 1;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
-}
-
-.topbar {
-  display: flex;
-  align-items: center;
-  padding: 0 24px;
-  height: 52px;
-  background: #fff;
-  border-bottom: 1px solid #e8e8e8;
-  flex-shrink: 0;
-}
-
-.spacer {
-  flex: 1;
-}
-
-.settings-btn {
-  padding: 6px 14px;
-  background: transparent;
-  border: 1px solid #ddd;
-  border-radius: 6px;
-  font-size: 14px;
-  color: #555;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.settings-btn:hover {
-  background: #f5f5f5;
-  border-color: #bbb;
+  min-height: 0;
 }
 
 .content {
   flex: 1;
-  overflow: auto;
-  background: #f5f5f5;
+  overflow: hidden;
+  background: #f0f2f5;
+  min-height: 0;
 }
 
 /* Modal */
 .overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.4);
+  background: rgba(0,0,0,0.5);
+  backdrop-filter: blur(4px);
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: center;
-  padding-top: 120px;
   z-index: 100;
 }
 
 .modal {
   background: #fff;
-  border-radius: 12px;
-  padding: 28px;
-  width: 380px;
-  box-shadow: 0 12px 40px rgba(0,0,0,0.15);
+  border-radius: 16px;
+  padding: 0;
+  width: 400px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+  overflow: hidden;
 }
 
-.modal h3 {
-  margin: 0 0 20px;
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px 0;
+}
+
+.modal-header h3 {
   font-size: 18px;
-  color: #333;
+  font-weight: 600;
+  color: #1d1d1f;
+}
+
+.modal-close {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f0f0f0;
+  border-radius: 50%;
+  font-size: 18px;
+  color: #666;
+  transition: all 0.2s;
+}
+
+.modal-close:hover {
+  background: #e0e0e0;
+}
+
+.modal-body {
+  padding: 16px 24px;
 }
 
 .field {
-  margin-bottom: 20px;
+  margin-bottom: 16px;
+}
+
+.field:last-child {
+  margin-bottom: 0;
 }
 
 .field label {
   display: block;
   font-size: 13px;
-  color: #666;
-  margin-bottom: 6px;
+  font-weight: 500;
+  color: #6e6e73;
+  margin-bottom: 8px;
 }
 
-.field input {
+.field input,
+.field-select {
   width: 100%;
-  padding: 10px 12px;
-  border: 1px solid #ddd;
-  border-radius: 6px;
+  padding: 10px 14px;
+  border: 1.5px solid #d2d2d7;
+  border-radius: 10px;
   font-size: 14px;
+  background: #fff;
+  transition: border-color 0.2s;
 }
 
-.field input:focus {
+.field input:focus,
+.field-select:focus {
   border-color: #667eea;
-  outline: none;
 }
 
 .modal-actions {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
+  padding: 16px 24px;
+  background: #fafafa;
+  border-top: 1px solid #f0f0f0;
 }
 
 .btn-cancel {
   padding: 8px 18px;
-  background: #f0f0f0;
-  border: 1px solid #ddd;
-  border-radius: 6px;
+  background: #fff;
+  border: 1.5px solid #e0e0e0;
+  border-radius: 10px;
   font-size: 14px;
-  color: #555;
-  cursor: pointer;
+  color: #666;
+  transition: all 0.2s;
+}
+
+.btn-cancel:hover {
+  border-color: #ccc;
+  background: #f5f5f5;
 }
 
 .btn-save {
-  padding: 8px 18px;
-  background: #667eea;
+  padding: 8px 20px;
+  background: linear-gradient(135deg, #667eea, #764ba2);
   border: none;
-  border-radius: 6px;
+  border-radius: 10px;
   font-size: 14px;
+  font-weight: 500;
   color: #fff;
-  cursor: pointer;
+  transition: opacity 0.2s;
 }
 
 .btn-save:hover {
   opacity: 0.9;
+}
+
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
 }
 </style>
