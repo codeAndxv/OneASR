@@ -34,7 +34,7 @@ class AppConfig:
         with open(config_path, "r", encoding="utf-8") as f:
             self._data = yaml.safe_load(f)
 
-        self.default_engine = self._data.get("default_engine", "whisper")
+        self.default_engine = self._data.get("default_engine", "faster-whisper")
 
         # 处理 model_dir：如果未指定则为 None
         model_dir_str = self._data.get("model_dir")

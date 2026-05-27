@@ -42,10 +42,10 @@ async def test_whisper():
     """测试 Whisper 引擎。"""
     from app.engines.whisper_engine import WhisperEngine
 
-    config = app_config.get_engine_config("whisper")
+    config = app_config.get_engine_config("faster-whisper")
     config.model_name = "medium"  # 使用 medium 模型
     engine = WhisperEngine(config)
-    return await test_engine("whisper", engine, TEST_FILE.read_bytes())
+    return await test_engine("faster-whisper", engine, TEST_FILE.read_bytes())
 
 
 async def test_firered():

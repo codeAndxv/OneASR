@@ -1,6 +1,7 @@
 """小米 MiMo API 语音识别引擎。"""
 
 import base64
+from collections.abc import AsyncIterator
 
 from openai import OpenAI
 
@@ -51,6 +52,12 @@ class MiMoEngine(ASREngine):
         text = message.reasoning_content or message.content or ""
         segments = [Segment(start=0.0, end=0.0, text=text)]
         return text, segments
+
+    async def transcribe_file_stream(self, audio_data: bytes) -> AsyncIterator[Segment]:
+        """流式识别：云端 API 返回完整结果后逐句 yield。"""
+        _, segments = await self.transcribe_file(audio_data)
+        for seg in segments:
+            yield seg
 
     async def transcribe_stream(self, audio_chunk: bytes) -> str | None:
         raise NotImplementedError("MiMoEngine 暂不支持流式识别")

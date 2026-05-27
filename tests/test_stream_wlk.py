@@ -36,7 +36,7 @@ class TestStreamEndpoint:
 
     def test_non_wlk_engine_returns_error(self, client):
         """使用非 wlk 引擎时应返回错误。"""
-        with client.websocket_connect("/ws/transcribe/stream?engine=whisper") as ws:
+        with client.websocket_connect("/ws/transcribe/stream?engine=faster-whisper") as ws:
             data = ws.receive_json()
             assert data["type"] == "error"
             assert "不支持流式识别" in data["error"]

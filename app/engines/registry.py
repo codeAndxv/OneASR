@@ -7,7 +7,7 @@ from app.engines.mimo_engine import MiMoEngine
 from app.engines.wlk_engine import WLKEngine
 
 _engine_classes: dict[str, type[ASREngine]] = {
-    "whisper": WhisperEngine,
+    "faster-whisper": WhisperEngine,
     "firered": FireRedEngine,
     "openai": OpenAIEngine,
     "mimo": MiMoEngine,

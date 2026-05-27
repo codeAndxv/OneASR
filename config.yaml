@@ -4,14 +4,14 @@
 api_key: oneasr-key
 
 # 默认引擎
-default_engine: whisper
+default_engine: faster-whisper
 
 # 模型根目录（取消注释并指定路径可强制使用本地模型）
 # model_dir: ./models
 
 # 引擎配置
 engines:
-  whisper:
+  faster-whisper:
     type: local  # local 或 cloud
     model_name: medium
     device: cpu

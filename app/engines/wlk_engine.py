@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from collections.abc import AsyncIterator
 from typing import Optional
 
 from whisperlivekit import AudioProcessor, TranscriptionEngine
@@ -121,6 +122,12 @@ class WLKEngine(ASREngine):
             text_parts.append(text)
 
         return " ".join(text_parts), segments
+
+    async def transcribe_file_stream(self, audio_data: bytes) -> AsyncIterator[Segment]:
+        """流式识别：处理完成后逐句 yield 每个 segment。"""
+        _, segments = await self.transcribe_file(audio_data)
+        for seg in segments:
+            yield seg
 
     async def transcribe_stream(self, audio_chunk: bytes) -> str | None:
         raise NotImplementedError(

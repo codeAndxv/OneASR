@@ -70,7 +70,7 @@ def test_stream_file_with_engine():
         resp = client.post(
             "/api/v1/transcribe/file/stream",
             files={"file": ("test.wav", buf, "audio/wav")},
-            params={"engine": "whisper"},
+            params={"engine": "faster-whisper"},
         )
     except Exception:
         # whisper 引擎不可用，跳过

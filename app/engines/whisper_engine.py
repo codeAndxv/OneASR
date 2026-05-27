@@ -15,7 +15,7 @@ class WhisperEngine(ASREngine):
     def __init__(self, config: EngineConfig | None = None):
         if config is None:
             from app.core.config import app_config
-            config = app_config.get_engine_config("whisper")
+            config = app_config.get_engine_config("faster-whisper")
 
         # 检查是否指定了本地模型目录
         if config.model_path and config.model_path.exists():

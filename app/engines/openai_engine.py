@@ -1,6 +1,7 @@
 """OpenAI Whisper API 语音识别引擎。"""
 
 import tempfile
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 from openai import OpenAI
@@ -53,6 +54,12 @@ class OpenAIEngine(ASREngine):
             return full_text, segments
         finally:
             tmp_path.unlink(missing_ok=True)
+
+    async def transcribe_file_stream(self, audio_data: bytes) -> AsyncIterator[Segment]:
+        """流式识别：云端 API 返回完整结果后逐句 yield。"""
+        _, segments = await self.transcribe_file(audio_data)
+        for seg in segments:
+            yield seg
 
     async def transcribe_stream(self, audio_chunk: bytes) -> str | None:
         raise NotImplementedError("OpenAIEngine 暂不支持流式识别")
