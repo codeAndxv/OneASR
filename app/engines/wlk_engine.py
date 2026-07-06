@@ -74,8 +74,7 @@ class WLKEngine(ASREngine):
     async def transcribe_file(self, audio_data: bytes) -> tuple[str, list[Segment]]:
         """使用 WhisperLiveKit 的 AudioProcessor 批量处理音频文件。"""
         engine = self.transcription_engine
-        processor = AudioProcessor(transcription_engine=engine)
-        processor.is_pcm_input = True
+        processor = AudioProcessor(transcription_engine=engine, pcm_input=True)
 
         results_gen = await processor.create_tasks()
 
@@ -124,10 +123,36 @@ class WLKEngine(ASREngine):
         return " ".join(text_parts), segments
 
     async def transcribe_file_stream(self, audio_data: bytes) -> AsyncIterator[Segment]:
-        """流式识别：处理完成后逐句 yield 每个 segment。"""
-        _, segments = await self.transcribe_file(audio_data)
-        for seg in segments:
-            yield seg
+        """流式识别：处理过程中逐句 yield 每个 segment。"""
+        engine = self.transcription_engine
+        processor = AudioProcessor(transcription_engine=engine, pcm_input=True)
+
+        results_gen = await processor.create_tasks()
+
+        # 在后台任务中发送音频数据
+        async def send_audio():
+            pcm_data = self._convert_to_pcm(audio_data)
+            chunk_size = 16000 * 2  # 1 秒
+            for i in range(0, len(pcm_data), chunk_size):
+                await processor.process_audio(pcm_data[i:i + chunk_size])
+            await processor.process_audio(b"")  # 结束信号
+
+        send_task = asyncio.create_task(send_audio())
+
+        try:
+            async for result in results_gen:
+                d = result.to_dict()
+                lines = d.get("lines", [])
+                for line in lines:
+                    text = line.get("text", "").strip()
+                    if not text or line.get("speaker") == -2:
+                        continue
+                    start = self._parse_time(line.get("start", "0:00:00.00"))
+                    end = self._parse_time(line.get("end", "0:00:00.00"))
+                    yield Segment(start=start, end=end, text=text)
+        finally:
+            await send_task
+            await processor.cleanup()
 
     async def transcribe_stream(self, audio_chunk: bytes) -> str | None:
         raise NotImplementedError(
@@ -143,21 +168,29 @@ class WLKEngine(ASREngine):
     def _convert_to_pcm(audio_bytes: bytes) -> bytes:
         """使用 ffmpeg 将音频转换为 PCM s16le 16kHz mono。"""
         import subprocess
+        import tempfile
 
-        proc = subprocess.run(
-            [
-                "ffmpeg", "-i", "pipe:0",
-                "-f", "s16le", "-acodec", "pcm_s16le",
-                "-ar", "16000", "-ac", "1",
-                "-loglevel", "error",
-                "pipe:1",
-            ],
-            input=audio_bytes,
-            capture_output=True,
-        )
-        if proc.returncode != 0:
-            raise RuntimeError(f"ffmpeg 转换失败: {proc.stderr.decode().strip()}")
-        return proc.stdout
+        with tempfile.NamedTemporaryFile(suffix=".tmp", delete=False) as tmp:
+            tmp.write(audio_bytes)
+            tmp_path = tmp.name
+
+        try:
+            proc = subprocess.run(
+                [
+                    "ffmpeg", "-y", "-i", tmp_path,
+                    "-f", "s16le", "-acodec", "pcm_s16le",
+                    "-ar", "16000", "-ac", "1",
+                    "-loglevel", "error",
+                    "pipe:1",
+                ],
+                capture_output=True,
+            )
+            if proc.returncode != 0:
+                raise RuntimeError(f"ffmpeg 转换失败: {proc.stderr.decode().strip()}")
+            return proc.stdout
+        finally:
+            import os
+            os.unlink(tmp_path)
 
     @staticmethod
     def _parse_time(time_str: str) -> float:

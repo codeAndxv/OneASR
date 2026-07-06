@@ -44,26 +44,45 @@ async def transcribe_stream(ws: WebSocket, engine: str | None = None, language: 
             "buffer_translation": ""
         }
     """
+    # 先接受连接
+    try:
+        await ws.accept()
+    except Exception as e:
+        logger.warning("接受 WebSocket 连接失败: %s", e)
+        return
+
     # 验证 API Key
     if not verify_ws_api_key(ws):
-        await ws.accept()
-        await ws.send_json({"type": "error", "error": "API Key 无效"})
-        await ws.close()
+        try:
+            await ws.send_json({"type": "error", "error": "API Key 无效"})
+            await ws.close()
+        except Exception:
+            pass
         return
 
-    eng = get_engine(engine)
+    # 获取引擎
+    try:
+        eng = get_engine(engine)
+    except Exception as e:
+        logger.error("获取引擎失败: %s", e)
+        try:
+            await ws.send_json({"type": "error", "error": f"引擎加载失败: {e}"})
+            await ws.close()
+        except Exception:
+            pass
+        return
 
+    # 检查是否支持流式识别
     if not isinstance(eng, WLKEngine):
-        await ws.accept()
-        await ws.send_json({
-            "type": "error",
-            "error": f"引擎 '{engine or '默认'}' 不支持流式识别，请使用 wlk 引擎",
-        })
-        await ws.close()
+        error_msg = f"引擎 '{engine or '默认'}' 不支持流式识别，请使用 wlk 引擎"
+        logger.warning(error_msg)
+        try:
+            await ws.send_json({"type": "error", "error": error_msg})
+            await ws.close()
+        except Exception:
+            pass
         return
 
-    # 先接受连接，避免模型加载期间客户端超时
-    await ws.accept()
     logger.info("WebSocket 流式识别已连接%s", f" language={language}" if language else "")
 
     # 在线程中创建 AudioProcessor（可能触发 ASR 模型加载，会阻塞）

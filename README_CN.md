@@ -11,53 +11,94 @@
 
 ## 快速开始
 
-### 后端
+### 环境要求
+
+- Python 3.11+
+- Node.js 18+
+- FFmpeg（音频处理必需）
+
+### 后端启动
 
 ```bash
-# 创建虚拟环境
+# 1. 创建并激活虚拟环境
 python3 -m venv .venv
-source .venv/bin/activate
+source .venv/bin/activate  # macOS/Linux
+# 或：.venv\Scripts\activate  # Windows
 
-# 安装依赖
+# 2. 安装依赖
 pip install -r requirements.txt
 
-# 启动服务
-uvicorn app.main:app --reload
+# 3. 启动服务
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-服务默认运行在 `http://localhost:8000`，访问 `/docs` 查看 API 文档。
+服务运行在 `http://localhost:8000`，访问 `http://localhost:8000/docs` 查看交互式 API 文档。
 
-### 前端
+### 前端启动
 
 ```bash
+# 1. 进入 web 目录
 cd web
 
-# 安装依赖
+# 2. 安装依赖
 npm install
 
-# 启动开发服务器
+# 3. 启动开发服务器
 npm run dev
 ```
 
-前端运行在 `http://localhost:3000`，通过 Vite 代理转发 API 请求到后端。
+前端运行在 `http://localhost:3000`，自动代理 API 请求到后端。
 
-### 一键启动（前后端分离，两个终端）
+### 一键启动（两个终端）
 
+**终端 1 - 后端：**
 ```bash
-# 终端 1：启动后端
 cd OneASR
 source .venv/bin/activate
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
 
-# 终端 2：启动前端
+**终端 2 - 前端：**
+```bash
 cd OneASR/web
 npm run dev
+```
+
+### 验证安装
+
+```bash
+# 检查后端健康状态
+curl http://localhost:8000/health
+
+# 列出可用引擎
+curl -H "X-API-Key: oneasr-key" http://localhost:8000/api/v1/engines
 ```
 
 启动后访问：
 - 前端界面：`http://localhost:3000`
 - API 文档：`http://localhost:8000/docs`
 - 健康检查：`http://localhost:8000/health`
+
+### 媒体截取工具
+
+项目提供了媒体截取工具，用于将长视频分割成短片段：
+
+```bash
+# 截取指定时长（默认 2 分钟）
+python utils/clip.py input_video.mp4 120
+
+# 自动将整个视频截取成 2 分钟片段
+python utils/clip.py input_video.mp4
+```
+
+Python API 使用：
+```python
+from utils.clip import MediaClipper
+
+clipper = MediaClipper("video.mp4")
+clipper.clip(start=0, duration=120, output="clip.mp4")
+clips = clipper.auto_clip(clip_duration=120, output_dir="clips/")
+```
 
 ### 测试接口
 
@@ -69,7 +110,7 @@ node test-stream.js <音频文件路径> [引擎名称]
 
 # 示例
 node test-stream.js ../test.mp3
-node test-stream.js ../audio.wav whisper
+node test-stream.js ../audio.wav faster-whisper
 ```
 
 脚本会通过 `X-API-Key` 请求头调用后端 SSE 流式接口，实时打印每句识别结果。
@@ -274,18 +315,32 @@ while (true) {
 api_key: oneasr-key
 
 # 默认引擎
-default_engine: whisper
+default_engine: faster-whisper
 
+# 模型根目录（取消注释并指定路径可强制使用本地模型）
+# model_dir: ./models
+
+# 引擎配置
 engines:
-  whisper:
+  faster-whisper:
     type: local
-    model_name: base
+    model_name: medium
     device: cpu
     compute_type: int8
+    max_duration: null
+
   firered:
     type: local
     model_name: aed
     device: cpu
+    max_duration: 60
+
+  mimo:
+    type: cloud
+    model_name: mimo-audio
+    api_key:   # 小米 MiMo API Key
+    base_url:
+
   wlk:
     type: local
     model_name: base
@@ -303,35 +358,44 @@ engines:
 
 ```
 OneASR/
-├── app/
-│   ├── main.py              # FastAPI 入口
+├── app/                          # 后端应用
+│   ├── main.py                   # FastAPI 入口
 │   ├── api/
-│   │   ├── auth.py          # API Key 验证
-│   │   ├── file.py          # 文件识别接口
-│   │   └── stream.py        # 流式识别接口（WhisperLiveKit）
-│   ├── core/config.py       # 配置管理
+│   │   ├── auth.py               # API Key 验证
+│   │   ├── file.py               # 文件/URL 识别接口
+│   │   └── stream.py             # WebSocket 流式识别（WhisperLiveKit）
+│   ├── core/
+│   │   └── config.py             # YAML 配置管理
 │   ├── engines/
-│   │   ├── base.py          # 引擎抽象基类
-│   │   ├── whisper_engine.py # faster-whisper 实现
-│   │   ├── firered_engine.py # FireRedASR 实现
-│   │   ├── wlk_engine.py    # WhisperLiveKit 实现（流式+文件）
-│   │   └── registry.py      # 引擎注册中心
-│   ├── models/schemas.py    # 数据模型
+│   │   ├── base.py               # 引擎抽象基类
+│   │   ├── whisper_engine.py     # faster-whisper 实现
+│   │   ├── firered_engine.py     # FireRedASR 实现
+│   │   ├── wlk_engine.py         # WhisperLiveKit（流式+文件）
+│   │   ├── openai_engine.py      # OpenAI Whisper API
+│   │   ├── mimo_engine.py        # 小米 MiMo API
+│   │   └── registry.py           # 引擎注册中心（单例模式）
+│   ├── models/
+│   │   └── schemas.py            # Pydantic 数据模型
 │   └── utils/
-│       ├── download.py      # URL 下载工具
-│       └── format.py        # 输出格式转换
-├── web/                     # Vue.js 前端
+│       ├── download.py           # URL 下载工具
+│       ├── format.py             # 输出格式转换（SRT/VTT/JSON/TSV）
+│       ├── audio.py              # 音频格式转换
+│       └── vad.py                # VAD 音频切分
+├── web/                          # Vue.js 前端
 │   ├── src/
-│   │   ├── api/index.js     # API 服务层
-│   │   ├── router/index.js  # 路由配置
+│   │   ├── api/index.js          # API 服务层（SSE 流式）
+│   │   ├── router/index.js       # Vue Router 配置
 │   │   ├── views/
-│   │   │   ├── Layout.vue   # 主布局（侧边栏+内容区）
-│   │   │   └── Transcribe.vue # 语音识别页面
-│   │   └── assets/main.css  # 全局样式
+│   │   │   ├── Layout.vue        # 主布局（侧边栏+设置）
+│   │   │   └── Transcribe.vue    # 语音识别页面
+│   │   └── assets/main.css       # 全局样式
 │   ├── index.html
-│   ├── vite.config.js       # Vite 配置（含 API 代理）
+│   ├── vite.config.js            # Vite 配置（含 API 代理）
 │   └── package.json
-├── models/                  # 模型存放目录
-├── config.yaml              # API Key 和引擎配置
+├── utils/                        # 独立工具
+│   └── clip.py                   # 媒体截取工具（视频分割）
+├── tests/                        # 测试文件
+├── models/                       # 模型存放目录
+├── config.yaml                   # API Key 和引擎配置
 └── requirements.txt
 ```

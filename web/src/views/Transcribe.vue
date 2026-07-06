@@ -1,10 +1,11 @@
 <script setup>
 import { ref, onMounted, nextTick } from 'vue'
-import { getEngines, transcribeFileStream, transcribeUrlStream, getStoredApiKey } from '../api'
+import { getEngines, transcribeFileStream, transcribeUrlStream, transcribeFile, transcribeUrl, getStoredApiKey } from '../api'
 
 const engines = ref([])
 const selectedEngine = ref('')
 const inputMode = ref('file')
+const streamingEnabled = ref(true)
 const url = ref('')
 const file = ref(null)
 const fileName = ref('')
@@ -68,25 +69,54 @@ function formatTime(seconds) {
   return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')},${String(ms).padStart(3,'0')}`
 }
 
+function formatSrtSingle(seg) {
+  if (!seg) return ''
+  return `1\n${formatTime(seg.start)} --> ${formatTime(seg.end)}\n${seg.text}\n`
+}
+
 function buildSrt(segList) {
+  if (segList.length === 0) return ''
   return segList.map((seg, i) => {
     return `${i + 1}\n${formatTime(seg.start)} --> ${formatTime(seg.end)}\n${seg.text}\n`
   }).join('\n')
 }
 
 function buildText(segList) {
+  if (segList.length === 0) return ''
   return segList.map(seg => seg.text).join('\n')
 }
 
+let accumulatedText = ''
+
 function onSegment(seg) {
-  segments.value.push(seg)
-  resultText.value = buildSrt(segments.value)
+  // 流式接口返回识别结果
+  // faster-whisper: 每句独立 segment
+  // wlk: 累积更新的文本
+  if (seg.index !== undefined) {
+    // 有 index 说明是独立 segment（faster-whisper）
+    segments.value.push(seg)
+    resultText.value = buildSrt(segments.value)
+  } else {
+    // 无 index 说明是累积文本（wlk）
+    accumulatedText = seg.text
+    resultText.value = seg.text
+  }
   nextTick(() => {
     if (resultRef.value) resultRef.value.scrollTop = resultRef.value.scrollHeight
   })
 }
 
 function onDone() {
+  // 识别完成后，确保最终结果正确
+  if (accumulatedText && segments.value.length === 0) {
+    // wlk 引擎：累积文本模式
+    segments.value = [{ text: accumulatedText, start: 0, end: 0 }]
+    resultText.value = buildSrt(segments.value)
+  } else if (segments.value.length > 0) {
+    // faster-whisper 引擎：独立 segment 模式
+    resultText.value = buildSrt(segments.value)
+  }
+  accumulatedText = ''
   isTranscribing.value = false
   xhr = null
 }
@@ -105,22 +135,63 @@ function startTranscribe() {
   error.value = ''
   segments.value = []
   resultText.value = ''
+  accumulatedText = ''
   isTranscribing.value = true
 
-  if (inputMode.value === 'file') {
-    if (!file.value) {
-      error.value = '请选择文件'
-      isTranscribing.value = false
-      return
+  if (streamingEnabled.value) {
+    // 流式模式：调用 SSE 流式接口
+    if (inputMode.value === 'file') {
+      if (!file.value) {
+        error.value = '请选择文件'
+        isTranscribing.value = false
+        return
+      }
+      xhr = transcribeFileStream(file.value, selectedEngine.value, onSegment, onDone, onError)
+    } else {
+      if (!url.value.trim()) {
+        error.value = '请输入 URL'
+        isTranscribing.value = false
+        return
+      }
+      xhr = transcribeUrlStream(url.value.trim(), selectedEngine.value, onSegment, onDone, onError)
     }
-    xhr = transcribeFileStream(file.value, selectedEngine.value, onSegment, onDone, onError)
   } else {
-    if (!url.value.trim()) {
-      error.value = '请输入 URL'
-      isTranscribing.value = false
-      return
+    // 非流式模式：调用普通接口，等待完整结果
+    transcribeFileOrUrl()
+  }
+}
+
+async function transcribeFileOrUrl() {
+  try {
+    let result
+    if (inputMode.value === 'file') {
+      if (!file.value) {
+        error.value = '请选择文件'
+        isTranscribing.value = false
+        return
+      }
+      result = await transcribeFile(file.value, selectedEngine.value, 'json')
+    } else {
+      if (!url.value.trim()) {
+        error.value = '请输入 URL'
+        isTranscribing.value = false
+        return
+      }
+      result = await transcribeUrl(url.value.trim(), selectedEngine.value, 'json')
     }
-    xhr = transcribeUrlStream(url.value.trim(), selectedEngine.value, onSegment, onDone, onError)
+
+    // 处理返回结果
+    if (result && result.segments) {
+      segments.value = result.segments
+      resultText.value = buildSrt(segments.value)
+    } else if (result && result.text) {
+      segments.value = [{ text: result.text, start: 0, end: 0 }]
+      resultText.value = result.text
+    }
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    isTranscribing.value = false
   }
 }
 
@@ -226,6 +297,14 @@ function copyResult() {
           </select>
         </div>
 
+        <div class="streaming-row">
+          <label class="streaming-label">
+            <input type="checkbox" v-model="streamingEnabled" class="streaming-checkbox" />
+            <span>流式返回</span>
+          </label>
+          <span class="streaming-hint">{{ streamingEnabled ? '实时显示识别进度' : '等待完整结果' }}</span>
+        </div>
+
         <p v-if="error" class="error-msg">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>
@@ -263,7 +342,7 @@ function copyResult() {
               <span class="pulse"></span> 识别中...
             </span>
             <span v-else-if="segments.length" class="status-badge done">
-              {{ segments.length }} 句
+              {{ resultText ? '完成' : '就绪' }}
             </span>
             <button v-if="resultText" class="icon-btn" title="复制" @click="copyResult">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -507,6 +586,36 @@ function copyResult() {
 
 .engine-select:focus {
   border-color: #667eea;
+}
+
+/* 流式开关 */
+.streaming-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.streaming-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #6e6e73;
+  cursor: pointer;
+}
+
+.streaming-checkbox {
+  width: 16px;
+  height: 16px;
+  accent-color: #667eea;
+  cursor: pointer;
+}
+
+.streaming-hint {
+  font-size: 12px;
+  color: #86868b;
 }
 
 /* 错误 */

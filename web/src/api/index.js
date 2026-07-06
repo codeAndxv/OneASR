@@ -113,3 +113,53 @@ export function transcribeUrlStream(url, engine, onSegment, onDone, onError) {
   )
   return { abort: () => ctrl.abort() }
 }
+
+/**
+ * 非流式文件识别（一次性返回完整结果）
+ */
+export async function transcribeFile(file, engine, format = 'json') {
+  const form = new FormData()
+  form.append('file', file)
+  if (engine) form.append('engine', engine)
+  form.append('format', format)
+
+  const res = await fetch(`${API_BASE}/api/v1/transcribe/file`, {
+    method: 'POST',
+    headers: { 'X-API-Key': getApiKey() },
+    body: form,
+  })
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    throw new Error(text || `请求失败: ${res.status}`)
+  }
+
+  if (format === 'json') {
+    return res.json()
+  }
+  return res.text()
+}
+
+/**
+ * 非流式 URL 识别（一次性返回完整结果）
+ */
+export async function transcribeUrl(url, engine, format = 'json') {
+  const res = await fetch(`${API_BASE}/api/v1/transcribe/url`, {
+    method: 'POST',
+    headers: {
+      'X-API-Key': getApiKey(),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ url, engine, format }),
+  })
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    throw new Error(text || `请求失败: ${res.status}`)
+  }
+
+  if (format === 'json') {
+    return res.json()
+  }
+  return res.text()
+}

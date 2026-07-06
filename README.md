@@ -13,53 +13,94 @@ A unified speech recognition API that integrates multiple ASR engines.
 
 ## Quick Start
 
-### Backend
+### Prerequisites
+
+- Python 3.11+
+- Node.js 18+
+- FFmpeg (required for audio processing)
+
+### Backend Setup
 
 ```bash
-# Create virtual environment
+# 1. Create and activate virtual environment
 python3 -m venv .venv
-source .venv/bin/activate
+source .venv/bin/activate  # macOS/Linux
+# or: .venv\Scripts\activate  # Windows
 
-# Install dependencies
+# 2. Install dependencies
 pip install -r requirements.txt
 
-# Start the server
-uvicorn app.main:app --reload
+# 3. Start the server
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-The server runs at `http://localhost:8000` by default. Visit `/docs` for API documentation.
+The server runs at `http://localhost:8000`. Visit `http://localhost:8000/docs` for interactive API documentation.
 
-### Frontend
+### Frontend Setup
 
 ```bash
+# 1. Navigate to web directory
 cd web
 
-# Install dependencies
+# 2. Install dependencies
 npm install
 
-# Start development server
+# 3. Start development server
 npm run dev
 ```
 
-The frontend runs at `http://localhost:3000` and proxies API requests to the backend via Vite.
+The frontend runs at `http://localhost:3000` and automatically proxies API requests to the backend.
 
 ### Quick Launch (Two Terminals)
 
+**Terminal 1 - Backend:**
 ```bash
-# Terminal 1: Start backend
 cd OneASR
 source .venv/bin/activate
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
 
-# Terminal 2: Start frontend
+**Terminal 2 - Frontend:**
+```bash
 cd OneASR/web
 npm run dev
+```
+
+### Verify Installation
+
+```bash
+# Check backend health
+curl http://localhost:8000/health
+
+# List available engines
+curl -H "X-API-Key: oneasr-key" http://localhost:8000/api/v1/engines
 ```
 
 After startup:
 - Frontend UI: `http://localhost:3000`
 - API Docs: `http://localhost:8000/docs`
 - Health Check: `http://localhost:8000/health`
+
+### Media Clipping Tool
+
+The project includes a media clipping tool for splitting long videos into shorter segments:
+
+```bash
+# Clip a specific duration (default 2 minutes)
+python utils/clip.py input_video.mp4 120
+
+# Auto-clip entire video into 2-minute segments
+python utils/clip.py input_video.mp4
+```
+
+Python API usage:
+```python
+from utils.clip import MediaClipper
+
+clipper = MediaClipper("video.mp4")
+clipper.clip(start=0, duration=120, output="clip.mp4")
+clips = clipper.auto_clip(clip_duration=120, output_dir="clips/")
+```
 
 ### Test Script
 
@@ -305,36 +346,45 @@ engines:
 
 ```
 OneASR/
-├── app/
-│   ├── main.py              # FastAPI entry point
+├── app/                          # Backend application
+│   ├── main.py                   # FastAPI entry point
 │   ├── api/
-│   │   ├── auth.py          # API Key authentication
-│   │   ├── file.py          # File recognition endpoints
-│   │   └── stream.py        # Streaming recognition (WhisperLiveKit)
-│   ├── core/config.py       # Configuration management
+│   │   ├── auth.py               # API Key authentication
+│   │   ├── file.py               # File/URL recognition endpoints
+│   │   └── stream.py             # WebSocket streaming (WhisperLiveKit)
+│   ├── core/
+│   │   └── config.py             # YAML configuration management
 │   ├── engines/
-│   │   ├── base.py          # Engine abstract base class
-│   │   ├── whisper_engine.py # faster-whisper implementation
-│   │   ├── firered_engine.py # FireRedASR implementation
-│   │   ├── wlk_engine.py    # WhisperLiveKit implementation (streaming + file)
-│   │   └── registry.py      # Engine registry
-│   ├── models/schemas.py    # Data models
+│   │   ├── base.py               # Engine abstract base class
+│   │   ├── whisper_engine.py     # faster-whisper implementation
+│   │   ├── firered_engine.py     # FireRedASR implementation
+│   │   ├── wlk_engine.py         # WhisperLiveKit (streaming + file)
+│   │   ├── openai_engine.py      # OpenAI Whisper API
+│   │   ├── mimo_engine.py        # Xiaomi MiMo API
+│   │   └── registry.py           # Engine registry (singleton)
+│   ├── models/
+│   │   └── schemas.py            # Pydantic data models
 │   └── utils/
-│       ├── download.py      # URL download utility
-│       └── format.py        # Output format conversion
-├── web/                     # Vue.js frontend
+│       ├── download.py           # URL download utility
+│       ├── format.py             # Output format conversion (SRT/VTT/JSON/TSV)
+│       ├── audio.py              # Audio format conversion
+│       └── vad.py                # VAD-based audio segmentation
+├── web/                          # Vue.js frontend
 │   ├── src/
-│   │   ├── api/index.js     # API service layer
-│   │   ├── router/index.js  # Route configuration
+│   │   ├── api/index.js          # API service layer (SSE streaming)
+│   │   ├── router/index.js       # Vue Router configuration
 │   │   ├── views/
-│   │   │   ├── Layout.vue   # Main layout (sidebar + content)
-│   │   │   └── Transcribe.vue # Speech recognition page
-│   │   └── assets/main.css  # Global styles
+│   │   │   ├── Layout.vue        # Main layout (sidebar + settings)
+│   │   │   └── Transcribe.vue    # Speech recognition page
+│   │   └── assets/main.css       # Global styles
 │   ├── index.html
-│   ├── vite.config.js       # Vite config (with API proxy)
+│   ├── vite.config.js            # Vite config (with API proxy)
 │   └── package.json
-├── models/                  # Model storage directory
-├── config.yaml              # API Key and engine configuration
+├── utils/                        # Standalone utilities
+│   └── clip.py                   # Media clipping tool (split videos)
+├── tests/                        # Test files
+├── models/                       # Model storage directory
+├── config.yaml                   # API Key and engine configuration
 └── requirements.txt
 ```
 

@@ -18,12 +18,6 @@ engines:
     compute_type: int8
     max_duration: null  # 无时长限制
 
-  firered:
-    type: local
-    model_name: aed
-    device: cpu
-    max_duration: 60  # 最大 60 秒，超过会自动切分
-
   # 云端引擎示例（取消注释并填写 API Key 即可使用）
   # openai:
   #   type: cloud
