@@ -14,7 +14,30 @@ export function getStoredApiKey() {
   return getApiKey()
 }
 
+/**
+ * 获取可用引擎列表（新接口）
+ */
 export async function getEngines() {
+  const res = await fetch(`${API_BASE}/api/v1/audio/models`, {
+    headers: { 'X-API-Key': getApiKey() },
+  })
+  if (res.status === 401) throw new Error('API Key 无效')
+  const data = await res.json()
+  // 转换为兼容格式
+  return {
+    default: data.data[0]?.id || '',
+    engines: data.data.map(m => ({
+      name: m.id,
+      type: m.type,
+      model_name: m.model_name,
+    })),
+  }
+}
+
+/**
+ * 获取可用引擎列表（旧接口，兼容）
+ */
+export async function getEnginesLegacy() {
   const res = await fetch(`${PROXY_BASE}/engines`, {
     headers: { 'X-API-Key': getApiKey() },
   })
@@ -84,14 +107,17 @@ async function streamSse(url, body, onSegment, onDone, onError, ctrl) {
   }
 }
 
+/**
+ * 流式文件识别（新接口）
+ */
 export function transcribeFileStream(file, engine, onSegment, onDone, onError) {
   const form = new FormData()
   form.append('file', file)
-  if (engine) form.append('engine', engine)
+  if (engine) form.append('model', engine)
 
   const ctrl = new AbortController()
   streamSse(
-    `${API_BASE}/api/v1/transcribe/file/stream`,
+    `${API_BASE}/api/v1/audio/transcriptions/stream`,
     form,
     onSegment,
     onDone,
@@ -101,11 +127,18 @@ export function transcribeFileStream(file, engine, onSegment, onDone, onError) {
   return { abort: () => ctrl.abort() }
 }
 
+/**
+ * 流式 URL 识别（新接口）
+ */
 export function transcribeUrlStream(url, engine, onSegment, onDone, onError) {
+  const form = new FormData()
+  form.append('url', url)
+  if (engine) form.append('model', engine)
+
   const ctrl = new AbortController()
   streamSse(
-    `${API_BASE}/api/v1/transcribe/url/stream`,
-    JSON.stringify({ url, engine }),
+    `${API_BASE}/api/v1/audio/transcriptions/stream`,
+    form,
     onSegment,
     onDone,
     onError,
@@ -115,15 +148,15 @@ export function transcribeUrlStream(url, engine, onSegment, onDone, onError) {
 }
 
 /**
- * 非流式文件识别（一次性返回完整结果）
+ * 非流式文件识别（新接口，一次性返回完整结果）
  */
 export async function transcribeFile(file, engine, format = 'json') {
   const form = new FormData()
   form.append('file', file)
-  if (engine) form.append('engine', engine)
-  form.append('format', format)
+  if (engine) form.append('model', engine)
+  form.append('response_format', format)
 
-  const res = await fetch(`${API_BASE}/api/v1/transcribe/file`, {
+  const res = await fetch(`${API_BASE}/api/v1/audio/transcriptions`, {
     method: 'POST',
     headers: { 'X-API-Key': getApiKey() },
     body: form,
@@ -141,16 +174,18 @@ export async function transcribeFile(file, engine, format = 'json') {
 }
 
 /**
- * 非流式 URL 识别（一次性返回完整结果）
+ * 非流式 URL 识别（新接口，一次性返回完整结果）
  */
 export async function transcribeUrl(url, engine, format = 'json') {
-  const res = await fetch(`${API_BASE}/api/v1/transcribe/url`, {
+  const form = new FormData()
+  form.append('url', url)
+  if (engine) form.append('model', engine)
+  form.append('response_format', format)
+
+  const res = await fetch(`${API_BASE}/api/v1/audio/transcriptions`, {
     method: 'POST',
-    headers: {
-      'X-API-Key': getApiKey(),
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ url, engine, format }),
+    headers: { 'X-API-Key': getApiKey() },
+    body: form,
   })
 
   if (!res.ok) {

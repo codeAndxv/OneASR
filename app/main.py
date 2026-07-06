@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import file, stream
+from app.api import audio, file, stream
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -32,6 +32,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 新的统一 API（参考 OpenAI 格式）
+app.include_router(audio.router)
+
+# 旧的 API（保持兼容）
 app.include_router(file.router)
 app.include_router(stream.router)
 

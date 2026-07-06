@@ -141,6 +141,18 @@ WebSocket streaming uses query parameters (browser WebSocket API doesn't support
 
 ## API Endpoints
 
+### New Unified API (OpenAI-compatible)
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/v1/audio/transcriptions` | POST | Create transcription (file upload or URL) |
+| `/api/v1/audio/transcriptions/stream` | POST | Create streaming transcription (SSE) |
+| `/api/v1/audio/models` | GET | List available models |
+| `/api/v1/audio/transcriptions/{id}` | GET | Get transcription status (not implemented) |
+| `/api/v1/audio/transcriptions/{id}` | DELETE | Delete transcription (not implemented) |
+
+### Legacy API (for backward compatibility)
+
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/api/v1/transcribe/file` | POST | Upload file for recognition |
@@ -244,14 +256,21 @@ Upload audio/video files and receive sentence-by-sentence results in [Server-Sen
 ### Request Examples
 
 ```bash
-# Upload file, SSE streaming response
+# Upload file, SSE streaming response (new API)
+curl -N -X POST "http://localhost:8000/api/v1/audio/transcriptions/stream" \
+  -H "X-API-Key: oneasr-key" \
+  -F "file=@audio.mp3" \
+  -F "model=faster-whisper"
+
+# URL recognition, SSE streaming response (new API)
+curl -N -X POST "http://localhost:8000/api/v1/audio/transcriptions/stream" \
+  -H "X-API-Key: oneasr-key" \
+  -F "url=https://example.com/audio.mp3" \
+  -F "model=faster-whisper"
+
+# Legacy API (for backward compatibility)
 curl -N -X POST "http://localhost:8000/api/v1/transcribe/file/stream?api_key=oneasr-key" \
   -F "file=@audio.mp3"
-
-# URL recognition, SSE streaming response
-curl -N -X POST "http://localhost:8000/api/v1/transcribe/url/stream?api_key=oneasr-key" \
-  -H "Content-Type: application/json" \
-  -d '{"url": "https://example.com/audio.mp3", "engine": "faster-whisper"}'
 ```
 
 ### Response Format
@@ -275,10 +294,12 @@ data: {"done": true}
 ### JavaScript Client Example
 
 ```javascript
+// New API (OpenAI-compatible)
 const form = new FormData();
 form.append("file", fileInput.files[0]);
+form.append("model", "faster-whisper");
 
-const resp = await fetch("/api/v1/transcribe/file/stream", {
+const resp = await fetch("/api/v1/audio/transcriptions/stream", {
   method: "POST",
   headers: { "X-API-Key": "oneasr-key" },
   body: form,
