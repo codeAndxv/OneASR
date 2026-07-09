@@ -67,7 +67,7 @@ class WLKRestClient:
     用于文件转录，接口兼容 OpenAI Audio Transcriptions API。
 
     使用示例:
-        client = WLKRestClient("http://localhost:8000")
+        client = WLKRestClient("http://localhost:8020")
         result = client.transcribe_file("audio.wav")
         print(result.text)
 
@@ -78,7 +78,7 @@ class WLKRestClient:
     def __init__(self, base_url: str, timeout: float = 300):
         """
         Args:
-            base_url: 服务器地址，如 "http://localhost:8000"
+            base_url: 服务器地址，如 "http://localhost:8020"
             timeout: 请求超时时间（秒），默认 300 秒
         """
         self.base_url = base_url.rstrip("/")
@@ -296,7 +296,7 @@ class WLKStreamClient:
     """WhisperLiveKit WebSocket 流式转录客户端。
 
     使用示例:
-        client = WLKStreamClient("ws://localhost:8000")
+        client = WLKStreamClient("ws://localhost:8020")
 
         # 逐块发送音频，收集结果
         async for state in client.stream_file("audio.wav"):
@@ -313,7 +313,7 @@ class WLKStreamClient:
     def __init__(self, base_url: str):
         """
         Args:
-            base_url: WebSocket 服务器地址，如 "ws://localhost:8000"
+            base_url: WebSocket 服务器地址，如 "ws://localhost:8020"
         """
         self.base_url = base_url.rstrip("/")
 
@@ -521,7 +521,7 @@ class WLKClient:
     """WhisperLiveKit 统一客户端，同时支持 REST 和 WebSocket。
 
     使用示例:
-        client = WLKClient("http://localhost:8000")
+        client = WLKClient("http://localhost:8020")
 
         # 文件转录
         result = client.rest.transcribe_file("audio.wav")
@@ -561,7 +561,7 @@ class WLKDeepgramClient:
     本客户端通过自定义 DeepgramClientEnvironment 将 SDK 指向本地服务器。
 
     使用示例:
-        client = WLKDeepgramClient("http://localhost:8000")
+        client = WLKDeepgramClient("http://localhost:8020")
         result = client.transcribe_file("audio.wav", language="en")
         print(result)
     """
@@ -720,9 +720,9 @@ if __name__ == "__main__":
         print("  --chunk-duration <sec>    每次发送的音频时长秒数 (默认 0.5)")
         print("  --format <fmt>            REST 模式: verbose_json|srt|vtt|text (默认 verbose_json)")
         print("示例:")
-        print("  python wlk_client.py http://localhost:8000 audio.wav")
-        print("  python wlk_client.py http://localhost:8000 audio.wav --mode deepgram")
-        print("  python wlk_client.py http://localhost:8000 audio.wav --mode rest --format srt")
+        print("  python wlk_client.py http://localhost:8020 audio.wav")
+        print("  python wlk_client.py http://localhost:8020 audio.wav --mode deepgram")
+        print("  python wlk_client.py http://localhost:8020 audio.wav --mode rest --format srt")
         sys.exit(1)
 
     url = sys.argv[1]

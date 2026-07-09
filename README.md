@@ -31,10 +31,10 @@ source .venv/bin/activate  # macOS/Linux
 pip install -r requirements.txt
 
 # 3. Start the server
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8020
 ```
 
-The server runs at `http://localhost:8000`. Visit `http://localhost:8000/docs` for interactive API documentation.
+The server runs at `http://localhost:8020`. Visit `http://localhost:8020/docs` for interactive API documentation.
 
 ### Frontend Setup
 
@@ -57,7 +57,7 @@ The frontend runs at `http://localhost:3000` and automatically proxies API reque
 ```bash
 cd OneASR
 source .venv/bin/activate
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8020
 ```
 
 **Terminal 2 - Frontend:**
@@ -70,16 +70,16 @@ npm run dev
 
 ```bash
 # Check backend health
-curl http://localhost:8000/health
+curl http://localhost:8020/health
 
 # List available engines
-curl -H "X-API-Key: oneasr-key" http://localhost:8000/api/v1/engines
+curl -H "X-API-Key: oneasr-key" http://localhost:8020/api/v1/engines
 ```
 
 After startup:
 - Frontend UI: `http://localhost:3000`
-- API Docs: `http://localhost:8000/docs`
-- Health Check: `http://localhost:8000/health`
+- API Docs: `http://localhost:8020/docs`
+- Health Check: `http://localhost:8020/health`
 
 ### Media Clipping Tool
 
@@ -129,15 +129,15 @@ api_key: oneasr-key
 
 ```bash
 # Call API with API Key
-curl -H "X-API-Key: oneasr-key" http://localhost:8000/api/v1/engines
+curl -H "X-API-Key: oneasr-key" http://localhost:8020/api/v1/engines
 
 # Upload file for recognition
 curl -X POST -H "X-API-Key: oneasr-key" \
-  http://localhost:8000/api/v1/transcribe/file \
+  http://localhost:8020/api/v1/transcribe/file \
   -F "file=@audio.mp3" -F "format=srt" -o subtitle.srt
 ```
 
-WebSocket streaming uses query parameters (browser WebSocket API doesn't support custom headers): `ws://localhost:8000/ws/transcribe/stream?api_key=oneasr-key`
+WebSocket streaming uses query parameters (browser WebSocket API doesn't support custom headers): `ws://localhost:8020/ws/transcribe/stream?api_key=oneasr-key`
 
 ## API Endpoints
 
@@ -177,7 +177,7 @@ Real-time speech recognition powered by [WhisperLiveKit](https://github.com/Quen
 ### WebSocket Connection
 
 ```javascript
-const ws = new WebSocket("ws://localhost:8000/ws/transcribe/stream?api_key=oneasr-key&language=zh");
+const ws = new WebSocket("ws://localhost:8020/ws/transcribe/stream?api_key=oneasr-key&language=zh");
 
 // Receive transcription results
 ws.onmessage = (event) => {
@@ -240,11 +240,11 @@ Supported output formats:
 
 ```bash
 # Upload file, return SRT subtitles
-curl -X POST -H "X-API-Key: oneasr-key" "http://localhost:8000/api/v1/transcribe/file" \
+curl -X POST -H "X-API-Key: oneasr-key" "http://localhost:8020/api/v1/transcribe/file" \
   -F "file=@audio.mp3" -F "format=srt" -o subtitle.srt
 
 # URL recognition, return JSON
-curl -X POST -H "X-API-Key: oneasr-key" "http://localhost:8000/api/v1/transcribe/url" \
+curl -X POST -H "X-API-Key: oneasr-key" "http://localhost:8020/api/v1/transcribe/url" \
   -H "Content-Type: application/json" \
   -d '{"url": "https://example.com/audio.mp3", "format": "json"}'
 ```
@@ -257,19 +257,19 @@ Upload audio/video files and receive sentence-by-sentence results in [Server-Sen
 
 ```bash
 # Upload file, SSE streaming response (new API)
-curl -N -X POST "http://localhost:8000/api/v1/audio/transcriptions/stream" \
+curl -N -X POST "http://localhost:8020/api/v1/audio/transcriptions/stream" \
   -H "X-API-Key: oneasr-key" \
   -F "file=@audio.mp3" \
   -F "model=faster-whisper"
 
 # URL recognition, SSE streaming response (new API)
-curl -N -X POST "http://localhost:8000/api/v1/audio/transcriptions/stream" \
+curl -N -X POST "http://localhost:8020/api/v1/audio/transcriptions/stream" \
   -H "X-API-Key: oneasr-key" \
   -F "url=https://example.com/audio.mp3" \
   -F "model=faster-whisper"
 
 # Legacy API (for backward compatibility)
-curl -N -X POST "http://localhost:8000/api/v1/transcribe/file/stream?api_key=oneasr-key" \
+curl -N -X POST "http://localhost:8020/api/v1/transcribe/file/stream?api_key=oneasr-key" \
   -F "file=@audio.mp3"
 ```
 

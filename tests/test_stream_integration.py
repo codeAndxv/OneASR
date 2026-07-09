@@ -38,7 +38,7 @@ DEFAULT_VIDEO = "/Users/dudu/Files/Video/37047240970-1-192.mp4"
 async def test_stream(
     file_path: str,
     host: str = "localhost",
-    port: int = 8000,
+    port: int = 8020,
     language: str = "zh",
     chunk_duration: float = 1.0,
 ):
@@ -205,7 +205,7 @@ def main():
     parser = argparse.ArgumentParser(description="实时语音识别集成测试")
     parser.add_argument("file", nargs="?", default=DEFAULT_VIDEO, help="音视频文件路径")
     parser.add_argument("--host", default="localhost", help="服务地址")
-    parser.add_argument("--port", type=int, default=8000, help="服务端口")
+    parser.add_argument("--port", type=int, default=8020, help="服务端口")
     parser.add_argument("--language", default="zh", help="语言代码")
     parser.add_argument("--chunk", type=float, default=1.0, help="每块音频时长（秒）")
     args = parser.parse_args()

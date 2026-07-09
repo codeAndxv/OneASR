@@ -8,7 +8,7 @@
 import { readFileSync } from 'fs'
 import { basename } from 'path'
 
-const BASE = 'http://127.0.0.1:8000'
+const BASE = 'http://127.0.0.1:8020'
 const API_KEY = 'oneasr-key'
 
 const filePath = process.argv[2] || '/Users/dudu/Files/Video/哔哩哔哩(bilibili)视频解析下载 - 保存B站视频到手机、电脑(3).mp4'
