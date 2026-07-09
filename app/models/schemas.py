@@ -9,6 +9,7 @@ class OutputFormat(str, Enum):
     SRT = "srt"        # SRT 字幕格式
     VTT = "vtt"        # WebVTT 字幕格式
     JSON = "json"      # JSON 格式（含时间轴）
+    VERBOSE_JSON = "verbose_json"  # 详细 JSON 格式（OpenAI 兼容）
     TSV = "tsv"        # TSV 格式（制表符分隔）
 
 

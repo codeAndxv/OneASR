@@ -1,5 +1,5 @@
 // 后端直连地址（SSE 流式请求绕过 Vite proxy，避免缓冲）
-const API_BASE = 'http://127.0.0.1:8000'
+const API_BASE = 'http://127.0.0.1:8020'
 const PROXY_BASE = '/api/v1'
 
 function getApiKey() {
@@ -181,6 +181,98 @@ export async function transcribeUrl(url, engine, format = 'json') {
   form.append('url', url)
   if (engine) form.append('model', engine)
   form.append('response_format', format)
+
+  const res = await fetch(`${API_BASE}/api/v1/audio/transcriptions`, {
+    method: 'POST',
+    headers: { 'X-API-Key': getApiKey() },
+    body: form,
+  })
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    throw new Error(text || `请求失败: ${res.status}`)
+  }
+
+  if (format === 'json') {
+    return res.json()
+  }
+  return res.text()
+}
+
+/**
+ * 上传文件到服务器
+ */
+export async function uploadFile(file, onProgress) {
+  const form = new FormData()
+  form.append('file', file)
+
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    
+    xhr.upload.addEventListener('progress', (e) => {
+      if (e.lengthComputable && onProgress) {
+        onProgress(Math.round((e.loaded / e.total) * 100))
+      }
+    })
+    
+    xhr.addEventListener('load', () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(JSON.parse(xhr.responseText))
+      } else {
+        reject(new Error(xhr.responseText || '上传失败'))
+      }
+    })
+    
+    xhr.addEventListener('error', () => {
+      reject(new Error('上传失败'))
+    })
+    
+    xhr.open('POST', `${API_BASE}/api/v1/files/upload`)
+    xhr.setRequestHeader('X-API-Key', getApiKey())
+    xhr.send(form)
+  })
+}
+
+/**
+ * 获取已上传文件列表
+ */
+export async function listUploadedFiles() {
+  const res = await fetch(`${API_BASE}/api/v1/files/list`, {
+    headers: { 'X-API-Key': getApiKey() },
+  })
+  
+  if (!res.ok) {
+    throw new Error('获取文件列表失败')
+  }
+  
+  return res.json()
+}
+
+/**
+ * 删除已上传文件
+ */
+export async function deleteUploadedFile(fileId) {
+  const res = await fetch(`${API_BASE}/api/v1/files/${fileId}`, {
+    method: 'DELETE',
+    headers: { 'X-API-Key': getApiKey() },
+  })
+  
+  if (!res.ok) {
+    throw new Error('删除文件失败')
+  }
+  
+  return res.json()
+}
+
+/**
+ * 使用 file_uuid 进行转录
+ */
+export async function transcribeByUuid(fileUuid, engine, format = 'json', language = '') {
+  const form = new FormData()
+  form.append('file_uuid', fileUuid)
+  if (engine) form.append('model', engine)
+  form.append('response_format', format)
+  if (language) form.append('language', language)
 
   const res = await fetch(`${API_BASE}/api/v1/audio/transcriptions`, {
     method: 'POST',

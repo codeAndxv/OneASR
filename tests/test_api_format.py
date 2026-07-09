@@ -1,61 +1,93 @@
 """测试 API 接口的格式参数。"""
 
+import io
+import wave
+
+import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
 
-client = TestClient(app)
+
+@pytest.fixture
+def client():
+    return TestClient(app)
 
 
-def test_list_formats():
-    resp = client.get("/api/v1/formats")
-    assert resp.status_code == 200
-    data = resp.json()
-    assert "formats" in data
-    names = [f["name"] for f in data["formats"]]
-    assert "text" in names
-    assert "srt" in names
-    assert "vtt" in names
-    assert "json" in names
-    assert "tsv" in names
+class TestAudioModelsEndpoint:
+    """测试 /api/v1/audio/models 端点。"""
+
+    def test_list_models(self, client):
+        """列出可用模型。"""
+        resp = client.get("/api/v1/audio/models", headers={"X-API-Key": "oneasr-key"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["object"] == "list"
+        assert "data" in data
+        assert len(data["data"]) > 0
 
 
-def test_list_engines():
-    resp = client.get("/api/v1/engines")
-    assert resp.status_code == 200
-    data = resp.json()
-    assert "default" in data
-    assert "engines" in data
+class TestTranscriptionFormats:
+    """测试转录格式参数。"""
 
+    def test_transcribe_json_format(self, client):
+        """测试 JSON 格式输出。"""
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(16000)
+            wf.writeframes(b"\x00\x00" * 16000)
+        buf.seek(0)
 
-def test_transcribe_file_no_engine():
-    """没有文件时应该返回 422。"""
-    resp = client.post("/api/v1/transcribe/file")
-    assert resp.status_code == 422
+        resp = client.post(
+            "/api/v1/audio/transcriptions",
+            headers={"X-API-Key": "oneasr-key"},
+            files={"file": ("test.wav", buf, "audio/wav")},
+            data={"model": "faster-whisper", "response_format": "json"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "text" in data
+        assert "segments" in data
 
+    def test_transcribe_text_format(self, client):
+        """测试纯文本格式输出。"""
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(16000)
+            wf.writeframes(b"\x00\x00" * 16000)
+        buf.seek(0)
 
-def test_transcribe_url_invalid():
-    """无效 URL 应该返回 400。"""
-    resp = client.post(
-        "/api/v1/transcribe/url",
-        json={"url": "http://invalid.example.com/test.mp3"},
-    )
-    assert resp.status_code == 400
+        resp = client.post(
+            "/api/v1/audio/transcriptions",
+            headers={"X-API-Key": "oneasr-key"},
+            files={"file": ("test.wav", buf, "audio/wav")},
+            data={"model": "faster-whisper", "response_format": "text"},
+        )
+        assert resp.status_code == 200
+        assert resp.headers["content-type"] == "text/plain; charset=utf-8"
 
+    def test_transcribe_no_params(self, client):
+        """没有文件应该返回 400。"""
+        resp = client.post(
+            "/api/v1/audio/transcriptions",
+            headers={"X-API-Key": "oneasr-key"},
+            data={"model": "faster-whisper"},
+        )
+        assert resp.status_code == 400
+        assert "必须提供" in resp.json()["detail"]
 
-def test_transcribe_url_invalid_engine():
-    """无效引擎名称应该返回错误。"""
-    resp = client.post(
-        "/api/v1/transcribe/url",
-        json={"url": "http://example.com/test.mp3", "engine": "invalid"},
-    )
-    assert resp.status_code in [400, 500]
+    def test_transcribe_no_api_key(self, client):
+        """没有 API Key 应该返回 401 或 422。"""
+        resp = client.post(
+            "/api/v1/audio/transcriptions",
+            data={"model": "faster-whisper"},
+        )
+        assert resp.status_code in [401, 422]
 
 
 if __name__ == "__main__":
-    test_list_formats()
-    test_list_engines()
-    test_transcribe_file_no_engine()
-    test_transcribe_url_invalid()
-    test_transcribe_url_invalid_engine()
-    print("所有 API 测试通过")
+    pytest.main([__file__, "-v"])

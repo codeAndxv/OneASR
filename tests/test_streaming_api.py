@@ -1,36 +1,18 @@
 """测试 SSE 流式识别 API。"""
 
+import io
 import json
+import wave
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
 
-client = TestClient(app)
 
-
-def test_stream_file_no_engine():
-    """没有文件时应该返回 422。"""
-    resp = client.post("/api/v1/transcribe/file/stream")
-    assert resp.status_code == 422
-
-
-def test_stream_url_invalid():
-    """无效 URL 应该返回 400。"""
-    resp = client.post(
-        "/api/v1/transcribe/url/stream",
-        json={"url": "http://invalid.example.com/test.mp3"},
-    )
-    assert resp.status_code == 400
-
-
-def test_stream_url_invalid_engine():
-    """无效引擎名称应该返回错误。"""
-    resp = client.post(
-        "/api/v1/transcribe/url/stream",
-        json={"url": "http://example.com/test.mp3", "engine": "invalid"},
-    )
-    assert resp.status_code in [400, 500]
+@pytest.fixture
+def client():
+    return TestClient(app)
 
 
 def _parse_sse_events(text: str) -> list[dict]:
@@ -44,56 +26,113 @@ def _parse_sse_events(text: str) -> list[dict]:
     return events
 
 
-def test_stream_file_with_engine():
-    """使用 whisper 引擎上传文件，验证 SSE 流式响应格式。
+class TestStreamingTranscription:
+    """测试 /api/v1/audio/transcriptions 流式识别端点。"""
 
-    需要 whisper 引擎可用，如果不可用则跳过。
-    """
-    import numpy as np
-    import io
-    import wave
-
-    # 生成一个简短的静音 WAV 文件用于测试
-    sample_rate = 16000
-    duration = 0.5  # 0.5 秒
-    samples = np.zeros(int(sample_rate * duration), dtype=np.int16)
-
-    buf = io.BytesIO()
-    with wave.open(buf, "wb") as wf:
-        wf.setnchannels(1)
-        wf.setsampwidth(2)
-        wf.setframerate(sample_rate)
-        wf.writeframes(samples.tobytes())
-    buf.seek(0)
-
-    try:
+    def test_stream_no_file_no_uuid(self, client):
+        """没有 file 和 file_uuid 应该返回 400。"""
         resp = client.post(
-            "/api/v1/transcribe/file/stream",
-            files={"file": ("test.wav", buf, "audio/wav")},
-            data={"engine": "faster-whisper"},
+            "/api/v1/audio/transcriptions",
+            headers={"X-API-Key": "oneasr-key"},
+            data={"model": "faster-whisper", "stream": "true"},
         )
-    except Exception:
-        # whisper 引擎不可用，跳过
-        return
+        assert resp.status_code == 400
+        assert "必须提供" in resp.json()["detail"]
 
-    assert resp.status_code == 200
-    assert "text/event-stream" in resp.headers["content-type"]
+    def test_stream_with_file(self, client):
+        """上传文件进行流式识别。"""
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(16000)
+            wf.writeframes(b"\x00\x00" * 16000)  # 1 秒静音
+        buf.seek(0)
 
-    events = _parse_sse_events(resp.text)
-    # 最后一个事件应该是 done
-    assert len(events) >= 1
-    assert events[-1].get("done") is True
+        resp = client.post(
+            "/api/v1/audio/transcriptions",
+            headers={"X-API-Key": "oneasr-key"},
+            files={"file": ("test.wav", buf, "audio/wav")},
+            data={"model": "faster-whisper", "stream": "true"},
+        )
+        assert resp.status_code == 200
+        assert "text/event-stream" in resp.headers["content-type"]
 
-    # 如果有识别结果，检查格式
-    for evt in events[:-1]:
-        assert "index" in evt
-        assert "start" in evt
-        assert "end" in evt
-        assert "text" in evt
+        events = _parse_sse_events(resp.text)
+        assert len(events) >= 1
+        assert events[-1].get("done") is True
+
+    def test_stream_with_file_uuid(self, client):
+        """使用 file_uuid 进行流式识别。"""
+        # 先上传一个文件
+        test_content = b"fake audio content"
+        files = {"file": ("test_stream.mp3", io.BytesIO(test_content), "audio/mpeg")}
+        
+        upload_resp = client.post(
+            "/api/v1/files/upload",
+            files=files,
+            headers={"X-API-Key": "oneasr-key"},
+        )
+        assert upload_resp.status_code == 200
+        file_id = upload_resp.json()["file_id"]
+
+        # 使用 file_uuid 进行流式转录
+        resp = client.post(
+            "/api/v1/audio/transcriptions",
+            headers={"X-API-Key": "oneasr-key"},
+            data={
+                "file_uuid": file_id,
+                "model": "faster-whisper",
+                "stream": "true",
+            },
+        )
+        # 注意：实际转录可能失败（因为测试环境没有模型），但接口应该正常响应
+        assert resp.status_code in [200, 500]
+
+    def test_stream_file_uuid_not_found(self, client):
+        """使用不存在的 file_uuid 进行流式识别应该返回 404。"""
+        resp = client.post(
+            "/api/v1/audio/transcriptions",
+            headers={"X-API-Key": "oneasr-key"},
+            data={
+                "file_uuid": "nonexistent-uuid",
+                "model": "faster-whisper",
+                "stream": "true",
+            },
+        )
+        assert resp.status_code == 404
+        assert "文件不存在" in resp.json()["detail"]
+
+    def test_stream_event_format(self, client):
+        """验证 SSE 事件格式。"""
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(16000)
+            wf.writeframes(b"\x00\x00" * 16000)
+        buf.seek(0)
+
+        resp = client.post(
+            "/api/v1/audio/transcriptions",
+            headers={"X-API-Key": "oneasr-key"},
+            files={"file": ("test.wav", buf, "audio/wav")},
+            data={"model": "faster-whisper", "stream": "true"},
+        )
+        assert resp.status_code == 200
+
+        events = _parse_sse_events(resp.text)
+        
+        # 验证事件格式
+        for evt in events[:-1]:  # 排除最后一个 done 事件
+            assert "index" in evt
+            assert "start" in evt
+            assert "end" in evt
+            assert "text" in evt
+
+        # 最后一个事件应该是 done
+        assert events[-1].get("done") is True
 
 
 if __name__ == "__main__":
-    test_stream_file_no_engine()
-    test_stream_url_invalid()
-    test_stream_url_invalid_engine()
-    print("流式 API 基础测试通过")
+    pytest.main([__file__, "-v"])

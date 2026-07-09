@@ -11,6 +11,11 @@ const routes = [
         name: 'Transcribe',
         component: () => import('../views/Transcribe.vue'),
       },
+      {
+        path: 'files',
+        name: 'FileUpload',
+        component: () => import('../views/FileUpload.vue'),
+      },
     ],
   },
 ]

@@ -1,7 +1,9 @@
 <script setup>
 import { ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { setApiKey, getStoredApiKey } from '../api'
 
+const router = useRouter()
 const showSettings = ref(false)
 const apiKey = ref('')
 const language = ref(localStorage.getItem('asr_language') || 'auto')
@@ -18,6 +20,10 @@ function saveSettings() {
   showSettings.value = false
   location.reload()
 }
+
+function goTo(path) {
+  router.push(path)
+}
 </script>
 
 <template>
@@ -28,7 +34,7 @@ function saveSettings() {
         <span class="logo-text">OneASR</span>
       </div>
       <nav>
-        <router-link to="/" class="nav-item">
+        <button @click="goTo('/')" class="nav-item">
           <span class="nav-icon">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
@@ -38,7 +44,17 @@ function saveSettings() {
             </svg>
           </span>
           <span class="nav-label">语音识别</span>
-        </router-link>
+        </button>
+        <button @click="goTo('/files')" class="nav-item">
+          <span class="nav-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="17 8 12 3 7 8"/>
+              <line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+          </span>
+          <span class="nav-label">上传管理</span>
+        </button>
       </nav>
       <div class="sidebar-footer">
         <button class="settings-btn" @click="showSettings = !showSettings">
@@ -156,6 +172,11 @@ nav {
   font-size: 14px;
   border-radius: 8px;
   transition: all 0.2s;
+  background: none;
+  border: none;
+  width: 100%;
+  cursor: pointer;
+  text-align: left;
 }
 
 .nav-item:hover {
@@ -163,7 +184,7 @@ nav {
   color: rgba(255,255,255,0.9);
 }
 
-.nav-item.router-link-exact-active {
+.nav-item.router-link-active {
   background: rgba(102, 126, 234, 0.2);
   color: #fff;
 }
@@ -208,7 +229,7 @@ nav {
 
 .content {
   flex: 1;
-  overflow: hidden;
+  overflow: auto;
   background: #f0f2f5;
   min-height: 0;
 }
