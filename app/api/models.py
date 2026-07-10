@@ -1,6 +1,7 @@
 """引擎和模型信息 API。"""
 
 import logging
+import time
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -41,6 +42,12 @@ async def list_engines():
             "loaded": True,
         })
 
+    logger.info(
+        "[engines] 查询已加载引擎: 共 %d 个, keys=%s",
+        len(engines),
+        [f"{e['id']}/{e['model']}/{e['device']}/{e['compute_type']}" for e in engines],
+    )
+
     return {
         "object": "list",
         "data": engines,
@@ -50,27 +57,24 @@ async def list_engines():
 
 @router.post("/engines/load")
 async def api_load_engine(req: LoadEngineRequest):
-    """加载指定引擎和模型。
-
-    传入引擎名、模型名及设备参数，服务端创建并缓存模型实例。
-    已加载的实例会直接返回，不会重复加载。
-
-    示例请求：
-    ```json
-    {
-        "engine": "faster-whisper",
-        "model": "medium",
-        "device": "cpu",
-        "compute_type": "int8"
-    }
-    ```
-    """
+    """加载指定引擎和模型。"""
+    logger.info(
+        "[engines/load] 请求加载引擎: engine=%s, model=%s, device=%s, compute_type=%s",
+        req.engine, req.model, req.device, req.compute_type,
+    )
+    t_start = time.time()
     try:
         loaded = load_engine(
             engine_name=req.engine,
             model_name=req.model,
             device=req.device,
             compute_type=req.compute_type,
+        )
+        elapsed = time.time() - t_start
+        logger.info(
+            "[engines/load] 引擎加载成功: %s/%s/%s/%s, streaming=%s, 耗时: %.2fs",
+            loaded.engine_name, loaded.model_name, loaded.device, loaded.compute_type,
+            loaded.streaming, elapsed,
         )
         return {
             "status": "ok",
@@ -81,7 +85,8 @@ async def api_load_engine(req: LoadEngineRequest):
             "streaming": loaded.streaming,
         }
     except ValueError as e:
+        logger.warning("[engines/load] 引擎参数错误: %s", e)
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.exception("引擎加载失败: %s", e)
+        logger.exception("[engines/load] 引擎加载失败: %s", e)
         raise HTTPException(status_code=500, detail=f"引擎加载失败: {e}")

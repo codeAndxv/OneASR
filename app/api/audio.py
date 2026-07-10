@@ -3,6 +3,7 @@
 import json
 import logging
 import tempfile
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -35,6 +36,7 @@ NATIVE_AUDIO_FORMATS = {".wav"}
 @router.get("/models")
 async def list_models():
     """列出所有可用的 ASR 模型（兼容 OpenAI 格式）。"""
+    logger.info("[models] 列出可用模型")
     models = []
     for name, config in app_config.engines.items():
         models.append({
@@ -44,6 +46,7 @@ async def list_models():
             "type": config.type,
             "model_name": config.model_name,
         })
+    logger.info("[models] 共 %d 个模型: %s", len(models), [m["id"] for m in models])
     return {
         "object": "list",
         "data": models,
@@ -61,29 +64,28 @@ async def create_transcription(
     stream: bool = Form(False, description="是否流式返回"),
     temperature: Optional[float] = Form(None, description="采样温度"),
 ):
-    """创建语音识别任务（兼容 OpenAI 格式）。
+    """创建语音识别任务（兼容 OpenAI 格式）。"""
+    request_id = f"{int(time.time() * 1000)}"
+    logger.info(
+        "[transcriptions][%s] 收到请求 — model=%s, language=%s, format=%s, stream=%s, "
+        "file=%s, file_uuid=%s, prompt=%s, temperature=%s",
+        request_id,
+        model,
+        language,
+        response_format,
+        stream,
+        file.filename if file else None,
+        file_uuid,
+        (prompt[:50] + "...") if prompt and len(prompt) > 50 else prompt,
+        temperature,
+    )
 
-    支持两种方式提供音频：
-    1. 直接上传文件：使用 file 参数（最大 25MB）
-    2. 使用已上传文件：使用 file_uuid 参数
-
-    参数说明：
-    - file: 音视频文件（与 file_uuid 二选一，最大 25MB）
-    - file_uuid: 已上传文件的UUID（与 file 二选一）
-    - model: 引擎名称（如 faster-whisper、wlk）
-    - language: 语言代码（可选，如 zh、en、auto）
-    - response_format: 输出格式（json、text、srt、vtt）
-    - prompt: 提示词（可选）
-    - stream: 是否流式返回（默认 false）
-    - temperature: 采样温度（可选，0-1）
-
-    流式返回格式（SSE）：
-    - data: {"index": 0, "start": 0.0, "end": 2.5, "text": "Hello"}
-    - data: {"done": true}
-    """
     # 验证参数：file 和 file_uuid 至少提供一个
     if not file and not file_uuid:
+        logger.warning("[transcriptions][%s] 缺少 file 和 file_uuid 参数", request_id)
         raise HTTPException(status_code=400, detail="必须提供 file 或 file_uuid 参数")
+
+    t_start = time.time()
 
     try:
         # 获取音频数据和文件名
@@ -93,27 +95,38 @@ async def create_transcription(
         if file:
             # 验证文件大小
             data = await file.read()
+            file_size_mb = len(data) / (1024 * 1024)
+            logger.info(
+                "[transcriptions][%s] 收到文件: %s, 大小: %.2f MB (%d bytes), content_type: %s",
+                request_id, file.filename, file_size_mb, len(data), file.content_type,
+            )
             if len(data) > MAX_FILE_SIZE:
-                size_mb = len(data) / (1024 * 1024)
+                logger.warning("[transcriptions][%s] 文件超过 25MB 限制: %.2f MB", request_id, file_size_mb)
                 raise HTTPException(
                     status_code=400,
-                    detail=f"文件大小超过限制: {size_mb:.1f}MB，最大支持 25MB。请使用文件上传接口先上传文件，然后通过 file_uuid 参数进行转录。"
+                    detail=f"文件大小超过限制: {file_size_mb:.1f}MB，最大支持 25MB。请使用文件上传接口先上传文件，然后通过 file_uuid 参数进行转录。"
                 )
             filename = file.filename or "audio.wav"
         elif file_uuid:
             # 从已上传文件获取数据
             file_path = file_storage.get_file_path(file_uuid)
             if not file_path:
+                logger.warning("[transcriptions][%s] file_uuid=%s 不存在", request_id, file_uuid)
                 raise HTTPException(status_code=404, detail=f"文件不存在: {file_uuid}")
             data = file_path.read_bytes()
             filename = file_path.name
+            logger.info(
+                "[transcriptions][%s] 从 UUID 加载文件: %s, 大小: %.2f MB",
+                request_id, file_uuid, len(data) / (1024 * 1024),
+            )
         else:
             raise HTTPException(status_code=400, detail="必须提供 file 或 file_uuid 参数")
 
         # 检查是否需要转换为 WAV
         ext = Path(filename).suffix.lower()
         if ext not in NATIVE_AUDIO_FORMATS:
-            logger.info("Converting %s to WAV for transcription", filename)
+            logger.info("[transcriptions][%s] 格式 %s 需要转换为 WAV", request_id, ext)
+            t_convert_start = time.time()
             with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp_input:
                 tmp_input.write(data)
                 tmp_input_path = Path(tmp_input.name)
@@ -122,29 +135,50 @@ async def create_transcription(
             try:
                 tmp_wav_path = convert_to_wav(tmp_input_path)
                 data = tmp_wav_path.read_bytes()
-                logger.info("Conversion complete: %s -> WAV (%d bytes)", filename, len(data))
+                convert_time = time.time() - t_convert_start
+                logger.info(
+                    "[transcriptions][%s] 转换完成: %s -> WAV (%d bytes), 耗时: %.2fs",
+                    request_id, filename, len(data), convert_time,
+                )
             finally:
                 tmp_input_path.unlink(missing_ok=True)
                 if tmp_wav_path:
                     tmp_wav_path.unlink(missing_ok=True)
 
         # 获取引擎
+        logger.info("[transcriptions][%s] 正在获取引擎: %s", request_id, model)
+        t_engine_start = time.time()
         eng = get_engine(model)
+        engine_time = time.time() - t_engine_start
+        logger.info("[transcriptions][%s] 引擎就绪: %s (%.2fs)", request_id, model, engine_time)
 
         # 流式返回
         if stream:
+            logger.info("[transcriptions][%s] 开始流式转录", request_id)
+
             async def stream_generator():
                 idx = 0
+                t_stream_start = time.time()
                 try:
                     async for seg in eng.transcribe_file_stream(data):
                         event = {"index": idx, "start": seg.start, "end": seg.end, "text": seg.text}
                         yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                        if idx % 10 == 0:
+                            logger.debug(
+                                "[transcriptions][%s] 流式段落 #%d: [%.2f-%.2f] %s",
+                                request_id, idx, seg.start, seg.end, seg.text[:80],
+                            )
                         idx += 1
                     yield 'data: {"done": true}\n\n'
+                    total_time = time.time() - t_stream_start
+                    logger.info(
+                        "[transcriptions][%s] 流式转录完成: %d 段, 总耗时: %.2fs",
+                        request_id, idx, total_time,
+                    )
                 except (ConnectionResetError, BrokenPipeError, OSError) as e:
-                    logger.info("SSE 流客户端已断开: %s", e)
+                    logger.info("[transcriptions][%s] SSE 流客户端已断开: %s", request_id, e)
                 except Exception as e:
-                    logger.exception("SSE 流异常: %s", e)
+                    logger.exception("[transcriptions][%s] SSE 流异常: %s", request_id, e)
                     yield f'data: {json.dumps({"error": str(e)}, ensure_ascii=False)}\n\n'
 
             return StreamingResponse(
@@ -153,7 +187,14 @@ async def create_transcription(
             )
 
         # 非流式返回
+        logger.info("[transcriptions][%s] 开始非流式转录", request_id)
+        t_recog_start = time.time()
         text, segments = await eng.transcribe_file(data)
+        recog_time = time.time() - t_recog_start
+        logger.info(
+            "[transcriptions][%s] 转录完成: %d 段, 文本长度 %d 字符, 耗时: %.2fs",
+            request_id, len(segments), len(text), recog_time,
+        )
 
         # 构建响应
         response = TranscriptionResponse(
@@ -165,11 +206,13 @@ async def create_transcription(
             engine=model or app_config.default_engine,
         )
 
+        total_time = time.time() - t_start
+        logger.info("[transcriptions][%s] 响应完成, format=%s, 总耗时: %.2fs", request_id, response_format, total_time)
+
         # 根据格式返回
         if response_format == OutputFormat.JSON:
             return response
         elif response_format == OutputFormat.VERBOSE_JSON:
-            # verbose_json 返回更详细的信息（OpenAI 兼容）
             return {
                 "text": response.text,
                 "segments": [
@@ -196,23 +239,17 @@ async def create_transcription(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("语音识别失败: %s", e)
+        logger.exception("[transcriptions][%s] 语音识别失败: %s", request_id, e)
         raise HTTPException(status_code=500, detail=f"识别失败: {e}")
 
 
 @router.get("/transcriptions/{transcription_id}")
 async def get_transcription(transcription_id: str):
-    """获取语音识别任务状态（兼容 OpenAI 格式，暂未实现）。
-
-    用于查询异步识别任务的状态和结果。
-    """
+    """获取语音识别任务状态（兼容 OpenAI 格式，暂未实现）。"""
     raise HTTPException(status_code=501, detail="异步任务功能暂未实现")
 
 
 @router.delete("/transcriptions/{transcription_id}")
 async def delete_transcription(transcription_id: str):
-    """删除语音识别任务（兼容 OpenAI 格式，暂未实现）。
-
-    用于取消或删除异步识别任务。
-    """
+    """删除语音识别任务（兼容 OpenAI 格式，暂未实现）。"""
     raise HTTPException(status_code=501, detail="异步任务功能暂未实现")

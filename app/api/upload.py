@@ -3,6 +3,7 @@
 """
 
 import logging
+import time
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
@@ -74,29 +75,44 @@ async def upload_file(
     """
     # 验证文件名
     if not file.filename:
+        logger.warning("[upload] 文件名为空")
         raise HTTPException(status_code=400, detail="文件名不能为空")
     
     # 验证文件格式
     if not _validate_file_format(file.filename):
+        logger.warning("[upload] 不支持的文件格式: %s", file.filename)
         raise HTTPException(
             status_code=400, 
             detail=f"不支持的文件格式。支持的格式: {', '.join(sorted(SUPPORTED_FORMATS))}"
         )
     
+    t_start = time.time()
+    logger.info("[upload] 收到文件: %s, content_type: %s", file.filename, file.content_type)
+    
     try:
         # 读取文件内容
         content = await file.read()
+        size_mb = len(content) / (1024 * 1024)
+        logger.info("[upload] 文件读取完成: %s, 大小: %.2f MB (%d bytes)", file.filename, size_mb, len(content))
         
         # 验证文件大小（最大 2GB）
         max_size = 2 * 1024 * 1024 * 1024  # 2GB
         if len(content) > max_size:
+            logger.warning("[upload] 文件超过 2GB 限制: %.2f MB", size_mb)
             raise HTTPException(status_code=400, detail="文件大小超过限制（最大 2GB）")
         
         # 保存文件
+        t_save_start = time.time()
         file_id = await file_storage.save_file(
             filename=file.filename,
             file_content=content,
             content_type=file.content_type or "application/octet-stream",
+        )
+        save_time = time.time() - t_save_start
+        total_time = time.time() - t_start
+        logger.info(
+            "[upload] 上传成功: %s -> file_id=%s, 耗时: %.2fs (save: %.2fs)",
+            file.filename, file_id, total_time, save_time,
         )
         
         return FileUploadResponse(
