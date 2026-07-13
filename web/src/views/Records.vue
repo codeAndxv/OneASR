@@ -1,9 +1,13 @@
 <script setup>
 import { ref, watch, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { getUploadRecords, getFileTranscriptionRecords, getStreamingRecords } from '../api'
+
+const { t } = useI18n()
 
 const activeTab = ref('uploads')
 const loading = ref(false)
+const loadError = ref('')
 const items = ref([])
 const total = ref(0)
 const page = ref(1)
@@ -14,52 +18,53 @@ const sortOrder = ref('desc')
 
 // ── Tab 配置 ─────────────────────────────────────────────────
 
-const tabs = [
-  { key: 'uploads', label: '上传记录' },
-  { key: 'fileTranscriptions', label: '文件转录' },
-  { key: 'streaming', label: '流式识别' },
-]
+const tabs = computed(() => [
+  { key: 'uploads', label: t('records.tabUploads') },
+  { key: 'fileTranscriptions', label: t('records.tabFileTrans') },
+  { key: 'streaming', label: t('records.tabStreaming') },
+])
 
-const uploadColumns = [
-  { key: 'filename', label: '文件名', sortable: true },
-  { key: 'file_size', label: '大小', sortable: true },
-  { key: 'file_md5', label: 'MD5' },
-  { key: 'content_type', label: '类型' },
-  { key: 'created_at', label: '上传时间', sortable: true },
-]
+const uploadColumns = computed(() => [
+  { key: 'filename', label: t('records.colFileName'), sortable: true },
+  { key: 'file_size', label: t('records.colFileSize'), sortable: true },
+  { key: 'file_md5', label: t('records.colMd5') },
+  { key: 'content_type', label: t('records.colContentType') },
+  { key: 'created_at', label: t('records.colUploadTime'), sortable: true },
+])
 
-const fileTransColumns = [
-  { key: 'filename', label: '文件名', sortable: true },
-  { key: 'engine_name', label: '引擎', sortable: true },
-  { key: 'model_name', label: '模型' },
-  { key: 'segment_count', label: '段落数' },
-  { key: 'total_time', label: '耗时', sortable: true },
-  { key: 'is_completed', label: '状态', sortable: true },
-  { key: 'error_message', label: '错误' },
-  { key: 'completed_at', label: '完成时间', sortable: true },
-]
+const fileTransColumns = computed(() => [
+  { key: 'filename', label: t('records.colFileName'), sortable: true },
+  { key: 'engine_name', label: t('records.colEngine'), sortable: true },
+  { key: 'model_name', label: t('records.colModel') },
+  { key: 'segment_count', label: t('records.colSegments') },
+  { key: 'total_time', label: t('records.colTime'), sortable: true },
+  { key: 'is_completed', label: t('records.colStatus'), sortable: true },
+  { key: 'error_message', label: t('records.colError') },
+  { key: 'completed_at', label: t('records.colCompleteTime'), sortable: true },
+])
 
-const streamingColumns = [
-  { key: 'engine_name', label: '引擎', sortable: true },
-  { key: 'model_name', label: '模型' },
-  { key: 'language', label: '语言' },
-  { key: 'line_count', label: '文本行数' },
-  { key: 'total_time', label: '耗时', sortable: true },
-  { key: 'is_completed', label: '状态', sortable: true },
-  { key: 'error_message', label: '错误' },
-  { key: 'completed_at', label: '完成时间', sortable: true },
-]
+const streamingColumns = computed(() => [
+  { key: 'engine_name', label: t('records.colEngine'), sortable: true },
+  { key: 'model_name', label: t('records.colModel') },
+  { key: 'language', label: t('records.colLanguage') },
+  { key: 'line_count', label: t('records.colLines') },
+  { key: 'total_time', label: t('records.colTime'), sortable: true },
+  { key: 'is_completed', label: t('records.colStatus'), sortable: true },
+  { key: 'error_message', label: t('records.colError') },
+  { key: 'completed_at', label: t('records.colCompleteTime'), sortable: true },
+])
 
 const currentColumns = computed(() => {
-  if (activeTab.value === 'uploads') return uploadColumns
-  if (activeTab.value === 'fileTranscriptions') return fileTransColumns
-  return streamingColumns
+  if (activeTab.value === 'uploads') return uploadColumns.value
+  if (activeTab.value === 'fileTranscriptions') return fileTransColumns.value
+  return streamingColumns.value
 })
 
 // ── 数据加载 ─────────────────────────────────────────────────
 
 async function loadData() {
   loading.value = true
+  loadError.value = ''
   try {
     const params = {
       page: page.value,
@@ -79,6 +84,8 @@ async function loadData() {
     total.value = data.total || 0
     totalPages.value = data.total_pages || 0
   } catch (e) {
+    console.error('[Records] loadData error:', e)
+    loadError.value = e.message || 'Request failed'
     items.value = []
     total.value = 0
     totalPages.value = 0
@@ -92,6 +99,7 @@ function switchTab(tab) {
   page.value = 1
   sortBy.value = 'created_at'
   sortOrder.value = 'desc'
+  loadError.value = ''
   loadData()
 }
 
@@ -138,7 +146,7 @@ function getCellValue(item, key) {
   if (key === 'file_size') return formatSize(item[key])
   if (key === 'total_time') return formatTime(item[key])
   if (key === 'completed_at' || key === 'created_at') return formatDateTime(item[key])
-  if (key === 'is_completed') return item[key] ? '✓ 完成' : '✗ 失败'
+  if (key === 'is_completed') return item[key] ? t('records.statusDone') : t('records.statusFail')
   return item[key] ?? '-'
 }
 
@@ -155,7 +163,7 @@ loadData()
 <template>
   <div class="records-page">
     <div class="page-header">
-      <h1>记录管理</h1>
+      <h1>{{ t('records.title') }}</h1>
     </div>
 
     <!-- Tabs -->
@@ -172,8 +180,9 @@ loadData()
 
     <!-- Table -->
     <div class="table-wrap">
-      <div v-if="loading" class="loading-state">加载中...</div>
-      <div v-else-if="items.length === 0" class="empty-state">暂无数据</div>
+      <div v-if="loading" class="loading-state">{{ t('records.loading') }}</div>
+      <div v-else-if="loadError" class="error-state">⚠ {{ loadError }}</div>
+      <div v-else-if="items.length === 0" class="empty-state">{{ t('records.empty') }}</div>
       <table v-else class="data-table">
         <thead>
           <tr>
@@ -206,14 +215,14 @@ loadData()
 
     <!-- Pagination -->
     <div v-if="totalPages > 1" class="pagination">
-      <button :disabled="page <= 1" @click="goToPage(1)" class="page-btn">首页</button>
-      <button :disabled="page <= 1" @click="goToPage(page - 1)" class="page-btn">上一页</button>
-      <span class="page-info">{{ page }} / {{ totalPages }} (共 {{ total }} 条)</span>
-      <button :disabled="page >= totalPages" @click="goToPage(page + 1)" class="page-btn">下一页</button>
-      <button :disabled="page >= totalPages" @click="goToPage(totalPages)" class="page-btn">末页</button>
+      <button :disabled="page <= 1" @click="goToPage(1)" class="page-btn">{{ t('records.first') }}</button>
+      <button :disabled="page <= 1" @click="goToPage(page - 1)" class="page-btn">{{ t('records.prev') }}</button>
+      <span class="page-info">{{ t('records.pageInfo', { page, totalPages, total }) }}</span>
+      <button :disabled="page >= totalPages" @click="goToPage(page + 1)" class="page-btn">{{ t('records.next') }}</button>
+      <button :disabled="page >= totalPages" @click="goToPage(totalPages)" class="page-btn">{{ t('records.last') }}</button>
     </div>
     <div v-else-if="total > 0" class="pagination">
-      <span class="page-info">共 {{ total }} 条</span>
+      <span class="page-info">{{ t('records.totalOnly', { total }) }}</span>
     </div>
   </div>
 </template>
@@ -223,6 +232,8 @@ loadData()
   padding: 24px;
   max-width: 1200px;
   margin: 0 auto;
+  max-height: 100vh;
+  overflow-y: auto;
 }
 
 .page-header h1 {
@@ -340,6 +351,15 @@ loadData()
   text-align: center;
   color: #999;
   font-size: 14px;
+}
+
+.error-state {
+  padding: 40px;
+  text-align: center;
+  color: #ff3b30;
+  font-size: 14px;
+  background: #fff0f0;
+  border-radius: 12px;
 }
 
 .pagination {

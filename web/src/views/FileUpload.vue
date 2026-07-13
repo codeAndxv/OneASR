@@ -1,6 +1,6 @@
 <template>
   <div class="file-upload-page">
-    <h2>上传管理</h2>
+    <h2>{{ t('upload.title') }}</h2>
     
     <!-- 上传区域 -->
     <div class="upload-section">
@@ -21,8 +21,8 @@
           @change="handleFileSelect"
         />
         <div class="upload-icon">⬆️</div>
-        <p>拖拽文件到此处，或点击选择文件</p>
-        <p class="upload-hint">支持格式：mp3, wav, m4a, flac, mp4, mov, avi, mkv 等</p>
+        <p>{{ t('upload.dropHint') }}</p>
+        <p class="upload-hint">{{ t('upload.dropFormats') }}</p>
       </div>
       
       <!-- 上传进度 -->
@@ -40,22 +40,22 @@
     
     <!-- 已上传文件列表 -->
     <div class="files-section">
-      <h3>已上传文件 ({{ files.length }})</h3>
-      
-      <div v-if="loading" class="loading">加载中...</div>
-      
+      <h3>{{ t('upload.uploadedFiles') }} ({{ files.length }})</h3>
+
+      <div v-if="loading" class="loading">{{ t('upload.loading') }}</div>
+
       <div v-else-if="files.length === 0" class="empty-state">
-        暂无已上传的文件
+        {{ t('upload.empty') }}
       </div>
       
       <table v-else class="files-table">
         <thead>
           <tr>
-            <th>文件名</th>
-            <th>大小</th>
-            <th>上传时间</th>
-            <th>UUID</th>
-            <th>操作</th>
+            <th>{{ t('upload.fileName') }}</th>
+            <th>{{ t('upload.fileSize') }}</th>
+            <th>{{ t('upload.uploadTime') }}</th>
+            <th>{{ t('upload.uuid') }}</th>
+            <th>{{ t('upload.actions') }}</th>
           </tr>
         </thead>
         <tbody>
@@ -65,11 +65,11 @@
             <td>{{ formatDate(file.created_at) }}</td>
             <td class="uuid-cell">
               <code>{{ file.file_id }}</code>
-              <button class="copy-btn" @click="copyUuid(file.file_id)">复制</button>
+              <button class="copy-btn" @click="copyUuid(file.file_id)">{{ t('upload.copy') }}</button>
             </td>
             <td class="actions-cell">
-              <button class="btn btn-primary" @click="transcribeFile(file)">转录</button>
-              <button class="btn btn-danger" @click="deleteFile(file)">删除</button>
+              <button class="btn btn-primary" @click="transcribeFile(file)">{{ t('upload.transcribe') }}</button>
+              <button class="btn btn-danger" @click="deleteFile(file)">{{ t('upload.delete') }}</button>
             </td>
           </tr>
         </tbody>
@@ -80,6 +80,9 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const API_BASE = 'http://127.0.0.1:8020'
 const API_KEY = 'oneasr-key'
@@ -154,12 +157,12 @@ const uploadFiles = async (filesToUpload) => {
           }, 1000)
           loadFiles()
         } else {
-          item.error = '上传失败'
+          item.error = t('upload.uploadFail')
         }
       })
-      
+
       xhr.addEventListener('error', () => {
-        item.error = '上传失败'
+        item.error = t('upload.uploadFail')
       })
       
       xhr.open('POST', `${API_BASE}/api/v1/files/upload`)
@@ -174,7 +177,7 @@ const uploadFiles = async (filesToUpload) => {
 
 // 删除文件
 const deleteFile = async (file) => {
-  if (!confirm(`确定要删除文件 "${file.filename}" 吗？`)) {
+  if (!confirm(t('upload.deleteConfirm', { name: file.filename }))) {
     return
   }
   
@@ -187,7 +190,7 @@ const deleteFile = async (file) => {
     if (res.ok) {
       loadFiles()
     } else {
-      alert('删除失败')
+      alert(t('upload.deleteFail'))
     }
   } catch (e) {
     alert('删除失败: ' + e.message)
@@ -197,7 +200,7 @@ const deleteFile = async (file) => {
 // 复制UUID
 const copyUuid = (uuid) => {
   navigator.clipboard.writeText(uuid)
-  alert('UUID 已复制到剪贴板')
+  alert(t('upload.uuidCopied'))
 }
 
 // 转录文件

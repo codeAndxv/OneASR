@@ -1,5 +1,6 @@
 """数据库连接与配置。"""
 
+import os
 import logging
 from pathlib import Path
 
@@ -10,7 +11,10 @@ from app.db.base import Base
 logger = logging.getLogger(__name__)
 
 DATABASE_DIR = Path(__file__).parent.parent.parent / "data"
-DATABASE_URL = f"sqlite+aiosqlite:///{DATABASE_DIR / 'oneasr.db'}"
+
+# 测试环境使用独立数据库，避免污染生产数据
+_db_name = "oneasr_test.db" if os.environ.get("PYTEST_CURRENT_TEST") else "oneasr.db"
+DATABASE_URL = f"sqlite+aiosqlite:///{DATABASE_DIR / _db_name}"
 
 engine = create_async_engine(DATABASE_URL, echo=False)
 async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)

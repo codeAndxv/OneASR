@@ -1,6 +1,9 @@
 <script setup>
 import { ref, onMounted, nextTick } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { getEngines, transcribeFileStream, transcribeUrlStream, transcribeFile, transcribeUrl, getStoredApiKey } from '../api'
+
+const { t } = useI18n()
 
 const engines = ref([])
 const selectedEngine = ref('')
@@ -129,7 +132,7 @@ function onError(e) {
 
 function startTranscribe() {
   if (!getStoredApiKey()) {
-    error.value = '请先在设置中配置 API Key'
+    error.value = t('transcribe.errorApiKey')
     return
   }
   error.value = ''
@@ -142,14 +145,14 @@ function startTranscribe() {
     // 流式模式：调用 SSE 流式接口
     if (inputMode.value === 'file') {
       if (!file.value) {
-        error.value = '请选择文件'
+        error.value = t('transcribe.errorNoFile')
         isTranscribing.value = false
         return
       }
       xhr = transcribeFileStream(file.value, selectedEngine.value, onSegment, onDone, onError)
     } else {
       if (!url.value.trim()) {
-        error.value = '请输入 URL'
+        error.value = t('transcribe.errorNoUrl')
         isTranscribing.value = false
         return
       }
@@ -166,14 +169,14 @@ async function transcribeFileOrUrl() {
     let result
     if (inputMode.value === 'file') {
       if (!file.value) {
-        error.value = '请选择文件'
+        error.value = t('transcribe.errorNoFile')
         isTranscribing.value = false
         return
       }
       result = await transcribeFile(file.value, selectedEngine.value, 'json')
     } else {
       if (!url.value.trim()) {
-        error.value = '请输入 URL'
+        error.value = t('transcribe.errorNoUrl')
         isTranscribing.value = false
         return
       }
@@ -228,8 +231,8 @@ function copyResult() {
     <div class="left-col">
       <div class="card input-card">
         <div class="card-header">
-          <h2>语音识别</h2>
-          <p class="subtitle">上传音视频文件或输入 URL，实时获取识别结果</p>
+          <h2>{{ t('transcribe.title') }}</h2>
+          <p class="subtitle">{{ t('transcribe.subtitle') }}</p>
         </div>
 
         <div class="mode-tabs">
@@ -237,13 +240,13 @@ function copyResult() {
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/>
             </svg>
-            本地文件
+            {{ t('transcribe.localFile') }}
           </button>
           <button :class="{ active: inputMode === 'url' }" @click="inputMode = 'url'">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
             </svg>
-            URL 输入
+            {{ t('transcribe.urlInput') }}
           </button>
         </div>
 
@@ -263,8 +266,8 @@ function copyResult() {
                     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
                   </svg>
                 </div>
-                <span class="drop-text">拖拽文件到此处，或点击选择</span>
-                <span class="drop-hint">支持音频、视频格式</span>
+                <span class="drop-text">{{ t('transcribe.dropHint') }}</span>
+                <span class="drop-hint">{{ t('transcribe.dropFormats') }}</span>
               </template>
               <template v-else>
                 <div class="file-info">
@@ -285,11 +288,11 @@ function copyResult() {
         </div>
 
         <div v-else class="url-area">
-          <input v-model="url" type="text" placeholder="输入音视频 URL（如 YouTube、Bilibili 链接）" class="url-input" />
+          <input v-model="url" type="text" :placeholder="t('transcribe.urlPlaceholder')" class="url-input" />
         </div>
 
         <div class="engine-row">
-          <label class="engine-label">识别引擎</label>
+          <label class="engine-label">{{ t('transcribe.engine') }}</label>
           <select v-model="selectedEngine" class="engine-select">
             <option v-for="eng in engines" :key="eng.name" :value="eng.name">
               {{ eng.name }} — {{ eng.model_name }}
@@ -300,9 +303,9 @@ function copyResult() {
         <div class="streaming-row">
           <label class="streaming-label">
             <input type="checkbox" v-model="streamingEnabled" class="streaming-checkbox" />
-            <span>流式返回</span>
+            <span>{{ t('transcribe.streaming') }}</span>
           </label>
-          <span class="streaming-hint">{{ streamingEnabled ? '实时显示识别进度' : '等待完整结果' }}</span>
+          <span class="streaming-hint">{{ streamingEnabled ? t('transcribe.streamingHintRealtime') : t('transcribe.streamingHintWait') }}</span>
         </div>
 
         <p v-if="error" class="error-msg">
@@ -317,13 +320,13 @@ function copyResult() {
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <polygon points="5 3 19 12 5 21 5 3"/>
             </svg>
-            开始识别
+            {{ t('transcribe.start') }}
           </button>
           <button v-else class="btn-stop" @click="cancelTranscribe">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <rect x="6" y="6" width="12" height="12" rx="2"/>
             </svg>
-            停止
+            {{ t('transcribe.stop') }}
           </button>
         </div>
       </div>
@@ -334,22 +337,22 @@ function copyResult() {
       <div class="card result-card">
         <div class="result-toolbar">
           <div class="result-tabs">
-            <button :class="{ active: activeTab === 'srt' }" @click="activeTab = 'srt'">SRT 字幕</button>
-            <button :class="{ active: activeTab === 'text' }" @click="activeTab = 'text'">纯文本</button>
+            <button :class="{ active: activeTab === 'srt' }" @click="activeTab = 'srt'">{{ t('transcribe.srtTab') }}</button>
+            <button :class="{ active: activeTab === 'text' }" @click="activeTab = 'text'">{{ t('transcribe.textTab') }}</button>
           </div>
           <div class="result-actions">
             <span v-if="isTranscribing" class="status-badge running">
-              <span class="pulse"></span> 识别中...
+              <span class="pulse"></span> {{ t('transcribe.recognizing') }}
             </span>
             <span v-else-if="segments.length" class="status-badge done">
-              {{ resultText ? '完成' : '就绪' }}
+              {{ resultText ? t('transcribe.completed') : t('transcribe.ready') }}
             </span>
-            <button v-if="resultText" class="icon-btn" title="复制" @click="copyResult">
+            <button v-if="resultText" class="icon-btn" :title="t('transcribe.copy')" @click="copyResult">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
               </svg>
             </button>
-            <button v-if="resultText" class="icon-btn" title="保存 SRT" @click="saveResult">
+            <button v-if="resultText" class="icon-btn" :title="t('transcribe.saveSrt')" @click="saveResult">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
               </svg>
@@ -362,8 +365,8 @@ function copyResult() {
             <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round">
               <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/>
             </svg>
-            <p>选择文件并开始识别</p>
-            <span>识别结果将在此处实时显示</span>
+            <p>{{ t('transcribe.emptyTitle') }}</p>
+            <span>{{ t('transcribe.emptyHint') }}</span>
           </div>
         </div>
       </div>

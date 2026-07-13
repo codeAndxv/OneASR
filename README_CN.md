@@ -48,7 +48,7 @@ npm install
 npm run dev
 ```
 
-前端运行在 `http://localhost:3000`，自动代理 API 请求到后端。
+前端运行在 `http://localhost:3020`，自动代理 API 请求到后端。
 
 ### 一键启动（两个终端）
 
@@ -76,7 +76,7 @@ curl -H "X-API-Key: oneasr-key" http://localhost:8020/api/v1/engines
 ```
 
 启动后访问：
-- 前端界面：`http://localhost:3000`
+- 前端界面：`http://localhost:3020`
 - API 文档：`http://localhost:8020/docs`
 - 健康检查：`http://localhost:8020/health`
 

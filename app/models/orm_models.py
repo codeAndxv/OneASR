@@ -1,10 +1,14 @@
 """ORM 数据模型定义。"""
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import Boolean, Column, DateTime, Float, Integer, String, Text
 
 from app.db.base import Base
+
+
+def _utcnow():
+    return datetime.now(timezone.utc)
 
 
 class UploadedFile(Base):
@@ -17,7 +21,7 @@ class UploadedFile(Base):
     file_md5 = Column(String(32), nullable=False, index=True, comment="文件 MD5")
     storage_path = Column(String(1024), nullable=False, comment="磁盘存储路径")
     content_type = Column(String(128), nullable=True, comment="MIME 类型")
-    created_at = Column(DateTime, default=datetime.utcnow, comment="上传时间")
+    created_at = Column(DateTime(timezone=True), default=_utcnow, comment="上传时间")
 
 
 class FileTranscriptionRecord(Base):
@@ -38,8 +42,8 @@ class FileTranscriptionRecord(Base):
     total_time = Column(Float, nullable=True, comment="转录总耗时（秒）")
     is_completed = Column(Boolean, default=False, nullable=False, comment="是否完成")
     error_message = Column(Text, nullable=True, comment="失败信息")
-    completed_at = Column(DateTime, nullable=True, comment="完成时间")
-    created_at = Column(DateTime, default=datetime.utcnow, comment="请求时间")
+    completed_at = Column(DateTime(timezone=True), nullable=True, comment="完成时间")
+    created_at = Column(DateTime(timezone=True), default=_utcnow, comment="请求时间")
 
 
 class StreamingRecord(Base):
@@ -55,5 +59,5 @@ class StreamingRecord(Base):
     total_time = Column(Float, nullable=True, comment="会话总耗时（秒）")
     is_completed = Column(Boolean, default=False, nullable=False, comment="是否完成")
     error_message = Column(Text, nullable=True, comment="失败信息")
-    completed_at = Column(DateTime, nullable=True, comment="完成时间")
-    created_at = Column(DateTime, default=datetime.utcnow, comment="连接时间")
+    completed_at = Column(DateTime(timezone=True), nullable=True, comment="完成时间")
+    created_at = Column(DateTime(timezone=True), default=_utcnow, comment="连接时间")

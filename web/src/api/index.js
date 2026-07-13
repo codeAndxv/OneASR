@@ -1,6 +1,7 @@
 // 后端直连地址（SSE 流式请求绕过 Vite proxy，避免缓冲）
 const API_BASE = 'http://127.0.0.1:8020'
-const PROXY_BASE = '/api/v1'
+// 代理地址（通过 Vite proxy，避免 CORS）
+const PROXY_API = '/api/v1'
 
 function getApiKey() {
   return localStorage.getItem('api_key') || ''
@@ -14,14 +15,33 @@ export function getStoredApiKey() {
   return getApiKey()
 }
 
+// auth error 回调，由 Layout.vue 注入翻译后的消息
+let _authErrorCallback = null
+export function onAuthError(fn) {
+  _authErrorCallback = fn
+}
+
+/**
+ * 统一请求封装：自动携带 API Key，401 时触发全局提示
+ */
+async function apiFetch(url, options = {}) {
+  const headers = { 'X-API-Key': getApiKey(), ...options.headers }
+  const res = await fetch(url, { ...options, headers })
+
+  if (res.status === 401) {
+    const { showAuthError } = await import('../utils/notifications.js')
+    const msg = _authErrorCallback ? _authErrorCallback() : 'API Key not configured or invalid'
+    showAuthError(msg)
+    throw new Error(msg)
+  }
+  return res
+}
+
 /**
  * 获取可用引擎列表（新接口）
  */
 export async function getEngines() {
-  const res = await fetch(`${API_BASE}/api/v1/audio/models`, {
-    headers: { 'X-API-Key': getApiKey() },
-  })
-  if (res.status === 401) throw new Error('API Key 无效')
+  const res = await apiFetch(`${API_BASE}/api/v1/audio/models`)
   const data = await res.json()
   // 转换为兼容格式
   return {
@@ -38,10 +58,7 @@ export async function getEngines() {
  * 获取可用引擎列表（旧接口，兼容）
  */
 export async function getEnginesLegacy() {
-  const res = await fetch(`${PROXY_BASE}/engines`, {
-    headers: { 'X-API-Key': getApiKey() },
-  })
-  if (res.status === 401) throw new Error('API Key 无效')
+  const res = await apiFetch(`${PROXY_API}/engines`)
   return res.json()
 }
 
@@ -52,13 +69,10 @@ export async function getEnginesLegacy() {
 async function streamSse(url, body, onSegment, onDone, onError, ctrl) {
   try {
     const isJson = typeof body === 'string'
-    const res = await fetch(url, {
+    const res = await apiFetch(url, {
       method: 'POST',
       signal: ctrl?.signal,
-      headers: {
-        'X-API-Key': getApiKey(),
-        ...(isJson ? { 'Content-Type': 'application/json' } : {}),
-      },
+      headers: isJson ? { 'Content-Type': 'application/json' } : {},
       body,
     })
 
@@ -103,7 +117,7 @@ async function streamSse(url, body, onSegment, onDone, onError, ctrl) {
     // 流结束但没有收到 done 事件
     onDone()
   } catch (err) {
-    onError(err.message === 'Failed to fetch' ? new Error('无法连接后端服务') : err)
+    onError(err.message === 'Failed to fetch' ? new Error('Cannot connect to backend service') : err)
   }
 }
 
@@ -156,9 +170,8 @@ export async function transcribeFile(file, engine, format = 'json') {
   if (engine) form.append('model', engine)
   form.append('response_format', format)
 
-  const res = await fetch(`${API_BASE}/api/v1/audio/transcriptions`, {
+  const res = await apiFetch(`${API_BASE}/api/v1/audio/transcriptions`, {
     method: 'POST',
-    headers: { 'X-API-Key': getApiKey() },
     body: form,
   })
 
@@ -182,9 +195,8 @@ export async function transcribeUrl(url, engine, format = 'json') {
   if (engine) form.append('model', engine)
   form.append('response_format', format)
 
-  const res = await fetch(`${API_BASE}/api/v1/audio/transcriptions`, {
+  const res = await apiFetch(`${API_BASE}/api/v1/audio/transcriptions`, {
     method: 'POST',
-    headers: { 'X-API-Key': getApiKey() },
     body: form,
   })
 
@@ -208,25 +220,31 @@ export async function uploadFile(file, onProgress) {
 
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
-    
+
     xhr.upload.addEventListener('progress', (e) => {
       if (e.lengthComputable && onProgress) {
         onProgress(Math.round((e.loaded / e.total) * 100))
       }
     })
-    
+
     xhr.addEventListener('load', () => {
+      if (xhr.status === 401) {
+        const msg = _authErrorCallback ? _authErrorCallback() : 'API Key not configured or invalid'
+        import('../utils/notifications.js').then(({ showAuthError }) => showAuthError(msg))
+        reject(new Error(msg))
+        return
+      }
       if (xhr.status >= 200 && xhr.status < 300) {
         resolve(JSON.parse(xhr.responseText))
       } else {
         reject(new Error(xhr.responseText || '上传失败'))
       }
     })
-    
+
     xhr.addEventListener('error', () => {
       reject(new Error('上传失败'))
     })
-    
+
     xhr.open('POST', `${API_BASE}/api/v1/files/upload`)
     xhr.setRequestHeader('X-API-Key', getApiKey())
     xhr.send(form)
@@ -237,14 +255,8 @@ export async function uploadFile(file, onProgress) {
  * 获取已上传文件列表
  */
 export async function listUploadedFiles() {
-  const res = await fetch(`${API_BASE}/api/v1/files/list`, {
-    headers: { 'X-API-Key': getApiKey() },
-  })
-  
-  if (!res.ok) {
-    throw new Error('获取文件列表失败')
-  }
-  
+  const res = await apiFetch(`${API_BASE}/api/v1/files/list`)
+  if (!res.ok) throw new Error('获取文件列表失败')
   return res.json()
 }
 
@@ -252,15 +264,8 @@ export async function listUploadedFiles() {
  * 删除已上传文件
  */
 export async function deleteUploadedFile(fileId) {
-  const res = await fetch(`${API_BASE}/api/v1/files/${fileId}`, {
-    method: 'DELETE',
-    headers: { 'X-API-Key': getApiKey() },
-  })
-  
-  if (!res.ok) {
-    throw new Error('删除文件失败')
-  }
-  
+  const res = await apiFetch(`${API_BASE}/api/v1/files/${fileId}`, { method: 'DELETE' })
+  if (!res.ok) throw new Error('删除文件失败')
   return res.json()
 }
 
@@ -274,9 +279,8 @@ export async function transcribeByUuid(fileUuid, engine, format = 'json', langua
   form.append('response_format', format)
   if (language) form.append('language', language)
 
-  const res = await fetch(`${API_BASE}/api/v1/audio/transcriptions`, {
+  const res = await apiFetch(`${API_BASE}/api/v1/audio/transcriptions`, {
     method: 'POST',
-    headers: { 'X-API-Key': getApiKey() },
     body: form,
   })
 
@@ -307,9 +311,7 @@ function buildRecordParams(params) {
  */
 export async function getUploadRecords(params = {}) {
   const qs = buildRecordParams({ page: 1, page_size: 20, sort_by: 'created_at', sort_order: 'desc', ...params })
-  const res = await fetch(`${API_BASE}/api/v1/records/uploads?${qs}`, {
-    headers: { 'X-API-Key': getApiKey() },
-  })
+  const res = await apiFetch(`${PROXY_API}/records/uploads?${qs}`)
   if (!res.ok) throw new Error('获取上传记录失败')
   return res.json()
 }
@@ -319,9 +321,7 @@ export async function getUploadRecords(params = {}) {
  */
 export async function getFileTranscriptionRecords(params = {}) {
   const qs = buildRecordParams({ page: 1, page_size: 20, sort_by: 'created_at', sort_order: 'desc', ...params })
-  const res = await fetch(`${API_BASE}/api/v1/records/file-transcriptions?${qs}`, {
-    headers: { 'X-API-Key': getApiKey() },
-  })
+  const res = await apiFetch(`${PROXY_API}/records/file-transcriptions?${qs}`)
   if (!res.ok) throw new Error('获取转录记录失败')
   return res.json()
 }
@@ -331,9 +331,7 @@ export async function getFileTranscriptionRecords(params = {}) {
  */
 export async function getStreamingRecords(params = {}) {
   const qs = buildRecordParams({ page: 1, page_size: 20, sort_by: 'created_at', sort_order: 'desc', ...params })
-  const res = await fetch(`${API_BASE}/api/v1/records/streaming?${qs}`, {
-    headers: { 'X-API-Key': getApiKey() },
-  })
+  const res = await apiFetch(`${PROXY_API}/records/streaming?${qs}`)
   if (!res.ok) throw new Error('获取流式记录失败')
   return res.json()
 }

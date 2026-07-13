@@ -1,16 +1,23 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { setApiKey, getStoredApiKey } from '../api'
+import { useI18n } from 'vue-i18n'
+import { setApiKey, getStoredApiKey, onAuthError } from '../api'
+import { useAuthError, hideAuthError } from '../utils/notifications'
+import { setLocale, getLocale } from '../i18n'
 
+const { t } = useI18n()
 const router = useRouter()
 const showSettings = ref(false)
 const apiKey = ref('')
 const language = ref(localStorage.getItem('asr_language') || 'auto')
 const outputFormat = ref(localStorage.getItem('asr_format') || 'srt')
+const authError = useAuthError()
+const uiLocale = ref(getLocale())
 
 onMounted(() => {
   apiKey.value = getStoredApiKey()
+  onAuthError(() => t('authError.message'))
 })
 
 function saveSettings() {
@@ -19,6 +26,11 @@ function saveSettings() {
   localStorage.setItem('asr_format', outputFormat.value)
   showSettings.value = false
   location.reload()
+}
+
+function switchLocale(locale) {
+  setLocale(locale)
+  uiLocale.value = locale
 }
 
 function goTo(path) {
@@ -43,7 +55,7 @@ function goTo(path) {
               <line x1="8" y1="23" x2="16" y2="23"/>
             </svg>
           </span>
-          <span class="nav-label">语音识别</span>
+          <span class="nav-label">{{ t('nav.transcribe') }}</span>
         </button>
         <button @click="goTo('/files')" class="nav-item">
           <span class="nav-icon">
@@ -53,7 +65,7 @@ function goTo(path) {
               <line x1="12" y1="3" x2="12" y2="15"/>
             </svg>
           </span>
-          <span class="nav-label">上传管理</span>
+          <span class="nav-label">{{ t('nav.upload') }}</span>
         </button>
         <button @click="goTo('/records')" class="nav-item">
           <span class="nav-icon">
@@ -65,7 +77,7 @@ function goTo(path) {
               <polyline points="10 9 9 9 8 9"/>
             </svg>
           </span>
-          <span class="nav-label">记录管理</span>
+          <span class="nav-label">{{ t('nav.records') }}</span>
         </button>
       </nav>
       <div class="sidebar-footer">
@@ -73,11 +85,18 @@ function goTo(path) {
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
           </svg>
-          <span>设置</span>
+          <span>{{ t('nav.settings') }}</span>
         </button>
       </div>
     </aside>
     <div class="main-area">
+      <div class="topbar">
+        <div class="topbar-right">
+          <button class="locale-btn" @click="switchLocale(uiLocale === 'zh' ? 'en' : 'zh')">
+            {{ uiLocale === 'zh' ? 'EN' : '中' }}
+          </button>
+        </div>
+      </div>
       <main class="content">
         <router-view />
       </main>
@@ -89,47 +108,59 @@ function goTo(path) {
         <div v-if="showSettings" class="overlay" @click.self="showSettings = false">
           <div class="modal">
             <div class="modal-header">
-              <h3>设置</h3>
+              <h3>{{ t('settings.title') }}</h3>
               <button class="modal-close" @click="showSettings = false">&times;</button>
             </div>
             <div class="modal-body">
               <div class="field">
-                <label>API Key</label>
+                <label>{{ t('settings.apiKey') }}</label>
                 <input
                   v-model="apiKey"
                   type="password"
-                  placeholder="输入 API Key"
+                  :placeholder="t('settings.apiKeyPlaceholder')"
                   @keyup.enter="saveSettings"
                 />
+                <p class="field-hint">{{ t('settings.apiKeyHint') }}</p>
               </div>
               <div class="field">
-                <label>识别语言</label>
+                <label>{{ t('settings.asrLanguage') }}</label>
                 <select v-model="language" class="field-select">
-                  <option value="auto">自动检测</option>
+                  <option value="auto">{{ t('settings.autoDetect') }}</option>
                   <option value="zh">中文</option>
-                  <option value="en">英文</option>
-                  <option value="ja">日文</option>
-                  <option value="ko">韩文</option>
+                  <option value="en">English</option>
+                  <option value="ja">日本語</option>
+                  <option value="ko">한국어</option>
                 </select>
               </div>
               <div class="field">
-                <label>默认输出格式</label>
+                <label>{{ t('settings.outputFormat') }}</label>
                 <select v-model="outputFormat" class="field-select">
-                  <option value="srt">SRT 字幕</option>
-                  <option value="text">纯文本</option>
+                  <option value="srt">SRT</option>
+                  <option value="text">Text</option>
                   <option value="vtt">WebVTT</option>
                   <option value="json">JSON</option>
                 </select>
               </div>
             </div>
             <div class="modal-actions">
-              <button class="btn-cancel" @click="showSettings = false">取消</button>
-              <button class="btn-save" @click="saveSettings">保存</button>
+              <button class="btn-cancel" @click="showSettings = false">{{ t('settings.cancel') }}</button>
+              <button class="btn-save" @click="saveSettings">{{ t('settings.save') }}</button>
             </div>
           </div>
         </div>
       </Transition>
     </Teleport>
+
+    <!-- 全局 401 错误提示 -->
+    <Transition name="toast-slide">
+      <div v-if="authError.visible" class="auth-toast" @click="hideAuthError">
+        <svg class="toast-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+        </svg>
+        <span>{{ authError.message }}</span>
+        <span class="toast-hint">{{ t('authError.dismiss') }}</span>
+      </div>
+    </Transition>
   </div>
 </template>
 
@@ -167,6 +198,23 @@ function goTo(path) {
   background: linear-gradient(135deg, #667eea, #a78bfa);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
+}
+
+.locale-btn {
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #666;
+  background: #f0f0f0;
+  border: 1px solid #d2d2d7;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.locale-btn:hover {
+  color: #333;
+  background: #e0e0e0;
 }
 
 nav {
@@ -237,6 +285,21 @@ nav {
   display: flex;
   flex-direction: column;
   min-height: 0;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 10px 20px;
+  background: #f0f2f5;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .content {
@@ -333,6 +396,13 @@ nav {
   border-color: #667eea;
 }
 
+.field-hint {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: #999;
+  line-height: 1.4;
+}
+
 .modal-actions {
   display: flex;
   justify-content: flex-end;
@@ -380,5 +450,56 @@ nav {
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
+}
+
+/* Auth error toast */
+.auth-toast {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 20px;
+  background: #fff0f0;
+  border: 1.5px solid #ffcdd2;
+  border-radius: 12px;
+  color: #c62828;
+  font-size: 14px;
+  font-weight: 500;
+  box-shadow: 0 4px 20px rgba(198, 40, 40, 0.12);
+  cursor: pointer;
+  z-index: 200;
+  max-width: 480px;
+}
+
+.auth-toast .toast-icon {
+  flex-shrink: 0;
+  color: #e53935;
+}
+
+.auth-toast .toast-hint {
+  margin-left: 8px;
+  font-size: 12px;
+  color: #ef9a9a;
+  font-weight: 400;
+}
+
+.toast-slide-enter-active {
+  transition: all 0.3s ease;
+}
+
+.toast-slide-leave-active {
+  transition: all 0.2s ease;
+}
+
+.toast-slide-enter-from {
+  opacity: 0;
+  transform: translateY(-12px);
+}
+
+.toast-slide-leave-to {
+  opacity: 0;
+  transform: translateX(20px);
 }
 </style>

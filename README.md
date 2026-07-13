@@ -50,7 +50,7 @@ npm install
 npm run dev
 ```
 
-The frontend runs at `http://localhost:3000` and automatically proxies API requests to the backend.
+The frontend runs at `http://localhost:3020` and automatically proxies API requests to the backend.
 
 ### Quick Launch (Two Terminals)
 
@@ -78,7 +78,7 @@ curl -H "X-API-Key: oneasr-key" http://localhost:8020/api/v1/engines
 ```
 
 After startup:
-- Frontend UI: `http://localhost:3000`
+- Frontend UI: `http://localhost:3020`
 - API Docs: `http://localhost:8020/docs`
 - Health Check: `http://localhost:8020/health`
 

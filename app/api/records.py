@@ -1,7 +1,7 @@
 """转录记录查询 API。"""
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -40,6 +40,9 @@ def _row_to_dict(row) -> dict:
     d = {c.key: getattr(row, c.key) for c in row.__table__.columns}
     for k, v in d.items():
         if isinstance(v, datetime):
+            # 确保所有 datetime 带时区信息，前端 new Date() 才能正确转本地时间
+            if v.tzinfo is None:
+                v = v.replace(tzinfo=timezone.utc)
             d[k] = v.isoformat()
     return d
 
