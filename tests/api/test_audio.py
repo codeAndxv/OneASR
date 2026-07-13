@@ -38,7 +38,7 @@ class TestAudioTranscriptionsEndpoint:
         resp = client.post(
             "/api/v1/audio/transcriptions",
             headers={"X-API-Key": "oneasr-key"},
-            data={"model": "faster-whisper"},
+            data={"model": "whisper1"},
         )
         assert resp.status_code == 400
         assert "必须提供" in resp.json()["detail"]
@@ -58,7 +58,7 @@ class TestAudioTranscriptionsEndpoint:
             "/api/v1/audio/transcriptions",
             headers={"X-API-Key": "oneasr-key"},
             files={"file": ("test.wav", buf, "audio/wav")},
-            data={"model": "faster-whisper", "response_format": "json"},
+            data={"model": "whisper1", "response_format": "json"},
         )
         assert resp.status_code == 200
         data = resp.json()
@@ -80,7 +80,7 @@ class TestAudioTranscriptionsEndpoint:
             "/api/v1/audio/transcriptions",
             headers={"X-API-Key": "oneasr-key"},
             files={"file": ("test.wav", buf, "audio/wav")},
-            data={"model": "faster-whisper", "response_format": "text"},
+            data={"model": "whisper1", "response_format": "text"},
         )
         assert resp.status_code == 200
         assert resp.headers["content-type"] == "text/plain; charset=utf-8"
@@ -105,7 +105,7 @@ class TestAudioTranscriptionsEndpoint:
             headers={"X-API-Key": "oneasr-key"},
             data={
                 "file_uuid": file_id,
-                "model": "faster-whisper",
+                "model": "whisper1",
                 "response_format": "json",
             },
         )
@@ -119,7 +119,7 @@ class TestAudioTranscriptionsEndpoint:
             headers={"X-API-Key": "oneasr-key"},
             data={
                 "file_uuid": "nonexistent-uuid",
-                "model": "faster-whisper",
+                "model": "whisper1",
             },
         )
         assert resp.status_code == 404
@@ -135,7 +135,7 @@ class TestAudioTranscriptionsEndpoint:
             "/api/v1/audio/transcriptions",
             headers={"X-API-Key": "oneasr-key"},
             files=files,
-            data={"model": "faster-whisper"},
+            data={"model": "whisper1"},
         )
         assert resp.status_code == 400
         assert "文件大小超过限制" in resp.json()["detail"] or "25MB" in resp.json()["detail"]
@@ -154,7 +154,7 @@ class TestAudioTranscriptionsEndpoint:
             "/api/v1/audio/transcriptions",
             headers={"X-API-Key": "oneasr-key"},
             files={"file": ("test.wav", buf, "audio/wav")},
-            data={"model": "faster-whisper", "stream": "true"},
+            data={"model": "whisper1", "stream": "true"},
         )
         assert resp.status_code == 200
         assert "text/event-stream" in resp.headers["content-type"]
@@ -190,7 +190,7 @@ class TestAudioTranscriptionsEndpoint:
             headers={"X-API-Key": "oneasr-key"},
             data={
                 "file_uuid": file_id,
-                "model": "faster-whisper",
+                "model": "whisper1",
                 "stream": "true",
             },
         )
@@ -208,7 +208,7 @@ class TestAudioTranscriptionsEndpoint:
             "/api/v1/audio/transcriptions",
             headers={"X-API-Key": "oneasr-key"},
             files=files,
-            data={"model": "faster-whisper", "response_format": "json"},
+            data={"model": "whisper1", "response_format": "json"},
         )
         # MP4 应该被接受（422 错误表示格式不被接受）
         # 实际转录可能失败（因为假数据），但不应该返回 422
@@ -225,7 +225,7 @@ class TestAudioTranscriptionsEndpoint:
             "/api/v1/audio/transcriptions",
             headers={"X-API-Key": "oneasr-key"},
             files=files,
-            data={"model": "faster-whisper", "response_format": "json"},
+            data={"model": "whisper1", "response_format": "json"},
         )
         assert resp.status_code != 422, f"M4A 格式不应返回 422: {resp.json()}"
         assert resp.status_code in [200, 400, 500]
@@ -273,7 +273,7 @@ class TestRealFileTranscription:
             headers={"X-API-Key": "oneasr-key"},
             data={
                 "file_uuid": file_id,
-                "model": "faster-whisper",
+                "model": "whisper1",
                 "response_format": "verbose_json",
             },
         )
@@ -301,7 +301,7 @@ class TestRealFileTranscription:
             headers={"X-API-Key": "oneasr-key"},
             data={
                 "file_uuid": file_id,
-                "model": "faster-whisper",
+                "model": "whisper1",
                 "response_format": "json",
             },
         )
@@ -326,7 +326,7 @@ class TestRealFileTranscription:
             headers={"X-API-Key": "oneasr-key"},
             data={
                 "file_uuid": file_id,
-                "model": "faster-whisper",
+                "model": "whisper1",
                 "response_format": "text",
             },
         )
@@ -350,7 +350,7 @@ class TestRealFileTranscription:
             headers={"X-API-Key": "oneasr-key"},
             data={
                 "file_uuid": file_id,
-                "model": "faster-whisper",
+                "model": "whisper1",
                 "stream": "true",
             },
         )

@@ -241,19 +241,17 @@ Edit `config.yaml` to configure API Key and engines:
 ```yaml
 api_key: oneasr-key
 
-default_engine: faster-whisper
+default_provider: whisper1
 
-engines:
-  faster-whisper:
+providers:
+  whisper1:
+    engine: faster-whisper
     type: local
     model_name: medium
     device: cpu
     compute_type: int8
-  firered:
-    type: local
-    model_name: aed
-    device: cpu
-  whisperlivekit:
+  wlk-live:
+    engine: whisperlivekit
     type: local
     model_name: base
     device: cpu
@@ -304,7 +302,7 @@ OneASR/
 ├── cli/                          # CLI tools
 │   ├── clip.py                   # Media clipping tool
 │   ├── converter.py              # Audio converter
-│   └── wlk_client.py             # WhisperLiveKit WebSocket client
+│   └── whisperlivekit_client.py     # WhisperLiveKit WebSocket client
 ├── web/                          # Vue.js frontend
 │   ├── src/
 │   │   ├── api/index.js          # API service layer (SSE streaming)

@@ -42,7 +42,7 @@ async def test_whisper():
     """测试 Whisper 引擎。"""
     from app.engines.whisper_engine import WhisperEngine
 
-    config = app_config.get_engine_config("faster-whisper")
+    config = app_config.get_provider_config("whisper1")
     config.model_name = "medium"  # 使用 medium 模型
     engine = WhisperEngine(config)
     return await test_engine("faster-whisper", engine, TEST_FILE.read_bytes())
@@ -52,7 +52,7 @@ async def test_firered():
     """测试 FireRedASR 引擎。"""
     from app.engines.firered_engine import FireRedEngine
 
-    config = app_config.get_engine_config("firered")
+    config = app_config.get_provider_config("firered")
     engine = FireRedEngine(config)
     return await test_engine("firered", engine, TEST_FILE.read_bytes())
 
@@ -66,7 +66,8 @@ async def test_openai():
         print("跳过 OpenAI 测试：未设置 OPENAI_API_KEY")
         return None
 
-    config = EngineConfig("openai", {
+    config = EngineConfig("openai-whisper", {
+        "engine": "openai",
         "type": "cloud",
         "model_name": "whisper-1",
         "api_key": api_key,
@@ -85,6 +86,7 @@ async def test_mimo(api_key: str = None, base_url: str = None, model_name: str =
         return None
 
     config = EngineConfig("mimo", {
+        "engine": "mimo",
         "type": "cloud",
         "model_name": model_name or "mimo-v2.5",
         "api_key": api_key,

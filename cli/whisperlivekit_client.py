@@ -713,16 +713,16 @@ if __name__ == "__main__":
     import sys
 
     if len(sys.argv) < 3:
-        print("用法: python wlk_client.py <server_url> <file_path> [options]")
+        print("用法: python whisperlivekit_client.py <server_url> <file_path> [options]")
         print("选项:")
         print("  --mode ws|rest|deepgram   转录方式 (默认 ws)")
         print("  --language <lang>         语言代码，如 en/zh (默认 auto)")
         print("  --chunk-duration <sec>    每次发送的音频时长秒数 (默认 0.5)")
         print("  --format <fmt>            REST 模式: verbose_json|srt|vtt|text (默认 verbose_json)")
         print("示例:")
-        print("  python wlk_client.py http://localhost:8020 audio.wav")
-        print("  python wlk_client.py http://localhost:8020 audio.wav --mode deepgram")
-        print("  python wlk_client.py http://localhost:8020 audio.wav --mode rest --format srt")
+        print("  python whisperlivekit_client.py http://localhost:8020 audio.wav")
+        print("  python whisperlivekit_client.py http://localhost:8020 audio.wav --mode deepgram")
+        print("  python whisperlivekit_client.py http://localhost:8020 audio.wav --mode rest --format srt")
         sys.exit(1)
 
     url = sys.argv[1]

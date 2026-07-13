@@ -14,11 +14,7 @@ from app.models.schemas import Segment
 class OpenAIEngine(ASREngine):
     """基于 OpenAI Whisper API 的 ASR 引擎。"""
 
-    def __init__(self, config: EngineConfig | None = None):
-        if config is None:
-            from app.core.config import app_config
-            config = app_config.get_engine_config("openai")
-
+    def __init__(self, config: EngineConfig):
         self.client = OpenAI(api_key=config.api_key, base_url=config.base_url)
         self.model = config.model_name or "whisper-1"
 

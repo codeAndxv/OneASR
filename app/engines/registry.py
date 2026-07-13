@@ -11,6 +11,7 @@ from app.engines.whisperlivekit_engine import WhisperLiveKitEngine
 
 logger = logging.getLogger(__name__)
 
+# 引擎类型名 → 引擎类（不变，这是底层映射）
 _engine_classes: dict[str, type[ASREngine]] = {
     "faster-whisper": WhisperEngine,
     "firered": FireRedEngine,
@@ -24,6 +25,7 @@ _engine_classes: dict[str, type[ASREngine]] = {
 class LoadedEngine:
     """已加载引擎的元信息。"""
     engine: ASREngine
+    provider_name: str
     engine_name: str
     model_name: str
     device: str
@@ -31,27 +33,30 @@ class LoadedEngine:
     streaming: bool
 
 
-# key = "engine_name/model_name/device/compute_type"（如 "faster-whisper/medium/cpu/int8"）
+# key = "provider_name/model_name/device/compute_type"
 _loaded: dict[str, LoadedEngine] = {}
 
 
-def _make_key(engine_name: str, model_name: str, device: str = "", compute_type: str = "") -> str:
+def _make_key(provider_name: str, model_name: str, device: str = "", compute_type: str = "") -> str:
     if device and compute_type:
-        return f"{engine_name}/{model_name}/{device}/{compute_type}"
-    return f"{engine_name}/{model_name}"
+        return f"{provider_name}/{model_name}/{device}/{compute_type}"
+    return f"{provider_name}/{model_name}"
 
 
 def get_engine(name: str | None = None) -> ASREngine:
     """获取 ASR 引擎实例。
 
-    支持格式：
-    - "faster-whisper" → 使用该引擎的任意已加载实例
-    - "faster-whisper/medium" → 使用指定模型的实例
-    - "faster-whisper/medium/cpu/int8" → 使用精确配置的实例
-    """
-    name = name or app_config.default_engine
+    name 是 Provider 名（如 "whisper1"），通过 provider config 中的 engine 字段
+    确定底层引擎类型。
 
-    # 支持完整路径 "engine/model/device/compute_type"
+    支持格式：
+    - "whisper1" → 使用该 provider 的配置
+    - "whisper1/medium" → 使用指定模型的实例
+    - "whisper1/medium/cpu/int8" → 使用精确配置的实例
+    """
+    name = name or app_config.default_provider
+
+    # 支持完整路径 "provider/model/device/compute_type"
     parts = name.split("/")
     if len(parts) == 4:
         key = name
@@ -59,77 +64,76 @@ def get_engine(name: str | None = None) -> ASREngine:
             return _loaded[key].engine
         return _ensure_engine(parts[0])
 
-    # 支持 "engine/model" 格式
+    # 支持 "provider/model" 格式
     if len(parts) == 2:
-        engine_name, model_name = parts
-        prefix = f"{engine_name}/{model_name}"
+        provider_name, model_name = parts
+        prefix = f"{provider_name}/{model_name}"
         for k, le in _loaded.items():
             if k.startswith(prefix):
                 return le.engine
-        return _ensure_engine(engine_name)
+        return _ensure_engine(provider_name)
 
-    # 仅引擎名：查找该引擎的任意已加载实例
+    # 仅 provider 名：查找该 provider 的任意已加载实例
     for k, le in _loaded.items():
         if k.startswith(f"{name}/"):
             return le.engine
     return _ensure_engine(name)
 
 
-def _ensure_engine(name: str) -> ASREngine:
-    """确保引擎已加载，未加载则用默认配置创建。"""
-    if name not in _engine_classes:
-        raise ValueError(f"未知引擎: {name}，可用: {list(_engine_classes)}")
-    config = app_config.get_engine_config(name)
-    key = _make_key(name, config.model_name, config.device, config.compute_type)
+def _ensure_engine(provider_name: str) -> ASREngine:
+    """确保引擎已加载，未加载则用 provider 配置创建。"""
+    config = app_config.get_provider_config(provider_name)
+
+    if config.engine_name not in _engine_classes:
+        raise ValueError(f"未知引擎类型: {config.engine_name}，可用: {list(_engine_classes)}")
+
+    key = _make_key(provider_name, config.model_name, config.device, config.compute_type)
     if key in _loaded:
         return _loaded[key].engine
-    engine = _engine_classes[name](config)
+
+    engine = _engine_classes[config.engine_name](config)
     _loaded[key] = LoadedEngine(
         engine=engine,
-        engine_name=name,
+        provider_name=provider_name,
+        engine_name=config.engine_name,
         model_name=config.model_name,
         device=config.device,
         compute_type=config.compute_type,
-        streaming=(name == "whisperlivekit"),
+        streaming=(config.engine_name == "whisperlivekit"),
     )
     return engine
 
 
 def load_engine(
-    engine_name: str,
+    provider_name: str,
     model_name: str,
     device: str = "cpu",
     compute_type: str = "int8",
 ) -> LoadedEngine:
-    """加载指定引擎和模型。
-
-    如果相同配置（engine + model + device + compute_type）已加载则直接返回。
+    """加载指定 Provider 和模型。
 
     Args:
-        engine_name: 引擎名（如 "faster-whisper"）
+        provider_name: Provider 名（如 "whisper1"）
         model_name: 模型名（如 "medium", "large-v3"）
         device: 设备（"cpu" 或 "cuda"）
         compute_type: 计算精度（"int8", "float16", "int8_float16" 等）
-
-    Returns:
-        LoadedEngine 实例
     """
-    if engine_name not in _engine_classes:
-        raise ValueError(f"未知引擎: {engine_name}，可用: {list(_engine_classes)}")
+    if provider_name not in app_config.providers:
+        raise ValueError(f"未知 Provider: {provider_name}，可用: {list(app_config.providers)}")
 
-    key = _make_key(engine_name, model_name, device, compute_type)
+    key = _make_key(provider_name, model_name, device, compute_type)
     if key in _loaded:
         logger.info("相同配置已加载，直接返回: %s", key)
         return _loaded[key]
 
-    logger.info("正在加载引擎: %s, model=%s, device=%s, compute_type=%s",
-                engine_name, model_name, device, compute_type)
+    logger.info("正在加载引擎: provider=%s, model=%s, device=%s, compute_type=%s",
+                provider_name, model_name, device, compute_type)
 
-    # 构建 EngineConfig
-    base_config = app_config.engines.get(engine_name)
+    base_config = app_config.providers.get(provider_name)
     config = EngineConfig(
-        name=engine_name,
+        name=provider_name,
         config={
+            "engine": base_config.engine_name if base_config else "faster-whisper",
             "type": base_config.type if base_config else "local",
             "model_name": model_name,
             "device": device,
@@ -138,14 +142,15 @@ def load_engine(
         model_dir=app_config.model_dir,
     )
 
-    engine = _engine_classes[engine_name](config)
+    engine = _engine_classes[config.engine_name](config)
     loaded = LoadedEngine(
         engine=engine,
-        engine_name=engine_name,
+        provider_name=provider_name,
+        engine_name=config.engine_name,
         model_name=model_name,
         device=device,
         compute_type=compute_type,
-        streaming=(engine_name == "wlk"),
+        streaming=(config.engine_name == "whisperlivekit"),
     )
     _loaded[key] = loaded
     logger.info("引擎加载完成: %s", key)

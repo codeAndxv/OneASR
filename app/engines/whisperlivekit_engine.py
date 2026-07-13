@@ -26,11 +26,7 @@ class WhisperLiveKitEngine(ASREngine):
     VAD/VAC + ASR + 时间戳对齐 + 说话人分离管道。
     """
 
-    def __init__(self, config: EngineConfig | None = None):
-        if config is None:
-            from app.core.config import app_config
-            config = app_config.get_engine_config("whisperlivekit")
-
+    def __init__(self, config: EngineConfig):
         self.config = config
         self._transcription_engine: Optional[TranscriptionEngine] = None
 
@@ -38,15 +34,15 @@ class WhisperLiveKitEngine(ASREngine):
     def transcription_engine(self) -> TranscriptionEngine:
         """懒加载 TranscriptionEngine 单例。"""
         if self._transcription_engine is None:
-            wlk_config = self._build_wlk_config()
-            self._transcription_engine = TranscriptionEngine(config=wlk_config)
+            config = self._build_config()
+            self._transcription_engine = TranscriptionEngine(config=config)
             logger.info(
                 "WhisperLiveKit TranscriptionEngine 已初始化: backend=%s, policy=%s",
-                wlk_config.backend, wlk_config.backend_policy,
+                config.backend, config.backend_policy,
             )
         return self._transcription_engine
 
-    def _build_wlk_config(self, language: str | None = None) -> WhisperLiveKitConfig:
+    def _build_config(self, language: str | None = None) -> WhisperLiveKitConfig:
         """从 OneASR 的 EngineConfig 构建 WhisperLiveKitConfig。"""
         cfg = self.config
         kwargs = {
@@ -161,8 +157,8 @@ class WhisperLiveKitEngine(ASREngine):
                     start = WhisperLiveKitEngine._parse_time(line.get("start", "0:00:00.00"))
                     end = WhisperLiveKitEngine._parse_time(line.get("end", "0:00:00.00"))
                     yield Segment(start=start, end=end, text=text)
-
-    # ── 实时流（WebSocket 使用，此处不可用）────────────────────
+        finally:
+            await processor.cleanup()
 
     async def transcribe_stream(self, audio_chunk: bytes) -> str | None:
         raise NotImplementedError(
@@ -172,11 +168,6 @@ class WhisperLiveKitEngine(ASREngine):
     async def stream_finalize(self) -> str:
         raise NotImplementedError(
             "WhisperLiveKitEngine 的流式识别请使用 WebSocket 接口 /ws/transcribe/stream"
-        )
-
-    async def stream_finalize(self) -> str:
-        raise NotImplementedError(
-            "WLKEngine 的流式识别请使用 WebSocket 接口 /ws/transcribe/stream"
         )
 
     # ── 工具方法 ────────────────────────────────────────────────

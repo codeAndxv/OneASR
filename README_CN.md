@@ -240,28 +240,24 @@ tests/
 # API Key（所有接口必须携带此 key）
 api_key: oneasr-key
 
-# 默认引擎
-default_engine: faster-whisper
+# 默认 Provider
+default_provider: whisper1
 
 # 模型根目录（取消注释并指定路径可强制使用本地模型）
 # model_dir: ./models
 
-# 引擎配置
-engines:
-  faster-whisper:
+# Provider 配置
+providers:
+  whisper1:
+    engine: faster-whisper
     type: local
     model_name: medium
     device: cpu
     compute_type: int8
     max_duration: null
 
-  firered:
-    type: local
-    model_name: aed
-    device: cpu
-    max_duration: 60
-
   mimo:
+    engine: mimo
     type: cloud
     model_name: mimo-audio
     api_key:   # 小米 MiMo API Key
@@ -318,7 +314,7 @@ OneASR/
 ├── cli/                          # 命令行工具
 │   ├── clip.py                   # 媒体截取工具
 │   ├── converter.py              # 音频转换器
-│   └── wlk_client.py             # WhisperLiveKit WebSocket 客户端
+│   └── whisperlivekit_client.py     # WhisperLiveKit WebSocket 客户端
 ├── web/                          # Vue.js 前端
 │   ├── src/
 │   │   ├── api/index.js          # API 服务层（SSE 流式）

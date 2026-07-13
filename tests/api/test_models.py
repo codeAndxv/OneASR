@@ -36,7 +36,7 @@ class TestTranscriptionFormats:
             "/api/v1/audio/transcriptions",
             headers={"X-API-Key": "oneasr-key"},
             files={"file": ("test.wav", buf, "audio/wav")},
-            data={"model": "faster-whisper", "response_format": "json"},
+            data={"model": "whisper1", "response_format": "json"},
         )
         assert resp.status_code == 200
         data = resp.json()
@@ -57,7 +57,7 @@ class TestTranscriptionFormats:
             "/api/v1/audio/transcriptions",
             headers={"X-API-Key": "oneasr-key"},
             files={"file": ("test.wav", buf, "audio/wav")},
-            data={"model": "faster-whisper", "response_format": "text"},
+            data={"model": "whisper1", "response_format": "text"},
         )
         assert resp.status_code == 200
         assert resp.headers["content-type"] == "text/plain; charset=utf-8"
@@ -67,7 +67,7 @@ class TestTranscriptionFormats:
         resp = client.post(
             "/api/v1/audio/transcriptions",
             headers={"X-API-Key": "oneasr-key"},
-            data={"model": "faster-whisper"},
+            data={"model": "whisper1"},
         )
         assert resp.status_code == 400
         assert "必须提供" in resp.json()["detail"]
@@ -76,7 +76,7 @@ class TestTranscriptionFormats:
         """没有 API Key 应该返回 401 或 422。"""
         resp = client.post(
             "/api/v1/audio/transcriptions",
-            data={"model": "faster-whisper"},
+            data={"model": "whisper1"},
         )
         assert resp.status_code in [401, 422]
 

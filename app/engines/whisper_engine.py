@@ -13,10 +13,8 @@ from app.models.schemas import Segment
 class WhisperEngine(ASREngine):
     """基于 faster-whisper 的 ASR 引擎。"""
 
-    def __init__(self, config: EngineConfig | None = None):
-        if config is None:
-            from app.core.config import app_config
-            config = app_config.get_engine_config("faster-whisper")
+    def __init__(self, config: EngineConfig):
+        self.config = config
 
         # 检查是否指定了本地模型目录
         if config.model_path and config.model_path.exists():

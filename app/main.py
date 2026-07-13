@@ -18,10 +18,10 @@ async def lifespan(app: FastAPI):
 
     try:
         from app.engines.registry import get_engine
-        get_engine("whisperlivekit")
-        logger.info("WLK 引擎预加载完成")
+        get_engine()
+        logger.info("默认引擎预加载完成")
     except Exception as e:
-        logger.warning("WLK 引擎预加载失败（首次请求时会重新加载）: %s", e)
+        logger.warning("默认引擎预加载失败（首次请求时会重新加载）: %s", e)
     yield
 
 

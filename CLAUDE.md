@@ -31,7 +31,7 @@ OneASR/
 │   │   ├── base.py          # 引擎抽象基类
 │   │   ├── whisper_engine.py # faster-whisper 实现
 │   │   ├── firered_engine.py # FireRedASR 实现
-│   │   ├── wlk_engine.py    # WhisperLiveKit 实现（流式+文件）
+│   │   ├── whisperlivekit_engine.py    # WhisperLiveKit 实现（流式+文件）
 │   │   └── registry.py      # 引擎注册中心
 │   ├── models/schemas.py    # 数据模型
 │   └── utils/download.py    # URL 下载工具
@@ -64,20 +64,18 @@ OneASR/
 # API Key（所有接口必须携带此 key）
 api_key: oneasr-key
 
-default_engine: whisper
+default_provider: whisper1
 model_dir: ./models
 
-engines:
-  whisper:
+providers:
+  whisper1:
+    engine: faster-whisper
     type: local
     model_name: base
     device: cpu
     compute_type: int8
-  firered:
-    type: local
-    model_name: FireRedASR-AED
-    device: cpu
-  wlk:
+  wlk-live:
+    engine: whisperlivekit
     type: local
     model_name: base
     device: cpu

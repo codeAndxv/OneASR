@@ -1,9 +1,9 @@
 """环境检查脚本：验证 config.yaml 配置及模型/服务可用性。
 
 用法:
-    python -m app.check_env          # 检查所有已配置的引擎
-    python -m app.check_env whisper  # 只检查指定引擎（可多个）
-    python -m app.check_env --list   # 列出所有已配置的引擎
+    python -m app.check_env              # 检查所有已配置的 Provider
+    python -m app.check_env whisper1     # 只检查指定 Provider（可多个）
+    python -m app.check_env --list       # 列出所有已配置的 Provider
 """
 
 import argparse
@@ -77,7 +77,7 @@ def check_whisperlivekit(config: dict) -> bool:
         from whisperlivekit import TranscriptionEngine
         from whisperlivekit.config import WhisperLiveKitConfig
 
-        wlk_config = WhisperLiveKitConfig.from_kwargs(
+        wl_config = WhisperLiveKitConfig.from_kwargs(
             model_size=model_name,
             device=device,
             compute_type=compute_type,
@@ -90,7 +90,7 @@ def check_whisperlivekit(config: dict) -> bool:
             transcription=True,
         )
         print("  正在初始化 TranscriptionEngine（首次可能需要下载模型）...")
-        engine = TranscriptionEngine(config=wlk_config)
+        engine = TranscriptionEngine(config=wl_config)
         print("  [OK] WhisperLiveKit 引擎初始化成功")
         del engine
         return True
@@ -123,6 +123,7 @@ def check_cloud_api(name: str, config: dict) -> bool:
         return False
 
 
+# 引擎类型名 → (标签, 检查函数)
 CHECKERS = {
     "faster-whisper": ("faster-whisper", check_whisper),
     "firered": ("FireRedASR", check_firered),
@@ -132,51 +133,53 @@ CHECKERS = {
 }
 
 
-def check_engine(name: str, eng_conf: dict) -> bool:
-    """检查单个引擎。"""
-    if name not in CHECKERS:
-        print(f"\n[{name}] 跳过：未知引擎类型")
+def check_provider(provider_name: str, prov_conf: dict) -> bool:
+    """检查单个 Provider。"""
+    engine_type = prov_conf.get("engine", "")
+    if engine_type not in CHECKERS:
+        print(f"\n[{provider_name}] 跳过：未知引擎类型 '{engine_type}'")
         return True
 
-    label, checker = CHECKERS[name]
-    eng_type = eng_conf.get("type", "local")
-    print(f"\n[{name}] {label} (type={eng_type})")
+    label, checker = CHECKERS[engine_type]
+    prov_type = prov_conf.get("type", "local")
+    print(f"\n[{provider_name}] {label} (engine={engine_type}, type={prov_type})")
 
-    return checker(name, eng_conf) if checker is check_cloud_api else checker(eng_conf)
+    return checker(provider_name, prov_conf) if checker is check_cloud_api else checker(prov_conf)
 
 
 def main():
     parser = argparse.ArgumentParser(description="OneASR 环境检查")
-    parser.add_argument("engines", nargs="*", help="要检查的引擎名称（默认检查所有已配置的引擎）")
-    parser.add_argument("--list", action="store_true", help="列出所有已配置的引擎")
+    parser.add_argument("providers", nargs="*", help="要检查的 Provider 名称（默认检查所有已配置的 Provider）")
+    parser.add_argument("--list", action="store_true", help="列出所有已配置的 Provider")
     args = parser.parse_args()
 
     config = load_config()
-    engines_conf = config.get("engines", {})
-    default_engine = config.get("default_engine", "")
+    providers_conf = config.get("providers", {})
+    default_provider = config.get("default_provider", "")
 
     if args.list:
-        for name, conf in engines_conf.items():
-            marker = " <-- default" if name == default_engine else ""
-            print(f"  {name} (type={conf.get('type', 'local')}){marker}")
+        for name, conf in providers_conf.items():
+            engine_type = conf.get("engine", "?")
+            marker = " <-- default" if name == default_provider else ""
+            print(f"  {name} (engine={engine_type}, type={conf.get('type', 'local')}){marker}")
         return
 
     print("=" * 50)
     print("OneASR 环境检查")
     print("=" * 50)
 
-    if not engines_conf:
-        print("\n[WARN] config.yaml 中未配置任何引擎")
+    if not providers_conf:
+        print("\n[WARN] config.yaml 中未配置任何 Provider")
         return
 
-    targets = args.engines if args.engines else list(engines_conf.keys())
+    targets = args.providers if args.providers else list(providers_conf.keys())
 
     results = {}
     for name in targets:
-        if name not in engines_conf:
+        if name not in providers_conf:
             print(f"\n[{name}] 配置中不存在，跳过")
             continue
-        results[name] = check_engine(name, engines_conf[name])
+        results[name] = check_provider(name, providers_conf[name])
 
     print("\n" + "=" * 50)
     print("检查结果汇总")
@@ -184,15 +187,15 @@ def main():
     all_ok = True
     for name, ok in results.items():
         tag = "OK" if ok else "FAIL"
-        marker = " <-- default" if name == default_engine else ""
+        marker = " <-- default" if name == default_provider else ""
         print(f"  [{tag}] {name}{marker}")
         if not ok:
             all_ok = False
 
     if all_ok:
-        print("\n所有引擎检查通过")
+        print("\n所有 Provider 检查通过")
     else:
-        print("\n部分引擎检查失败，请根据上方提示修复")
+        print("\n部分 Provider 检查失败，请根据上方提示修复")
         sys.exit(1)
 
 

@@ -32,13 +32,14 @@ NATIVE_AUDIO_FORMATS = {".wav"}
 
 @router.get("/models")
 async def list_models():
-    """列出所有可用的 ASR 模型（兼容 OpenAI 格式）。"""
+    """列出所有可用的 Provider（兼容 OpenAI 格式）。"""
     models = []
-    for name, config in app_config.engines.items():
+    for name, config in app_config.providers.items():
         models.append({
             "id": name,
             "object": "model",
             "owned_by": "local",
+            "engine": config.engine_name,
             "type": config.type,
             "model_name": config.model_name,
         })
@@ -107,7 +108,7 @@ def _ensure_wav(data: bytes, filename: str, request_id: str) -> bytes:
 async def create_transcription(
     file: Optional[UploadFile] = File(None),
     file_uuid: Optional[str] = Form(None, description="已上传文件的UUID（与 file 二选一）"),
-    model: Optional[str] = Form(None, description="引擎名称"),
+    model: Optional[str] = Form(None, description="Provider 名称（如 whisper1）"),
     language: Optional[str] = Form(None, description="语言代码"),
     response_format: OutputFormat = Form(OutputFormat.JSON, description="输出格式"),
     prompt: Optional[str] = Form(None, description="提示词"),
@@ -150,7 +151,7 @@ async def create_transcription(
             record_id=record_id,
             filename=locals().get("filename", "unknown"),
             file_size=len(data) if "data" in locals() else 0,
-            engine_name=model or app_config.default_engine,
+            engine_name=model or app_config.default_provider,
             total_time=time.time() - t_start,
             is_completed=False,
             error_message=str(e),
@@ -175,7 +176,7 @@ async def _handle_stream(rid, record_id, data, filename, eng, model, language,
                         rid, idx, time.time() - t_stream)
             await save_file_transcription_record(
                 record_id=record_id, filename=filename, file_size=len(data),
-                engine_name=model or app_config.default_engine,
+                engine_name=model or app_config.default_provider,
                 model_name=eng.model_name if hasattr(eng, "model_name") else None,
                 device_info=eng.device if hasattr(eng, "device") else None,
                 language=language, response_format="stream",
@@ -189,7 +190,7 @@ async def _handle_stream(rid, record_id, data, filename, eng, model, language,
             yield f'data: {json.dumps({"error": str(e)}, ensure_ascii=False)}\n\n'
             await save_file_transcription_record(
                 record_id=record_id, filename=filename, file_size=len(data),
-                engine_name=model or app_config.default_engine,
+                engine_name=model or app_config.default_provider,
                 model_name=eng.model_name if hasattr(eng, "model_name") else None,
                 device_info=eng.device if hasattr(eng, "device") else None,
                 language=language, response_format="stream",
@@ -214,13 +215,13 @@ async def _handle_sync(rid, record_id, data, filename, eng, model, language,
     response = TranscriptionResponse(
         text=text,
         segments=[Segment(id=i, start=s.start, end=s.end, text=s.text) for i, s in enumerate(segments)],
-        engine=model or app_config.default_engine,
+        engine=model or app_config.default_provider,
     )
 
     # 持久化
     await save_file_transcription_record(
         record_id=record_id, filename=filename, file_size=len(data),
-        engine_name=model or app_config.default_engine,
+        engine_name=model or app_config.default_provider,
         model_name=eng.model_name if hasattr(eng, "model_name") else None,
         device_info=eng.device if hasattr(eng, "device") else None,
         language=language,

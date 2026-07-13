@@ -70,7 +70,7 @@ async def test_stream(
     logger.info("音频时长: %.1f 秒, 数据大小: %.2f MB", duration, len(pcm_data) / 1024 / 1024)
 
     # 2. 连接 WebSocket
-    uri = f"ws://{host}:{port}/ws/transcribe/stream?engine=whisperlivekit&language={language}"
+    uri = f"ws://{host}:{port}/ws/transcribe/stream?engine=wlk-live&language={language}"
     logger.info("连接: %s", uri)
 
     all_lines = []

@@ -25,7 +25,7 @@ async def transcribe_stream(ws: WebSocket, engine: str | None = None, language: 
     发送空字节 (b"") 表示流结束。
 
     查询参数:
-        engine: 引擎名称，默认使用配置的默认引擎
+        engine: Provider 名称，默认使用配置的默认 Provider
         language: 语言覆盖（如 zh、en、auto）
 
     响应格式:
@@ -65,7 +65,7 @@ async def transcribe_stream(ws: WebSocket, engine: str | None = None, language: 
         return
 
     if not isinstance(eng, WhisperLiveKitEngine):
-        error_msg = f"引擎 '{engine or '默认'}' 不支持流式识别，请使用 whisperlivekit 引擎"
+        error_msg = f"Provider '{engine or '默认'}' 不支持流式识别，请使用 wlk-live 等 WhisperLiveKit Provider"
         logger.warning(error_msg)
         try:
             await ws.send_json({"type": "error", "error": error_msg})

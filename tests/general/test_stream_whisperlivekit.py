@@ -93,7 +93,7 @@ class TestStreamEndpoint:
             mock_get_engine.return_value = mock_engine
 
             with client.websocket_connect(
-                "/ws/transcribe/stream?api_key=oneasr-key&engine=whisperlivekit"
+                "/ws/transcribe/stream?api_key=oneasr-key&engine=wlk-live"
             ) as ws:
                 config_msg = ws.receive_json()
                 assert config_msg["type"] == "config"
@@ -122,7 +122,7 @@ class TestStreamEndpoint:
             mock_get_engine.return_value = mock_engine
 
             with client.websocket_connect(
-                "/ws/transcribe/stream?api_key=oneasr-key&engine=whisperlivekit"
+                "/ws/transcribe/stream?api_key=oneasr-key&engine=wlk-live"
             ) as ws:
                 # 读取 config 消息
                 ws.receive_json()
@@ -185,7 +185,8 @@ class TestWhisperLiveKitEngineConfig:
         from app.engines.whisperlivekit_engine import WhisperLiveKitEngine
         from app.core.config import EngineConfig
 
-        config = EngineConfig("whisperlivekit", {
+        config = EngineConfig("wlk-live", {
+            "engine": "whisperlivekit",
             "type": "local",
             "model_name": "base",
             "backend": "auto",
@@ -197,7 +198,7 @@ class TestWhisperLiveKitEngineConfig:
         }, model_dir=None)
 
         engine = WhisperLiveKitEngine(config)
-        whisperlivekit_config = engine._build_whisperlivekit_config()
+        whisperlivekit_config = engine._build_config()
 
         assert whisperlivekit_config.model_size == "base"
         assert whisperlivekit_config.backend == "auto"
@@ -212,7 +213,8 @@ class TestWhisperLiveKitEngineConfig:
         from app.engines.whisperlivekit_engine import WhisperLiveKitEngine
         from app.core.config import EngineConfig
 
-        config = EngineConfig("whisperlivekit", {
+        config = EngineConfig("wlk-live", {
+            "engine": "whisperlivekit",
             "type": "local",
             "model_name": "base",
             "language": "auto",
@@ -247,7 +249,7 @@ class TestWLKStreamIntegration:
 
         with TestClient(app) as client:
             with client.websocket_connect(
-                "/ws/transcribe/stream?api_key=oneasr-key&engine=whisperlivekit&language=auto"
+                "/ws/transcribe/stream?api_key=oneasr-key&engine=wlk-live&language=auto"
             ) as ws:
                 # 接收配置消息
                 config_msg = ws.receive_json()
@@ -315,7 +317,7 @@ class TestWLKStreamIntegration:
 
             with TestClient(app) as client:
                 with client.websocket_connect(
-                    "/ws/transcribe/stream?api_key=oneasr-key&engine=whisperlivekit&language=auto"
+                    "/ws/transcribe/stream?api_key=oneasr-key&engine=wlk-live&language=auto"
                 ) as ws:
                     # 接收配置消息
                     config_msg = ws.receive_json()
@@ -365,7 +367,7 @@ class TestWLKStreamIntegration:
         with TestClient(app) as client:
             # 使用无效的 API Key
             with client.websocket_connect(
-                "/ws/transcribe/stream?api_key=invalid-key&engine=whisperlivekit"
+                "/ws/transcribe/stream?api_key=invalid-key&engine=wlk-live"
             ) as ws:
                 msg = ws.receive_json()
                 assert msg["type"] == "error"

@@ -26,7 +26,7 @@ class TestStreamingTranscription:
         resp = client.post(
             "/api/v1/audio/transcriptions",
             headers={"X-API-Key": "oneasr-key"},
-            data={"model": "faster-whisper", "stream": "true"},
+            data={"model": "whisper1", "stream": "true"},
         )
         assert resp.status_code == 400
         assert "必须提供" in resp.json()["detail"]
@@ -45,7 +45,7 @@ class TestStreamingTranscription:
             "/api/v1/audio/transcriptions",
             headers={"X-API-Key": "oneasr-key"},
             files={"file": ("test.wav", buf, "audio/wav")},
-            data={"model": "faster-whisper", "stream": "true"},
+            data={"model": "whisper1", "stream": "true"},
         )
         assert resp.status_code == 200
         assert "text/event-stream" in resp.headers["content-type"]
@@ -74,7 +74,7 @@ class TestStreamingTranscription:
             headers={"X-API-Key": "oneasr-key"},
             data={
                 "file_uuid": file_id,
-                "model": "faster-whisper",
+                "model": "whisper1",
                 "stream": "true",
             },
         )
@@ -88,7 +88,7 @@ class TestStreamingTranscription:
             headers={"X-API-Key": "oneasr-key"},
             data={
                 "file_uuid": "nonexistent-uuid",
-                "model": "faster-whisper",
+                "model": "whisper1",
                 "stream": "true",
             },
         )
@@ -109,7 +109,7 @@ class TestStreamingTranscription:
             "/api/v1/audio/transcriptions",
             headers={"X-API-Key": "oneasr-key"},
             files={"file": ("test.wav", buf, "audio/wav")},
-            data={"model": "faster-whisper", "stream": "true"},
+            data={"model": "whisper1", "stream": "true"},
         )
         assert resp.status_code == 200
 

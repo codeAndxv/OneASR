@@ -16,11 +16,7 @@ class MiMoEngine(ASREngine):
     文档: https://platform.xiaomimimo.com/docs/zh-CN/usage-guide/multimodal-understanding/audio-understanding
     """
 
-    def __init__(self, config: EngineConfig | None = None):
-        if config is None:
-            from app.core.config import app_config
-            config = app_config.get_engine_config("mimo")
-
+    def __init__(self, config: EngineConfig):
         self.api_key = config.api_key
         base_url = (config.base_url or "https://api.xiaomimimo.com").rstrip("/")
         self._client = OpenAI(api_key=self.api_key, base_url=base_url)

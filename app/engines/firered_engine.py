@@ -18,11 +18,7 @@ torch.serialization.add_safe_globals([argparse.Namespace])
 class FireRedEngine(ASREngine):
     """基于 FireRedASR 的 ASR 引擎。"""
 
-    def __init__(self, config: EngineConfig | None = None):
-        if config is None:
-            from app.core.config import app_config
-            config = app_config.get_engine_config("firered")
-
+    def __init__(self, config: EngineConfig):
         self.config = config
         # FireRedASR 的 from_pretrained 接受 "aed" 或 "llm"
         asr_type = config.model_name.lower()
