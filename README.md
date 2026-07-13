@@ -9,6 +9,7 @@ A unified speech recognition API that integrates multiple ASR engines.
 - **File Recognition** — Upload audio/video files or provide a URL, get complete transcription results
 - **Streaming File Recognition** — Upload files or provide a URL, receive sentence-by-sentence results via SSE
 - **Real-time Streaming** — Send audio streams via WebSocket, get real-time transcription results
+- **File Upload & Dedup** — Upload files with MD5 fingerprint, instant upload for duplicate files
 - **Web Interface** — Vue.js frontend with file/URL recognition, real-time streaming display, and SRT export
 
 ## Quick Start
@@ -87,35 +88,20 @@ The project includes a media clipping tool for splitting long videos into shorte
 
 ```bash
 # Clip a specific duration (default 2 minutes)
-python utils/clip.py input_video.mp4 120
+python app/utils/clip.py input_video.mp4 120
 
 # Auto-clip entire video into 2-minute segments
-python utils/clip.py input_video.mp4
+python app/utils/clip.py input_video.mp4
 ```
 
 Python API usage:
 ```python
-from utils.clip import MediaClipper
+from app.utils.clip import MediaClipper
 
 clipper = MediaClipper("video.mp4")
 clipper.clip(start=0, duration=120, output="clip.mp4")
 clips = clipper.auto_clip(clip_duration=120, output_dir="clips/")
 ```
-
-### Test Script
-
-A test script is provided to quickly verify the streaming file recognition endpoint:
-
-```bash
-cd web
-node test-stream.js <audio_file_path> [engine_name]
-
-# Examples
-node test-stream.js ../test.mp3
-node test-stream.js ../audio.wav faster-whisper
-```
-
-The script calls the backend SSE streaming endpoint with `X-API-Key` header and prints each recognized sentence in real-time.
 
 ## Authentication
 
@@ -141,28 +127,42 @@ WebSocket streaming uses query parameters (browser WebSocket API doesn't support
 
 ## API Endpoints
 
-### New Unified API (OpenAI-compatible)
+### Unified API (OpenAI-compatible)
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/v1/audio/transcriptions` | POST | Create transcription (file upload or URL) |
+| `/api/v1/audio/transcriptions` | POST | Create transcription (file upload or file_uuid) |
 | `/api/v1/audio/transcriptions/stream` | POST | Create streaming transcription (SSE) |
 | `/api/v1/audio/models` | GET | List available models |
-| `/api/v1/audio/transcriptions/{id}` | GET | Get transcription status (not implemented) |
-| `/api/v1/audio/transcriptions/{id}` | DELETE | Delete transcription (not implemented) |
+| `/api/v1/files/upload` | POST | Upload file (supports MD5 instant upload) |
+| `/api/v1/files/list` | GET | List all uploaded files |
+| `/api/v1/files/{file_id}` | GET | Get file info |
+| `/api/v1/files/{file_id}` | DELETE | Delete uploaded file |
+| `/health` | GET | Health check |
 
-### Legacy API (for backward compatibility)
+### WebSocket Streaming
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/v1/transcribe/file` | POST | Upload file for recognition |
-| `/api/v1/transcribe/url` | POST | Download from URL for recognition |
-| `/api/v1/transcribe/file/stream` | POST | Upload file, SSE streaming sentence-by-sentence |
-| `/api/v1/transcribe/url/stream` | POST | URL download, SSE streaming sentence-by-sentence |
-| `/api/v1/engines` | GET | List available engines |
-| `/api/v1/formats` | GET | List output formats |
 | `/ws/transcribe/stream?api_key=` | WebSocket | Real-time streaming (WhisperLiveKit) |
-| `/health` | GET | Health check |
+
+## File Upload & Instant Upload (MD5 Dedup)
+
+Upload files with optional MD5 fingerprint for instant upload of duplicate files:
+
+```bash
+# First upload: file is saved and metadata stored in DB
+curl -X POST -H "X-API-Key: oneasr-key" \
+  "http://localhost:8020/api/v1/files/upload?file_md5=abc123&file_size=1024000" \
+  -F "file=@audio.mp3"
+# Response: {"duplicate": false, "file_id": "uuid-1", ...}
+
+# Second upload with same file: instant return (no re-upload)
+curl -X POST -H "X-API-Key: oneasr-key" \
+  "http://localhost:8020/api/v1/files/upload?file_md5=abc123&file_size=1024000" \
+  -F "file=@audio_copy.mp3"
+# Response: {"duplicate": true, "file_id": "uuid-1", ...}
+```
 
 ## Streaming Recognition
 
@@ -179,7 +179,6 @@ Real-time speech recognition powered by [WhisperLiveKit](https://github.com/Quen
 ```javascript
 const ws = new WebSocket("ws://localhost:8020/ws/transcribe/stream?api_key=oneasr-key&language=zh");
 
-// Receive transcription results
 ws.onmessage = (event) => {
   const data = JSON.parse(event.data);
   if (data.type === "config") {
@@ -187,146 +186,52 @@ ws.onmessage = (event) => {
   } else if (data.type === "ready_to_stop") {
     console.log("Recognition complete");
   } else {
-    // data.status: "active_transcription" | "no_audio_detected" | "error"
-    // data.lines: [{speaker, text, start, end}, ...]  // Confirmed lines
-    // data.buffer_transcription: "partial text..."     // Unconfirmed buffer
     console.log(data.lines);
   }
 };
 
-// Send audio data (PCM s16le 16kHz mono or other formats)
 ws.send(audioChunk);
-
-// End recognition
-ws.send(new Uint8Array(0));
+ws.send(new Uint8Array(0)); // End recognition
 ```
 
-### Response Format
-
-```json
-{
-  "status": "active_transcription",
-  "lines": [
-    {"speaker": 1, "text": "Hello world", "start": "0:00:01.00", "end": "0:00:03.00"}
-  ],
-  "buffer_transcription": "This is a",
-  "buffer_diarization": "",
-  "buffer_translation": "",
-  "remaining_time_transcription": 0.0,
-  "remaining_time_diarization": 0.0
-}
-```
-
-| Field | Description |
-|-------|-------------|
-| `status` | Recognition status: `active_transcription` / `no_audio_detected` / `error` |
-| `lines` | Confirmed text lines with speaker and timestamp info |
-| `buffer_transcription` | Partial text being processed but not yet confirmed |
-| `remaining_time_transcription` | Transcription latency in seconds |
-
-## Output Formats
-
-Supported output formats:
-
-| Format | Description |
-|--------|-------------|
-| `text` | Plain text (default) |
-| `srt` | SRT subtitle format |
-| `vtt` | WebVTT format |
-| `json` | JSON format (with timeline) |
-| `tsv` | TSV format (tab-separated) |
-
-**Usage Examples:**
+## Running Tests
 
 ```bash
-# Upload file, return SRT subtitles
-curl -X POST -H "X-API-Key: oneasr-key" "http://localhost:8020/api/v1/transcribe/file" \
-  -F "file=@audio.mp3" -F "format=srt" -o subtitle.srt
+# Run all tests
+python -m pytest tests/ -v
 
-# URL recognition, return JSON
-curl -X POST -H "X-API-Key: oneasr-key" "http://localhost:8020/api/v1/transcribe/url" \
-  -H "Content-Type: application/json" \
-  -d '{"url": "https://example.com/audio.mp3", "format": "json"}'
+# Run API tests only (fast, no external dependencies)
+python -m pytest tests/api/ -v
+
+# Run general/unit tests only
+python -m pytest tests/general/ -v
+
+# Run a specific test file
+python -m pytest tests/api/test_file_upload.py -v
+
+# Skip integration tests (need real audio files and running services)
+python -m pytest tests/ -m "not integration" -v
+
+# Run with short traceback
+python -m pytest tests/api/ -v --tb=short
 ```
 
-## SSE Streaming File Recognition
-
-Upload audio/video files and receive sentence-by-sentence results in [Server-Sent Events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events) format, ideal for real-time progress display with long audio.
-
-### Request Examples
-
-```bash
-# Upload file, SSE streaming response (new API)
-curl -N -X POST "http://localhost:8020/api/v1/audio/transcriptions/stream" \
-  -H "X-API-Key: oneasr-key" \
-  -F "file=@audio.mp3" \
-  -F "model=faster-whisper"
-
-# URL recognition, SSE streaming response (new API)
-curl -N -X POST "http://localhost:8020/api/v1/audio/transcriptions/stream" \
-  -H "X-API-Key: oneasr-key" \
-  -F "url=https://example.com/audio.mp3" \
-  -F "model=faster-whisper"
-
-# Legacy API (for backward compatibility)
-curl -N -X POST "http://localhost:8020/api/v1/transcribe/file/stream?api_key=oneasr-key" \
-  -F "file=@audio.mp3"
-```
-
-### Response Format
+### Test Structure
 
 ```
-data: {"index": 0, "start": 0.0, "end": 2.5, "text": "Hello world"}
-
-data: {"index": 1, "start": 2.5, "end": 5.1, "text": "This is a test audio"}
-
-data: {"done": true}
-```
-
-| Field | Description |
-|-------|-------------|
-| `index` | Sentence index (starting from 0) |
-| `start` | Start time in seconds |
-| `end` | End time in seconds |
-| `text` | Recognized text |
-| `done` | `true` when recognition is complete |
-
-### JavaScript Client Example
-
-```javascript
-// New API (OpenAI-compatible)
-const form = new FormData();
-form.append("file", fileInput.files[0]);
-form.append("model", "faster-whisper");
-
-const resp = await fetch("/api/v1/audio/transcriptions/stream", {
-  method: "POST",
-  headers: { "X-API-Key": "oneasr-key" },
-  body: form,
-});
-const reader = resp.body.getReader();
-const decoder = new TextDecoder();
-
-let buffer = "";
-while (true) {
-  const { value, done } = await reader.read();
-  if (done) break;
-  buffer += decoder.decode(value, { stream: true });
-
-  const lines = buffer.split("\n");
-  buffer = lines.pop(); // Keep incomplete line
-
-  for (const line of lines) {
-    if (line.startsWith("data: ")) {
-      const data = JSON.parse(line.slice(6));
-      if (data.done) {
-        console.log("Recognition complete");
-      } else {
-        console.log(`[${data.start.toFixed(1)}s] ${data.text}`);
-      }
-    }
-  }
-}
+tests/
+├── conftest.py                  # Shared fixtures (client, DB cleanup)
+├── api/                         # API endpoint tests (TestClient)
+│   ├── test_audio.py            # Audio transcription API
+│   ├── test_file_upload.py      # File upload, MD5 dedup, CRUD
+│   ├── test_models.py           # Models listing, format params
+│   └── test_streaming.py        # SSE streaming transcription
+└── general/                     # Unit tests & integration tests
+    ├── test_format.py           # Output format conversion (SRT/VTT/JSON/TSV)
+    ├── test_engines.py          # Engine loading and transcription
+    ├── test_mimo.py             # MiMo audio understanding engine
+    ├── test_stream_websocket.py # WebSocket streaming integration
+    └── test_stream_wlk.py       # WhisperLiveKit engine tests
 ```
 
 ## Configuration
@@ -334,10 +239,8 @@ while (true) {
 Edit `config.yaml` to configure API Key and engines:
 
 ```yaml
-# API Key (required for all endpoints)
 api_key: oneasr-key
 
-# Default engine
 default_engine: faster-whisper
 
 engines:
@@ -371,10 +274,16 @@ OneASR/
 │   ├── main.py                   # FastAPI entry point
 │   ├── api/
 │   │   ├── auth.py               # API Key authentication
-│   │   ├── file.py               # File/URL recognition endpoints
+│   │   ├── audio.py              # OpenAI-compatible audio API
+│   │   ├── models.py             # Engine/model info API
+│   │   ├── upload.py             # File upload & management (MD5 dedup)
 │   │   └── stream.py             # WebSocket streaming (WhisperLiveKit)
 │   ├── core/
-│   │   └── config.py             # YAML configuration management
+│   │   ├── config.py             # YAML configuration management
+│   │   └── file_storage.py       # File storage utilities
+│   ├── db/
+│   │   ├── base.py               # SQLAlchemy declarative base
+│   │   └── session.py            # DB engine, session factory, init
 │   ├── engines/
 │   │   ├── base.py               # Engine abstract base class
 │   │   ├── whisper_engine.py     # faster-whisper implementation
@@ -384,12 +293,17 @@ OneASR/
 │   │   ├── mimo_engine.py        # Xiaomi MiMo API
 │   │   └── registry.py           # Engine registry (singleton)
 │   ├── models/
-│   │   └── schemas.py            # Pydantic data models
+│   │   ├── schemas.py            # Pydantic data models
+│   │   └── orm_models.py         # SQLAlchemy ORM models
 │   └── utils/
+│       ├── audio.py              # Audio format conversion
+│       ├── clip.py               # Media clipping tool
+│       ├── converter.py          # Audio converter
 │       ├── download.py           # URL download utility
 │       ├── format.py             # Output format conversion (SRT/VTT/JSON/TSV)
-│       ├── audio.py              # Audio format conversion
-│       └── vad.py                # VAD-based audio segmentation
+│       ├── stream.py             # PCM streaming utilities
+│       ├── vad.py                # VAD-based audio segmentation
+│       └── wlk_client.py         # WhisperLiveKit WebSocket client
 ├── web/                          # Vue.js frontend
 │   ├── src/
 │   │   ├── api/index.js          # API service layer (SSE streaming)
@@ -401,10 +315,13 @@ OneASR/
 │   ├── index.html
 │   ├── vite.config.js            # Vite config (with API proxy)
 │   └── package.json
-├── utils/                        # Standalone utilities
-│   └── clip.py                   # Media clipping tool (split videos)
-├── tests/                        # Test files
+├── tests/                        # Test suite
+│   ├── conftest.py               # Shared fixtures
+│   ├── api/                      # API endpoint tests
+│   └── general/                  # Unit & integration tests
 ├── models/                       # Model storage directory
+├── data/                         # SQLite database (auto-created)
+├── uploads/                      # Uploaded files storage
 ├── config.yaml                   # API Key and engine configuration
 └── requirements.txt
 ```

@@ -1,20 +1,10 @@
-"""
-统一的语音识别 API 测试（参考 OpenAI 格式）
-"""
+"""统一的语音识别 API 测试（参考 OpenAI 格式）。"""
 
 import io
 import json
 import wave
 
 import pytest
-from fastapi.testclient import TestClient
-
-from app.main import app
-
-
-@pytest.fixture
-def client():
-    return TestClient(app)
 
 
 class TestAudioModelsEndpoint:

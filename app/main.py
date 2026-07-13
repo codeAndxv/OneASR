@@ -12,7 +12,10 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """应用生命周期：启动时预加载引擎模型。"""
+    """应用生命周期：启动时初始化数据库、预加载引擎模型。"""
+    from app.db import init_db
+    await init_db()
+
     try:
         from app.engines.registry import get_engine
         get_engine("wlk")

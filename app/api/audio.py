@@ -12,7 +12,8 @@ from fastapi.responses import PlainTextResponse, StreamingResponse
 
 from app.api.auth import get_api_key
 from app.core.config import app_config
-from app.core.file_storage import file_storage
+from app.db import async_session
+from app.models.orm_models import UploadedFile
 from app.engines.registry import get_engine
 from app.models.schemas import (
     OutputFormat,
@@ -108,13 +109,23 @@ async def create_transcription(
                 )
             filename = file.filename or "audio.wav"
         elif file_uuid:
-            # 从已上传文件获取数据
-            file_path = file_storage.get_file_path(file_uuid)
-            if not file_path:
+            # 从数据库查找已上传文件
+            from pathlib import Path as _Path
+            from sqlalchemy import select
+            async with async_session() as _session:
+                result = await _session.execute(
+                    select(UploadedFile).where(UploadedFile.file_id == file_uuid)
+                )
+                record = result.scalar_one_or_none()
+            if not record:
                 logger.warning("[transcriptions][%s] file_uuid=%s 不存在", request_id, file_uuid)
                 raise HTTPException(status_code=404, detail=f"文件不存在: {file_uuid}")
+            file_path = _Path(record.storage_path)
+            if not file_path.exists():
+                logger.warning("[transcriptions][%s] file_uuid=%s 磁盘文件丢失", request_id, file_uuid)
+                raise HTTPException(status_code=404, detail=f"文件已丢失: {file_uuid}")
             data = file_path.read_bytes()
-            filename = file_path.name
+            filename = record.filename
             logger.info(
                 "[transcriptions][%s] 从 UUID 加载文件: %s, 大小: %.2f MB",
                 request_id, file_uuid, len(data) / (1024 * 1024),

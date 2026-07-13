@@ -1,65 +1,108 @@
-"""
-文件上传和管理 API 测试
-"""
+"""文件上传和管理 API 测试（含 MD5 秒传）。"""
 
+import hashlib
 import io
+
 import pytest
-from fastapi.testclient import TestClient
-
-from app.main import app
 
 
-@pytest.fixture
-def client():
-    return TestClient(app)
+def _md5(data: bytes) -> str:
+    return hashlib.md5(data).hexdigest()
 
 
 class TestFileUpload:
     """文件上传测试"""
-    
+
     def test_upload_file_success(self, client):
         """测试成功上传文件"""
         test_content = b"fake audio content"
         files = {"file": ("test.mp3", io.BytesIO(test_content), "audio/mpeg")}
-        
+
         response = client.post(
             "/api/v1/files/upload",
             files=files,
             headers={"X-API-Key": "oneasr-key"},
         )
-        
+
         assert response.status_code == 200
         data = response.json()
         assert "file_id" in data
         assert data["filename"] == "test.mp3"
         assert data["file_size"] == len(test_content)
-        assert data["message"] == "File uploaded successfully"
-    
+        assert "file_md5" in data
+        assert data["file_md5"] == _md5(test_content)
+        assert data["duplicate"] is False
+
     def test_upload_file_unsupported_format(self, client):
         """测试上传不支持的文件格式"""
         test_content = b"fake content"
         files = {"file": ("test.txt", io.BytesIO(test_content), "text/plain")}
-        
+
         response = client.post(
             "/api/v1/files/upload",
             files=files,
             headers={"X-API-Key": "oneasr-key"},
         )
-        
+
         assert response.status_code == 400
         assert "不支持的文件格式" in response.json()["detail"]
-    
+
     def test_upload_file_no_auth(self, client):
         """测试无认证上传文件"""
         test_content = b"fake audio content"
         files = {"file": ("test.mp3", io.BytesIO(test_content), "audio/mpeg")}
-        
+
         response = client.post(
             "/api/v1/files/upload",
             files=files,
         )
-        
+
         assert response.status_code in [401, 403, 422]
+
+    def test_upload_file_size_mismatch(self, client):
+        """测试 file_size 参数与实际不匹配"""
+        test_content = b"fake audio content"
+        md5 = _md5(test_content)
+        files = {"file": ("test.mp3", io.BytesIO(test_content), "audio/mpeg")}
+
+        response = client.post(
+            "/api/v1/files/upload?file_md5={}&file_size={}".format(md5, 999999),
+            files=files,
+            headers={"X-API-Key": "oneasr-key"},
+        )
+
+        assert response.status_code == 400
+        assert "file_size" in response.json()["detail"]
+
+    def test_upload_duplicate_md5_instant_upload(self, client):
+        """测试秒传：相同 MD5 + 大小的文件返回已有 file_id"""
+        test_content = b"exact same audio content for dedup test"
+        md5 = _md5(test_content)
+        size = len(test_content)
+
+        # 第一次上传
+        files1 = {"file": ("dedup.mp3", io.BytesIO(test_content), "audio/mpeg")}
+        resp1 = client.post(
+            "/api/v1/files/upload",
+            files=files1,
+            headers={"X-API-Key": "oneasr-key"},
+        )
+        assert resp1.status_code == 200
+        data1 = resp1.json()
+        assert data1["duplicate"] is False
+
+        # 第二次上传（秒传）
+        files2 = {"file": ("dedup_copy.mp3", io.BytesIO(test_content), "audio/mpeg")}
+        resp2 = client.post(
+            f"/api/v1/files/upload?file_md5={md5}&file_size={size}",
+            files=files2,
+            headers={"X-API-Key": "oneasr-key"},
+        )
+        assert resp2.status_code == 200
+        data2 = resp2.json()
+        assert data2["duplicate"] is True
+        assert data2["file_id"] == data1["file_id"]
+        assert data2["file_md5"] == md5
 
 
 class TestFileList:
