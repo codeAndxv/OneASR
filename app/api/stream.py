@@ -1,32 +1,20 @@
+"""WebSocket 流式语音识别 API（基于 WhisperLiveKit）。"""
+
 import asyncio
 import logging
 import time
 import uuid
-from datetime import datetime, timezone
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.api.auth import verify_ws_api_key
-from app.db import async_session
 from app.engines.registry import get_engine
-from app.engines.wlk_engine import WLKEngine
-from app.models.orm_models import StreamingRecord
+from app.engines.whisperlivekit_engine import WhisperLiveKitEngine
+from app.services.record_service import save_streaming_record
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["stream"])
-
-
-async def _handle_results(websocket: WebSocket, results_generator):
-    """消费 AudioProcessor 的结果并通过 WebSocket 发送。"""
-    try:
-        async for response in results_generator:
-            await websocket.send_json(response.to_dict())
-        await websocket.send_json({"type": "ready_to_stop"})
-    except WebSocketDisconnect:
-        logger.info("客户端在结果处理期间断开连接")
-    except Exception as e:
-        logger.exception("结果处理异常: %s", e)
 
 
 @router.websocket("/ws/transcribe/stream")
@@ -49,14 +37,13 @@ async def transcribe_stream(ws: WebSocket, engine: str | None = None, language: 
             "buffer_translation": ""
         }
     """
-    # 先接受连接
+    # ── 建立连接 ───────────────────────────────────────────────
     try:
         await ws.accept()
     except Exception as e:
         logger.warning("接受 WebSocket 连接失败: %s", e)
         return
 
-    # 验证 API Key
     if not verify_ws_api_key(ws):
         try:
             await ws.send_json({"type": "error", "error": "API Key 无效"})
@@ -65,7 +52,7 @@ async def transcribe_stream(ws: WebSocket, engine: str | None = None, language: 
             pass
         return
 
-    # 获取引擎
+    # ── 获取引擎 ───────────────────────────────────────────────
     try:
         eng = get_engine(engine)
     except Exception as e:
@@ -77,9 +64,8 @@ async def transcribe_stream(ws: WebSocket, engine: str | None = None, language: 
             pass
         return
 
-    # 检查是否支持流式识别
-    if not isinstance(eng, WLKEngine):
-        error_msg = f"引擎 '{engine or '默认'}' 不支持流式识别，请使用 wlk 引擎"
+    if not isinstance(eng, WhisperLiveKitEngine):
+        error_msg = f"引擎 '{engine or '默认'}' 不支持流式识别，请使用 whisperlivekit 引擎"
         logger.warning(error_msg)
         try:
             await ws.send_json({"type": "error", "error": error_msg})
@@ -88,31 +74,30 @@ async def transcribe_stream(ws: WebSocket, engine: str | None = None, language: 
             pass
         return
 
-    logger.info("WebSocket 流式识别已连接%s", f" language={language}" if language else "")
-
+    # ── 初始化 ─────────────────────────────────────────────────
     record_id = str(uuid.uuid4())
     t_start = time.time()
     line_count = 0
 
-    # 在线程中创建 AudioProcessor（可能触发 ASR 模型加载，会阻塞）
+    logger.info("WebSocket 流式识别已连接%s", f" language={language}" if language else "")
+
     processor = await asyncio.to_thread(eng.create_audio_processor, language)
 
-    # 发送配置信息
     await ws.send_json({
         "type": "config",
         "useAudioWorklet": processor.is_pcm_input,
         "mode": "full",
     })
 
-    # 启动处理管道，获取结果生成器
     results_generator = await processor.create_tasks()
 
-    async def _track_and_send(results_gen):
+    # ── 结果转发 + 计数 ────────────────────────────────────────
+    async def _forward_results(gen):
         nonlocal line_count
         try:
-            async for response in results_gen:
+            async for response in gen:
                 await ws.send_json(response.to_dict())
-                if hasattr(response, 'lines') and response.lines:
+                if hasattr(response, "lines") and response.lines:
                     line_count = max(line_count, len(response.lines))
             await ws.send_json({"type": "ready_to_stop"})
         except WebSocketDisconnect:
@@ -120,8 +105,9 @@ async def transcribe_stream(ws: WebSocket, engine: str | None = None, language: 
         except Exception as e:
             logger.exception("结果处理异常: %s", e)
 
-    results_task = asyncio.create_task(_track_and_send(results_generator))
+    results_task = asyncio.create_task(_forward_results(results_generator))
 
+    # ── 接收音频帧 ─────────────────────────────────────────────
     try:
         while True:
             message = await ws.receive_bytes()
@@ -136,6 +122,7 @@ async def transcribe_stream(ws: WebSocket, engine: str | None = None, language: 
     except Exception as e:
         logger.error("WebSocket 异常: %s", e, exc_info=True)
     finally:
+        # ── 清理 ───────────────────────────────────────────────
         logger.info("清理 WebSocket 流式识别资源...")
         if not results_task.done():
             results_task.cancel()
@@ -149,20 +136,14 @@ async def transcribe_stream(ws: WebSocket, engine: str | None = None, language: 
         await processor.cleanup()
         logger.info("WebSocket 流式识别资源清理完成")
 
-        # 保存流式识别记录
-        total_time = time.time() - t_start
-        try:
-            async with async_session() as session:
-                session.add(StreamingRecord(
-                    record_id=record_id,
-                    engine_name=engine or "wlk",
-                    model_name=eng.model_name if hasattr(eng, 'model_name') else None,
-                    language=language,
-                    line_count=line_count,
-                    total_time=total_time,
-                    is_completed=True,
-                    completed_at=datetime.now(timezone.utc),
-                ))
-                await session.commit()
-        except Exception as exc:
-            logger.warning("保存流式识别记录失败: %s", exc)
+        # ── 持久化记录 ─────────────────────────────────────────
+        eng_model = eng.model_name if hasattr(eng, "model_name") else None
+        await save_streaming_record(
+            record_id=record_id,
+            engine_name=engine or "whisperlivekit",
+            model_name=eng_model,
+            language=language,
+            line_count=line_count,
+            total_time=time.time() - t_start,
+            is_completed=True,
+        )

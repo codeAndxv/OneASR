@@ -12,7 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.engines.wlk_engine import WLKEngine
+from app.engines.whisperlivekit_engine import WhisperLiveKitEngine
 
 # 测试音频文件路径
 TEST_AUDIO_FILE = Path("/Users/dudu/Files/Video/clips/lyj111_part000.mp4")
@@ -57,8 +57,8 @@ class TestStreamEndpoint:
     """测试 /ws/transcribe/stream 端点。"""
 
     @pytest.mark.skip(reason="需要加载真实引擎，跳过单元测试")
-    def test_non_wlk_engine_returns_error(self, client):
-        """使用非 wlk 引擎时应返回错误。"""
+    def test_non_whisperlivekit_engine_returns_error(self, client):
+        """使用非 whisperlivekit 引擎时应返回错误。"""
         with client.websocket_connect(
             "/ws/transcribe/stream?api_key=oneasr-key&engine=faster-whisper"
         ) as ws:
@@ -76,8 +76,8 @@ class TestStreamEndpoint:
             # 可能是引擎加载错误或其他错误
             assert msg["type"] == "error"
 
-    @patch("app.engines.wlk_engine.WLKEngine.create_audio_processor")
-    def test_wlk_engine_config_message(self, mock_create, client):
+    @patch("app.engines.whisperlivekit_engine.WhisperLiveKitEngine.create_audio_processor")
+    def test_whisperlivekit_engine_config_message(self, mock_create, client):
         """连接后应收到 config 消息。"""
         mock_processor = MagicMock()
         mock_processor.is_pcm_input = False
@@ -86,22 +86,22 @@ class TestStreamEndpoint:
         mock_processor.cleanup = AsyncMock()
         mock_create.return_value = mock_processor
 
-        # Mock the get_engine to return a mock WLKEngine
+        # Mock the get_engine to return a mock WhisperLiveKitEngine
         with patch("app.api.stream.get_engine") as mock_get_engine:
-            mock_engine = MagicMock(spec=WLKEngine)
+            mock_engine = MagicMock(spec=WhisperLiveKitEngine)
             mock_engine.create_audio_processor.return_value = mock_processor
             mock_get_engine.return_value = mock_engine
 
             with client.websocket_connect(
-                "/ws/transcribe/stream?api_key=oneasr-key&engine=wlk"
+                "/ws/transcribe/stream?api_key=oneasr-key&engine=whisperlivekit"
             ) as ws:
                 config_msg = ws.receive_json()
                 assert config_msg["type"] == "config"
                 assert "useAudioWorklet" in config_msg
                 assert config_msg["mode"] == "full"
 
-    @patch("app.engines.wlk_engine.WLKEngine.create_audio_processor")
-    def test_wlk_engine_sends_audio(self, mock_create, client):
+    @patch("app.engines.whisperlivekit_engine.WhisperLiveKitEngine.create_audio_processor")
+    def test_whisperlivekit_engine_sends_audio(self, mock_create, client):
         """发送音频数据后应收到识别结果。"""
         mock_front_data = _make_mock_front_data()
 
@@ -115,14 +115,14 @@ class TestStreamEndpoint:
         mock_processor.cleanup = AsyncMock()
         mock_create.return_value = mock_processor
 
-        # Mock the get_engine to return a mock WLKEngine
+        # Mock the get_engine to return a mock WhisperLiveKitEngine
         with patch("app.api.stream.get_engine") as mock_get_engine:
-            mock_engine = MagicMock(spec=WLKEngine)
+            mock_engine = MagicMock(spec=WhisperLiveKitEngine)
             mock_engine.create_audio_processor.return_value = mock_processor
             mock_get_engine.return_value = mock_engine
 
             with client.websocket_connect(
-                "/ws/transcribe/stream?api_key=oneasr-key&engine=wlk"
+                "/ws/transcribe/stream?api_key=oneasr-key&engine=whisperlivekit"
             ) as ws:
                 # 读取 config 消息
                 ws.receive_json()
@@ -145,15 +145,15 @@ class TestStreamEndpoint:
             yield
 
 
-class TestWLKStreamResponse:
-    """测试 WLKStreamResponse 数据模型。"""
+class TestWhisperLiveKitStreamResponse:
+    """测试 WhisperLiveKitStreamResponse 数据模型。"""
 
     def test_schema_structure(self):
         """验证响应模型的字段。"""
-        from app.models.schemas import WLKStreamResponse, StreamLine
+        from app.models.schemas import WhisperLiveKitStreamResponse, StreamLine
 
         line = StreamLine(speaker=1, text="你好", start="0:00:01.00", end="0:00:02.00")
-        resp = WLKStreamResponse(
+        resp = WhisperLiveKitStreamResponse(
             status="active_transcription",
             lines=[line],
             buffer_transcription="测试",
@@ -168,24 +168,24 @@ class TestWLKStreamResponse:
 
     def test_schema_defaults(self):
         """验证默认值。"""
-        from app.models.schemas import WLKStreamResponse
+        from app.models.schemas import WhisperLiveKitStreamResponse
 
-        resp = WLKStreamResponse()
+        resp = WhisperLiveKitStreamResponse()
         assert resp.status == "active_transcription"
         assert resp.lines == []
         assert resp.buffer_transcription == ""
         assert resp.error == ""
 
 
-class TestWLKEngineConfig:
-    """测试 WLKEngine 配置构建。"""
+class TestWhisperLiveKitEngineConfig:
+    """测试 WhisperLiveKitEngine 配置构建。"""
 
-    def test_build_wlk_config_defaults(self):
+    def test_build_whisperlivekit_config_defaults(self):
         """验证默认配置构建。"""
-        from app.engines.wlk_engine import WLKEngine
+        from app.engines.whisperlivekit_engine import WhisperLiveKitEngine
         from app.core.config import EngineConfig
 
-        config = EngineConfig("wlk", {
+        config = EngineConfig("whisperlivekit", {
             "type": "local",
             "model_name": "base",
             "backend": "auto",
@@ -196,40 +196,40 @@ class TestWLKEngineConfig:
             "pcm_input": False,
         }, model_dir=None)
 
-        engine = WLKEngine(config)
-        wlk_config = engine._build_wlk_config()
+        engine = WhisperLiveKitEngine(config)
+        whisperlivekit_config = engine._build_whisperlivekit_config()
 
-        assert wlk_config.model_size == "base"
-        assert wlk_config.backend == "auto"
-        assert wlk_config.backend_policy == "simulstreaming"
-        assert wlk_config.lan == "auto"
-        assert wlk_config.vac is True
-        assert wlk_config.diarization is False
-        assert wlk_config.pcm_input is False
+        assert whisperlivekit_config.model_size == "base"
+        assert whisperlivekit_config.backend == "auto"
+        assert whisperlivekit_config.backend_policy == "simulstreaming"
+        assert whisperlivekit_config.lan == "auto"
+        assert whisperlivekit_config.vac is True
+        assert whisperlivekit_config.diarization is False
+        assert whisperlivekit_config.pcm_input is False
 
-    def test_build_wlk_config_with_language_override(self):
+    def test_build_whisperlivekit_config_with_language_override(self):
         """验证语言覆盖。"""
-        from app.engines.wlk_engine import WLKEngine
+        from app.engines.whisperlivekit_engine import WhisperLiveKitEngine
         from app.core.config import EngineConfig
 
-        config = EngineConfig("wlk", {
+        config = EngineConfig("whisperlivekit", {
             "type": "local",
             "model_name": "base",
             "language": "auto",
         }, model_dir=None)
 
-        engine = WLKEngine(config)
-        wlk_config = engine._build_wlk_config(language="zh")
+        engine = WhisperLiveKitEngine(config)
+        whisperlivekit_config = engine._build_whisperlivekit_config(language="zh")
 
-        assert wlk_config.lan == "zh"
+        assert whisperlivekit_config.lan == "zh"
 
     def test_parse_time(self):
         """验证时间解析。"""
-        from app.engines.wlk_engine import WLKEngine
+        from app.engines.whisperlivekit_engine import WhisperLiveKitEngine
 
-        assert WLKEngine._parse_time("0:00:05.30") == 5.30
-        assert WLKEngine._parse_time("1:30:00.00") == 5400.0
-        assert WLKEngine._parse_time("0:05:10.50") == 310.50
+        assert WhisperLiveKitEngine._parse_time("0:00:05.30") == 5.30
+        assert WhisperLiveKitEngine._parse_time("1:30:00.00") == 5400.0
+        assert WhisperLiveKitEngine._parse_time("0:05:10.50") == 310.50
 
 
 class TestWLKStreamIntegration:
@@ -247,7 +247,7 @@ class TestWLKStreamIntegration:
 
         with TestClient(app) as client:
             with client.websocket_connect(
-                "/ws/transcribe/stream?api_key=oneasr-key&engine=wlk&language=auto"
+                "/ws/transcribe/stream?api_key=oneasr-key&engine=whisperlivekit&language=auto"
             ) as ws:
                 # 接收配置消息
                 config_msg = ws.receive_json()
@@ -315,7 +315,7 @@ class TestWLKStreamIntegration:
 
             with TestClient(app) as client:
                 with client.websocket_connect(
-                    "/ws/transcribe/stream?api_key=oneasr-key&engine=wlk&language=auto"
+                    "/ws/transcribe/stream?api_key=oneasr-key&engine=whisperlivekit&language=auto"
                 ) as ws:
                     # 接收配置消息
                     config_msg = ws.receive_json()
@@ -365,7 +365,7 @@ class TestWLKStreamIntegration:
         with TestClient(app) as client:
             # 使用无效的 API Key
             with client.websocket_connect(
-                "/ws/transcribe/stream?api_key=invalid-key&engine=wlk"
+                "/ws/transcribe/stream?api_key=invalid-key&engine=whisperlivekit"
             ) as ws:
                 msg = ws.receive_json()
                 assert msg["type"] == "error"

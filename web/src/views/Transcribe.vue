@@ -94,13 +94,13 @@ let accumulatedText = ''
 function onSegment(seg) {
   // 流式接口返回识别结果
   // faster-whisper: 每句独立 segment
-  // wlk: 累积更新的文本
+  // whisperlivekit: 累积更新的文本
   if (seg.index !== undefined) {
     // 有 index 说明是独立 segment（faster-whisper）
     segments.value.push(seg)
     resultText.value = buildSrt(segments.value)
   } else {
-    // 无 index 说明是累积文本（wlk）
+    // 无 index 说明是累积文本（whisperlivekit）
     accumulatedText = seg.text
     resultText.value = seg.text
   }
@@ -112,7 +112,7 @@ function onSegment(seg) {
 function onDone() {
   // 识别完成后，确保最终结果正确
   if (accumulatedText && segments.value.length === 0) {
-    // wlk 引擎：累积文本模式
+    // whisperlivekit 引擎：累积文本模式
     segments.value = [{ text: accumulatedText, start: 0, end: 0 }]
     resultText.value = buildSrt(segments.value)
   } else if (segments.value.length > 0) {

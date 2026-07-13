@@ -32,7 +32,7 @@ engines:
     base_url:
 
   # WhisperLiveKit 流式识别引擎（支持 VAD/VAC、实时转录、说话人分离）
-  wlk:
+  whisperlivekit:
     type: local
     model_name: base           # Whisper 模型大小: tiny/base/small/medium/large-v3
     device: cpu

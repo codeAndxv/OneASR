@@ -229,7 +229,7 @@ tests/
     ├── test_engines.py          # 引擎加载与转录
     ├── test_mimo.py             # MiMo 音频理解引擎
     ├── test_stream_websocket.py # WebSocket 流式集成测试
-    └── test_stream_wlk.py       # WhisperLiveKit 引擎测试
+    └── test_stream_whisperlivekit.py  # WhisperLiveKit 引擎测试
 ```
 
 ## 配置
@@ -267,7 +267,7 @@ engines:
     api_key:   # 小米 MiMo API Key
     base_url:
 
-  wlk:
+  whisperlivekit:
     type: local
     model_name: base
     device: cpu
@@ -302,7 +302,7 @@ OneASR/
 │   │   ├── base.py               # 引擎抽象基类
 │   │   ├── whisper_engine.py     # faster-whisper 实现
 │   │   ├── firered_engine.py     # FireRedASR 实现
-│   │   ├── wlk_engine.py         # WhisperLiveKit（流式+文件）
+│   │   ├── whisperlivekit_engine.py  # WhisperLiveKit（流式+文件）
 │   │   ├── openai_engine.py      # OpenAI Whisper API
 │   │   ├── mimo_engine.py        # 小米 MiMo API
 │   │   └── registry.py           # 引擎注册中心（单例模式）

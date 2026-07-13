@@ -7,7 +7,7 @@ from app.engines.whisper_engine import WhisperEngine
 from app.engines.firered_engine import FireRedEngine
 from app.engines.openai_engine import OpenAIEngine
 from app.engines.mimo_engine import MiMoEngine
-from app.engines.wlk_engine import WLKEngine
+from app.engines.whisperlivekit_engine import WhisperLiveKitEngine
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +16,7 @@ _engine_classes: dict[str, type[ASREngine]] = {
     "firered": FireRedEngine,
     "openai": OpenAIEngine,
     "mimo": MiMoEngine,
-    "wlk": WLKEngine,
+    "whisperlivekit": WhisperLiveKitEngine,
 }
 
 
@@ -90,7 +90,7 @@ def _ensure_engine(name: str) -> ASREngine:
         model_name=config.model_name,
         device=config.device,
         compute_type=config.compute_type,
-        streaming=(name == "wlk"),
+        streaming=(name == "whisperlivekit"),
     )
     return engine
 

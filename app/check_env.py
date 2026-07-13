@@ -66,7 +66,7 @@ def check_firered(config: dict) -> bool:
         return False
 
 
-def check_wlk(config: dict) -> bool:
+def check_whisperlivekit(config: dict) -> bool:
     """检查 WhisperLiveKit 模型是否可用。"""
     model_name = config.get("model_name", "base")
     device = config.get("device", "cpu")
@@ -126,7 +126,7 @@ def check_cloud_api(name: str, config: dict) -> bool:
 CHECKERS = {
     "faster-whisper": ("faster-whisper", check_whisper),
     "firered": ("FireRedASR", check_firered),
-    "wlk": ("WhisperLiveKit", check_wlk),
+    "whisperlivekit": ("WhisperLiveKit", check_whisperlivekit),
     "openai": ("OpenAI API", check_cloud_api),
     "mimo": ("MiMo API", check_cloud_api),
 }

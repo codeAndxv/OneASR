@@ -231,7 +231,7 @@ tests/
     ├── test_engines.py          # Engine loading and transcription
     ├── test_mimo.py             # MiMo audio understanding engine
     ├── test_stream_websocket.py # WebSocket streaming integration
-    └── test_stream_wlk.py       # WhisperLiveKit engine tests
+    └── test_stream_whisperlivekit.py   # WhisperLiveKit engine tests
 ```
 
 ## Configuration
@@ -253,7 +253,7 @@ engines:
     type: local
     model_name: aed
     device: cpu
-  wlk:
+  whisperlivekit:
     type: local
     model_name: base
     device: cpu
@@ -288,7 +288,7 @@ OneASR/
 │   │   ├── base.py               # Engine abstract base class
 │   │   ├── whisper_engine.py     # faster-whisper implementation
 │   │   ├── firered_engine.py     # FireRedASR implementation
-│   │   ├── wlk_engine.py         # WhisperLiveKit (streaming + file)
+│   │   ├── whisperlivekit_engine.py  # WhisperLiveKit (streaming + file)
 │   │   ├── openai_engine.py      # OpenAI Whisper API
 │   │   ├── mimo_engine.py        # Xiaomi MiMo API
 │   │   └── registry.py           # Engine registry (singleton)
