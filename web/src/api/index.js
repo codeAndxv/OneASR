@@ -38,28 +38,21 @@ async function apiFetch(url, options = {}) {
 }
 
 /**
- * 获取可用引擎列表（新接口）
+ * 获取可用 Provider 列表
  */
 export async function getEngines() {
-  const res = await apiFetch(`${API_BASE}/api/v1/audio/models`)
+  const res = await apiFetch(`${API_BASE}/api/v1/providers`)
   const data = await res.json()
   // 转换为兼容格式
   return {
     default: data.data[0]?.id || '',
     engines: data.data.map(m => ({
       name: m.id,
+      engine: m.engine,
       type: m.type,
       model_name: m.model_name,
     })),
   }
-}
-
-/**
- * 获取可用引擎列表（旧接口，兼容）
- */
-export async function getEnginesLegacy() {
-  const res = await apiFetch(`${PROXY_API}/engines`)
-  return res.json()
 }
 
 /**

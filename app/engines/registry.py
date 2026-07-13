@@ -1,7 +1,7 @@
 import logging
 from dataclasses import dataclass
 
-from app.core.config import app_config, EngineConfig
+from app.core.config import app_config
 from app.engines.base import ASREngine
 from app.engines.whisper_engine import WhisperEngine
 from app.engines.firered_engine import FireRedEngine
@@ -102,59 +102,6 @@ def _ensure_engine(provider_name: str) -> ASREngine:
         streaming=(config.engine_name == "whisperlivekit"),
     )
     return engine
-
-
-def load_engine(
-    provider_name: str,
-    model_name: str,
-    device: str = "cpu",
-    compute_type: str = "int8",
-) -> LoadedEngine:
-    """加载指定 Provider 和模型。
-
-    Args:
-        provider_name: Provider 名（如 "whisper1"）
-        model_name: 模型名（如 "medium", "large-v3"）
-        device: 设备（"cpu" 或 "cuda"）
-        compute_type: 计算精度（"int8", "float16", "int8_float16" 等）
-    """
-    if provider_name not in app_config.providers:
-        raise ValueError(f"未知 Provider: {provider_name}，可用: {list(app_config.providers)}")
-
-    key = _make_key(provider_name, model_name, device, compute_type)
-    if key in _loaded:
-        logger.info("相同配置已加载，直接返回: %s", key)
-        return _loaded[key]
-
-    logger.info("正在加载引擎: provider=%s, model=%s, device=%s, compute_type=%s",
-                provider_name, model_name, device, compute_type)
-
-    base_config = app_config.providers.get(provider_name)
-    config = EngineConfig(
-        name=provider_name,
-        config={
-            "engine": base_config.engine_name if base_config else "faster-whisper",
-            "type": base_config.type if base_config else "local",
-            "model_name": model_name,
-            "device": device,
-            "compute_type": compute_type,
-        },
-        model_dir=app_config.model_dir,
-    )
-
-    engine = _engine_classes[config.engine_name](config)
-    loaded = LoadedEngine(
-        engine=engine,
-        provider_name=provider_name,
-        engine_name=config.engine_name,
-        model_name=model_name,
-        device=device,
-        compute_type=compute_type,
-        streaming=(config.engine_name == "whisperlivekit"),
-    )
-    _loaded[key] = loaded
-    logger.info("引擎加载完成: %s", key)
-    return loaded
 
 
 def get_loaded_engines() -> dict[str, LoadedEngine]:
