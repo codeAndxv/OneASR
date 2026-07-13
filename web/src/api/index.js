@@ -290,3 +290,50 @@ export async function transcribeByUuid(fileUuid, engine, format = 'json', langua
   }
   return res.text()
 }
+
+// ── 记录查询 API ──────────────────────────────────────────────
+
+function buildRecordParams(params) {
+  const q = new URLSearchParams()
+  if (params.page) q.set('page', params.page)
+  if (params.page_size) q.set('page_size', params.page_size)
+  if (params.sort_by) q.set('sort_by', params.sort_by)
+  if (params.sort_order) q.set('sort_order', params.sort_order)
+  return q.toString()
+}
+
+/**
+ * 分页查询上传记录
+ */
+export async function getUploadRecords(params = {}) {
+  const qs = buildRecordParams({ page: 1, page_size: 20, sort_by: 'created_at', sort_order: 'desc', ...params })
+  const res = await fetch(`${API_BASE}/api/v1/records/uploads?${qs}`, {
+    headers: { 'X-API-Key': getApiKey() },
+  })
+  if (!res.ok) throw new Error('获取上传记录失败')
+  return res.json()
+}
+
+/**
+ * 分页查询文件转录记录
+ */
+export async function getFileTranscriptionRecords(params = {}) {
+  const qs = buildRecordParams({ page: 1, page_size: 20, sort_by: 'created_at', sort_order: 'desc', ...params })
+  const res = await fetch(`${API_BASE}/api/v1/records/file-transcriptions?${qs}`, {
+    headers: { 'X-API-Key': getApiKey() },
+  })
+  if (!res.ok) throw new Error('获取转录记录失败')
+  return res.json()
+}
+
+/**
+ * 分页查询流式识别记录
+ */
+export async function getStreamingRecords(params = {}) {
+  const qs = buildRecordParams({ page: 1, page_size: 20, sort_by: 'created_at', sort_order: 'desc', ...params })
+  const res = await fetch(`${API_BASE}/api/v1/records/streaming?${qs}`, {
+    headers: { 'X-API-Key': getApiKey() },
+  })
+  if (!res.ok) throw new Error('获取流式记录失败')
+  return res.json()
+}

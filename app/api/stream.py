@@ -1,11 +1,16 @@
 import asyncio
 import logging
+import time
+import uuid
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.api.auth import verify_ws_api_key
+from app.db import async_session
 from app.engines.registry import get_engine
 from app.engines.wlk_engine import WLKEngine
+from app.models.orm_models import StreamingRecord
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +90,10 @@ async def transcribe_stream(ws: WebSocket, engine: str | None = None, language: 
 
     logger.info("WebSocket 流式识别已连接%s", f" language={language}" if language else "")
 
+    record_id = str(uuid.uuid4())
+    t_start = time.time()
+    line_count = 0
+
     # 在线程中创建 AudioProcessor（可能触发 ASR 模型加载，会阻塞）
     processor = await asyncio.to_thread(eng.create_audio_processor, language)
 
@@ -97,7 +106,21 @@ async def transcribe_stream(ws: WebSocket, engine: str | None = None, language: 
 
     # 启动处理管道，获取结果生成器
     results_generator = await processor.create_tasks()
-    results_task = asyncio.create_task(_handle_results(ws, results_generator))
+
+    async def _track_and_send(results_gen):
+        nonlocal line_count
+        try:
+            async for response in results_gen:
+                await ws.send_json(response.to_dict())
+                if hasattr(response, 'lines') and response.lines:
+                    line_count = max(line_count, len(response.lines))
+            await ws.send_json({"type": "ready_to_stop"})
+        except WebSocketDisconnect:
+            logger.info("客户端在结果处理期间断开连接")
+        except Exception as e:
+            logger.exception("结果处理异常: %s", e)
+
+    results_task = asyncio.create_task(_track_and_send(results_generator))
 
     try:
         while True:
@@ -125,3 +148,21 @@ async def transcribe_stream(ws: WebSocket, engine: str | None = None, language: 
 
         await processor.cleanup()
         logger.info("WebSocket 流式识别资源清理完成")
+
+        # 保存流式识别记录
+        total_time = time.time() - t_start
+        try:
+            async with async_session() as session:
+                session.add(StreamingRecord(
+                    record_id=record_id,
+                    engine_name=engine or "wlk",
+                    model_name=eng.model_name if hasattr(eng, 'model_name') else None,
+                    language=language,
+                    line_count=line_count,
+                    total_time=total_time,
+                    is_completed=True,
+                    completed_at=datetime.now(timezone.utc),
+                ))
+                await session.commit()
+        except Exception as exc:
+            logger.warning("保存流式识别记录失败: %s", exc)

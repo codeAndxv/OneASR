@@ -88,15 +88,15 @@ The project includes a media clipping tool for splitting long videos into shorte
 
 ```bash
 # Clip a specific duration (default 2 minutes)
-python app/utils/clip.py input_video.mp4 120
+python cli/clip.py input_video.mp4 120
 
 # Auto-clip entire video into 2-minute segments
-python app/utils/clip.py input_video.mp4
+python cli/clip.py input_video.mp4
 ```
 
 Python API usage:
 ```python
-from app.utils.clip import MediaClipper
+from cli.clip import MediaClipper
 
 clipper = MediaClipper("video.mp4")
 clipper.clip(start=0, duration=120, output="clip.mp4")
@@ -297,13 +297,14 @@ OneASR/
 │   │   └── orm_models.py         # SQLAlchemy ORM models
 │   └── utils/
 │       ├── audio.py              # Audio format conversion
-│       ├── clip.py               # Media clipping tool
-│       ├── converter.py          # Audio converter
 │       ├── download.py           # URL download utility
 │       ├── format.py             # Output format conversion (SRT/VTT/JSON/TSV)
 │       ├── stream.py             # PCM streaming utilities
-│       ├── vad.py                # VAD-based audio segmentation
-│       └── wlk_client.py         # WhisperLiveKit WebSocket client
+│       └── vad.py                # VAD-based audio segmentation
+├── cli/                          # CLI tools
+│   ├── clip.py                   # Media clipping tool
+│   ├── converter.py              # Audio converter
+│   └── wlk_client.py             # WhisperLiveKit WebSocket client
 ├── web/                          # Vue.js frontend
 │   ├── src/
 │   │   ├── api/index.js          # API service layer (SSE streaming)

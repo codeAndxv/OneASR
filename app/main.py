@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import audio, models, stream, upload
+from app.api import audio, models, records, stream, upload
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -43,6 +43,9 @@ app.include_router(models.router)
 
 # 文件上传和管理 API
 app.include_router(upload.router)
+
+# 转录记录查询 API
+app.include_router(records.router)
 
 # 流式识别 API
 app.include_router(stream.router)

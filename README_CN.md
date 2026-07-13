@@ -86,15 +86,15 @@ curl -H "X-API-Key: oneasr-key" http://localhost:8020/api/v1/engines
 
 ```bash
 # 截取指定时长（默认 2 分钟）
-python app/utils/clip.py input_video.mp4 120
+python cli/clip.py input_video.mp4 120
 
 # 自动将整个视频截取成 2 分钟片段
-python app/utils/clip.py input_video.mp4
+python cli/clip.py input_video.mp4
 ```
 
 Python API 使用：
 ```python
-from app.utils.clip import MediaClipper
+from cli.clip import MediaClipper
 
 clipper = MediaClipper("video.mp4")
 clipper.clip(start=0, duration=120, output="clip.mp4")
@@ -311,13 +311,14 @@ OneASR/
 │   │   └── orm_models.py         # SQLAlchemy ORM 模型
 │   └── utils/
 │       ├── audio.py              # 音频格式转换
-│       ├── clip.py               # 媒体截取工具
-│       ├── converter.py          # 音频转换器
 │       ├── download.py           # URL 下载工具
 │       ├── format.py             # 输出格式转换（SRT/VTT/JSON/TSV）
 │       ├── stream.py             # PCM 流式工具
-│       ├── vad.py                # VAD 音频切分
-│       └── wlk_client.py         # WhisperLiveKit WebSocket 客户端
+│       └── vad.py                # VAD 音频切分
+├── cli/                          # 命令行工具
+│   ├── clip.py                   # 媒体截取工具
+│   ├── converter.py              # 音频转换器
+│   └── wlk_client.py             # WhisperLiveKit WebSocket 客户端
 ├── web/                          # Vue.js 前端
 │   ├── src/
 │   │   ├── api/index.js          # API 服务层（SSE 流式）

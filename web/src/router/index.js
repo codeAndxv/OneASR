@@ -16,6 +16,11 @@ const routes = [
         name: 'FileUpload',
         component: () => import('../views/FileUpload.vue'),
       },
+      {
+        path: 'records',
+        name: 'Records',
+        component: () => import('../views/Records.vue'),
+      },
     ],
   },
 ]

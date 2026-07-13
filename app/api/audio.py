@@ -4,16 +4,18 @@ import json
 import logging
 import tempfile
 import time
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import PlainTextResponse, StreamingResponse
 
 from app.api.auth import get_api_key
 from app.core.config import app_config
 from app.db import async_session
-from app.models.orm_models import UploadedFile
+from app.models.orm_models import UploadedFile, FileTranscriptionRecord
 from app.engines.registry import get_engine
 from app.models.schemas import (
     OutputFormat,
@@ -87,6 +89,7 @@ async def create_transcription(
         raise HTTPException(status_code=400, detail="必须提供 file 或 file_uuid 参数")
 
     t_start = time.time()
+    record_id = str(uuid.uuid4())
 
     try:
         # 获取音频数据和文件名
@@ -186,11 +189,48 @@ async def create_transcription(
                         "[transcriptions][%s] 流式转录完成: %d 段, 总耗时: %.2fs",
                         request_id, idx, total_time,
                     )
+                    # 保存流式转录记录
+                    async with async_session() as session:
+                        session.add(FileTranscriptionRecord(
+                            record_id=record_id,
+                            filename=filename,
+                            file_size=len(data),
+                            engine_name=model or app_config.default_engine,
+                            model_name=eng.model_name if hasattr(eng, 'model_name') else None,
+                            device_info=eng.device if hasattr(eng, 'device') else None,
+                            language=language,
+                            response_format="stream",
+                            segment_count=idx,
+                            total_time=total_time,
+                            is_completed=True,
+                            completed_at=datetime.now(timezone.utc),
+                        ))
+                        await session.commit()
                 except (ConnectionResetError, BrokenPipeError, OSError) as e:
                     logger.info("[transcriptions][%s] SSE 流客户端已断开: %s", request_id, e)
                 except Exception as e:
                     logger.exception("[transcriptions][%s] SSE 流异常: %s", request_id, e)
                     yield f'data: {json.dumps({"error": str(e)}, ensure_ascii=False)}\n\n'
+                    # 保存失败记录
+                    try:
+                        async with async_session() as session:
+                            session.add(FileTranscriptionRecord(
+                                record_id=record_id,
+                                filename=filename,
+                                file_size=len(data),
+                                engine_name=model or app_config.default_engine,
+                                model_name=eng.model_name if hasattr(eng, 'model_name') else None,
+                                device_info=eng.device if hasattr(eng, 'device') else None,
+                                language=language,
+                                response_format="stream",
+                                total_time=time.time() - t_stream_start,
+                                is_completed=False,
+                                error_message=str(e),
+                                completed_at=datetime.now(timezone.utc),
+                            ))
+                            await session.commit()
+                    except Exception:
+                        logger.warning("[transcriptions][%s] 保存失败记录异常", request_id)
 
             return StreamingResponse(
                 stream_generator(),
@@ -219,6 +259,25 @@ async def create_transcription(
 
         total_time = time.time() - t_start
         logger.info("[transcriptions][%s] 响应完成, format=%s, 总耗时: %.2fs", request_id, response_format, total_time)
+
+        # 保存转录记录
+        async with async_session() as session:
+            session.add(FileTranscriptionRecord(
+                record_id=record_id,
+                filename=filename,
+                file_size=len(data),
+                engine_name=model or app_config.default_engine,
+                model_name=eng.model_name if hasattr(eng, 'model_name') else None,
+                device_info=eng.device if hasattr(eng, 'device') else None,
+                language=language,
+                response_format=response_format.value if hasattr(response_format, 'value') else str(response_format),
+                segment_count=len(segments),
+                result_length=len(text),
+                total_time=total_time,
+                is_completed=True,
+                completed_at=datetime.now(timezone.utc),
+            ))
+            await session.commit()
 
         # 根据格式返回
         if response_format == OutputFormat.JSON:
@@ -251,6 +310,22 @@ async def create_transcription(
         raise
     except Exception as e:
         logger.exception("[transcriptions][%s] 语音识别失败: %s", request_id, e)
+        # 保存失败记录
+        try:
+            async with async_session() as session:
+                session.add(FileTranscriptionRecord(
+                    record_id=record_id,
+                    filename=filename,
+                    file_size=len(data) if 'data' in dir() else 0,
+                    engine_name=model or app_config.default_engine,
+                    total_time=time.time() - t_start,
+                    is_completed=False,
+                    error_message=str(e),
+                    completed_at=datetime.now(timezone.utc),
+                ))
+                await session.commit()
+        except Exception:
+            logger.warning("[transcriptions][%s] 保存失败记录异常", request_id)
         raise HTTPException(status_code=500, detail=f"识别失败: {e}")
 
 
