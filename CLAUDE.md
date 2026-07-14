@@ -25,7 +25,8 @@ OneASR/
 │   ├── api/
 │   │   ├── auth.py          # API Key 验证
 │   │   ├── file.py          # 文件识别接口（上传/URL → 完整结果）
-│   │   └── stream.py        # 流式识别接口（WhisperLiveKit WebSocket）
+│   │   ├── audio.py         # OpenAI 兼容的语音识别接口
+│   │   └── stream.py        # 流式识别接口（WebSocket）
 │   ├── core/config.py       # 配置管理
 │   ├── engines/
 │   │   ├── base.py          # 引擎抽象基类

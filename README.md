@@ -144,7 +144,8 @@ WebSocket streaming uses query parameters (browser WebSocket API doesn't support
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/ws/transcribe/stream?api_key=` | WebSocket | Real-time streaming (WhisperLiveKit) |
+| `/v1/realtime?api_key=` | WebSocket | Real-time streaming (OpenAI Realtime Transcription 协议) |
+| `/ws/transcribe/stream?api_key=` | WebSocket | Real-time streaming (Legacy WhisperLiveKit 协议) |
 
 ## File Upload & Instant Upload (MD5 Dedup)
 
@@ -174,24 +175,62 @@ Real-time speech recognition powered by [WhisperLiveKit](https://github.com/Quen
 - **Speaker Diarization** — Optional speaker identification (requires additional models)
 - **Multi-language** — Automatic language detection or manual specification
 
-### WebSocket Connection
+### WebSocket Connection (OpenAI Realtime Transcription 协议)
 
 ```javascript
-const ws = new WebSocket("ws://localhost:8020/ws/transcribe/stream?api_key=oneasr-key&language=zh");
+const ws = new WebSocket("ws://localhost:8020/v1/realtime?api_key=oneasr-key");
+
+// 1. 配置会话
+ws.send(JSON.stringify({
+  type: "session.update",
+  session: {
+    type: "transcription",
+    audio: {
+      input: {
+        format: { type: "audio/pcm", rate: 16000 },
+        transcription: { model: "wlk-live", language: "zh" },
+      },
+    },
+  },
+}));
 
 ws.onmessage = (event) => {
   const data = JSON.parse(event.data);
-  if (data.type === "config") {
-    console.log("Connection config:", data);
-  } else if (data.type === "ready_to_stop") {
-    console.log("Recognition complete");
-  } else {
-    console.log(data.lines);
+  if (data.type === "session.updated") {
+    console.log("Session configured:", data.session.id);
+  } else if (data.type === "conversation.item.input_audio_transcription.delta") {
+    process.stdout.write(data.delta);  // 增量文本
+  } else if (data.type === "conversation.item.input_audio_transcription.completed") {
+    console.log("\nFinal:", data.transcript);  // 完整文本
   }
 };
 
-ws.send(audioChunk);
-ws.send(new Uint8Array(0)); // End recognition
+// 2. 发送 base64 编码的 PCM 音频
+ws.send(JSON.stringify({
+  type: "input_audio_buffer.append",
+  audio: btoa(String.fromCharCode(...pcmBytes)),
+}));
+
+// 3. 提交音频缓冲区
+ws.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
+```
+
+### Stream Simulation Client
+
+CLI 工具，将本地音视频文件模拟为麦克风实时输入：
+
+```bash
+# 基本用法
+python -m cli.stream_simulation_client test.wav
+
+# 指定中文和引擎
+python -m cli.stream_simulation_client test.wav --language zh --model wlk-live
+
+# 10 倍速快速测试
+python -m cli.stream_simulation_client test.wav --speed 10
+
+# 连接远程服务
+python -m cli.stream_simulation_client test.wav --url ws://remote:8020/v1/realtime
 ```
 
 ## Running Tests
@@ -231,6 +270,7 @@ tests/
     ├── test_engines.py          # Engine loading and transcription
     ├── test_mimo.py             # MiMo audio understanding engine
     ├── test_stream_websocket.py # WebSocket streaming integration
+    ├── test_stream_realtime.py  # OpenAI Realtime Transcription protocol tests
     └── test_stream_whisperlivekit.py   # WhisperLiveKit engine tests
 ```
 
@@ -302,6 +342,7 @@ OneASR/
 ├── cli/                          # CLI tools
 │   ├── clip.py                   # Media clipping tool
 │   ├── converter.py              # Audio converter
+│   ├── stream_simulation_client.py  # Stream simulation client (OpenAI protocol)
 │   └── whisperlivekit_client.py     # WhisperLiveKit WebSocket client
 ├── web/                          # Vue.js frontend
 │   ├── src/

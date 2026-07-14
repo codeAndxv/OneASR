@@ -66,6 +66,7 @@ class WhisperLiveKitEngine(ASREngine):
         language: str | None = None,
         mode: str = "full",
         target_language: str | None = None,
+        pcm_input: bool = False,
     ) -> AudioProcessor:
         """创建一个新的 AudioProcessor 实例供 WebSocket 连接使用。
 
@@ -73,10 +74,12 @@ class WhisperLiveKitEngine(ASREngine):
             language: 可选的语言覆盖（如 "zh"、"en"、"auto"）。
             mode: 识别模式（"full" 或 "diff"）。
             target_language: 翻译目标语言（仅 mode="diff" 时有效）。
+            pcm_input: 是否接收原始 PCM 数据（跳过 FFmpeg 解码）。
         """
         kwargs = {
             "transcription_engine": self.transcription_engine,
             "language": language,
+            "pcm_input": pcm_input,
         }
         if mode:
             kwargs["mode"] = mode
@@ -162,12 +165,12 @@ class WhisperLiveKitEngine(ASREngine):
 
     async def transcribe_stream(self, audio_chunk: bytes) -> str | None:
         raise NotImplementedError(
-            "WhisperLiveKitEngine 的流式识别请使用 WebSocket 接口 /ws/transcribe/stream"
+            "WhisperLiveKitEngine 的流式识别请使用 WebSocket 接口 /v1/realtime"
         )
 
     async def stream_finalize(self) -> str:
         raise NotImplementedError(
-            "WhisperLiveKitEngine 的流式识别请使用 WebSocket 接口 /ws/transcribe/stream"
+            "WhisperLiveKitEngine 的流式识别请使用 WebSocket 接口 /v1/realtime"
         )
 
     # ── 工具方法 ────────────────────────────────────────────────

@@ -5,25 +5,30 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import audio, provider, record, stream, upload
+from app.api import audio, provider, record, realtime, upload
 from app.core.config import settings
+
+# 配置日志级别
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 logger = logging.getLogger(__name__)
 
 
 async def _load_all_providers():
-    """后台加载所有 Provider（本地引擎可能需要下载模型）。"""
+    """后台并发加载所有 Provider（本地引擎可能需要下载模型）。"""
     from app.core.config import app_config
     from app.engines.registry import get_engine
 
-    for name, config in app_config.providers.items():
+    async def _load_one(name: str):
         try:
-            logger.info("[startup] 正在加载 Provider: %s (engine=%s, type=%s)",
-                        name, config.engine_name, config.type)
-            get_engine(name)
+            logger.info("[startup] 正在加载 Provider: %s", name)
+            await asyncio.to_thread(get_engine, name)
             logger.info("[startup] Provider 加载成功: %s", name)
         except Exception as e:
             logger.warning("[startup] Provider 加载失败: %s — %s", name, e)
+
+    # 并发加载所有 Provider，总耗时 = 最慢的那个
+    await asyncio.gather(*[_load_one(name) for name in app_config.providers])
 
 
 @asynccontextmanager
@@ -65,8 +70,8 @@ app.include_router(upload.router)
 # 转录记录查询 API
 app.include_router(record.router)
 
-# 流式识别 API
-app.include_router(stream.router)
+# 流式识别 API（OpenAI Realtime Transcription 协议）
+app.include_router(realtime.router)
 
 
 @app.get("/health")

@@ -1,11 +1,11 @@
 """实时语音识别集成测试。
 
-将本地视频文件通过 WebSocket 流式发送到 /ws/transcribe/stream，
+将本地视频文件通过 WebSocket 流式发送到 /v1/realtime，
 验证 WhisperLiveKit 实时识别功能并展示结果。
 
 用法:
-    python -m tests.test_stream_integration
-    python -m tests.test_stream_integration /path/to/audio.mp3 --language zh
+    python -m tests.general.test_stream_websocket
+    python -m tests.general.test_stream_websocket /path/to/audio.mp3 --language zh
 """
 
 import asyncio

@@ -16,6 +16,11 @@ async def get_api_key(x_api_key: str = Header(..., alias="X-API-Key")) -> str:
 
 
 def verify_ws_api_key(ws: WebSocket) -> bool:
-    """验证 WebSocket 连接的 API Key（通过查询参数传递）。"""
+    """验证 WebSocket 连接的 API Key（支持查询参数和 header）。"""
+    # 查询参数
     key = ws.query_params.get("api_key", "")
-    return verify_api_key(key)
+    if key and verify_api_key(key):
+        return True
+    # Header（websockets 客户端不支持 query params，改用 header）
+    auth = ws.headers.get("x-api-key", "")
+    return verify_api_key(auth)
