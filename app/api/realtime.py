@@ -20,8 +20,6 @@ router = APIRouter(tags=["realtime"])
 
 
 class SessionState:
-    """管理单个 WebSocket 连接的转录会话状态。"""
-
     IDLE = "idle"
     CONFIGURED = "configured"
     LISTENING = "listening"
@@ -43,16 +41,7 @@ class SessionState:
 
 @router.websocket("/v1/realtime")
 async def realtime_transcription(ws: WebSocket):
-    """OpenAI Realtime Transcription 风格的 WebSocket 接口。
-
-    协议流程：
-    1. 客户端连接后发送 session.update 配置会话
-    2. 服务端回复 session.updated 确认
-    3. 客户端发送 input_audio_buffer.append（base64 PCM 音频）
-    4. 客户端发送 input_audio_buffer.commit 触发转录
-    5. 服务端回复 conversation.item.input_audio_transcription.delta（增量文本）
-    6. 服务端回复 conversation.item.input_audio_transcription.completed（完整文本）
-    """
+    """OpenAI Realtime Transcription 风格的 WebSocket 接口。"""
     try:
         await ws.accept()
     except Exception as e:
@@ -71,6 +60,7 @@ async def realtime_transcription(ws: WebSocket):
     processor = None
     eng = None
     results_task = None
+    heartbeat_task = None
     t_start = time.time()
     record_id = str(uuid.uuid4())
 
@@ -84,7 +74,7 @@ async def realtime_transcription(ws: WebSocket):
         await _send_event({"type": "error", "error": {"code": code, "message": message}})
 
     async def _handle_session_update(data: dict):
-        nonlocal processor, eng
+        nonlocal processor, eng, results_task, heartbeat_task
         sess_cfg = data.get("session", {})
 
         audio_input = sess_cfg.get("audio", {}).get("input", {})
@@ -113,8 +103,10 @@ async def realtime_transcription(ws: WebSocket):
             return
 
         session.state = SessionState.CONFIGURED
-        results_gen = await processor.create_tasks()
-        results_task = asyncio.create_task(_forward_results(results_gen))
+        # 启动后台处理任务（转录、VAD 等）
+        await processor.create_tasks()
+        results_task = asyncio.create_task(_forward_results(None))
+        heartbeat_task = asyncio.create_task(_heartbeat())
 
         await _send_event({
             "type": "session.updated",
@@ -134,32 +126,46 @@ async def realtime_transcription(ws: WebSocket):
             },
         })
 
-    async def _forward_results(gen):
-        """将 WhisperLiveKit 结果转换为 OpenAI delta/completed 事件。"""
-        sent_line_count = 0
+    async def _forward_results(_ignored_gen):
+        """直接从 AudioProcessor 读取状态，绕过 results_formatter 的去重逻辑。"""
+        sent_texts: set[str] = set()  # 已发送的文本（内容去重）
         last_buffer = ""
         try:
-            async for response in gen:
-                d = response.to_dict() if hasattr(response, "to_dict") else response
-                lines = d.get("lines", [])
-                buffer_text = d.get("buffer_transcription", "").strip()
+            while True:
+                if processor.is_stopping:
+                    if processor.transcription_task and processor.transcription_task.done():
+                        break
 
-                new_lines = lines[sent_line_count:]
-                if new_lines:
-                    for line in new_lines:
-                        text = line.get("text", "").strip()
-                        if not text or line.get("speaker") == -2:
-                            continue
-                        item_id = session.next_item_id()
-                        await _send_event({"type": "conversation.item.input_audio_transcription.delta", "item_id": item_id, "content_index": 0, "delta": text})
-                        session.transcript_parts.append(text)
-                        await _send_event({"type": "conversation.item.input_audio_transcription.completed", "item_id": item_id, "content_index": 0, "transcript": text})
-                    sent_line_count = len(lines)
+                processor.tokens_alignment.update()
+                lines, _, _ = processor.tokens_alignment.get_lines(
+                    diarization=False,
+                    current_silence=processor.current_silence,
+                    audio_time=processor.total_pcm_samples / processor.sample_rate if processor.sample_rate else None,
+                )
+                state = await processor.get_current_state()
+                buffer_text = (state.buffer_transcription.text if state.buffer_transcription else "").strip()
 
-                if buffer_text and buffer_text != last_buffer:
+                # 发送新增的行（通过文本内容去重）
+                for line in lines:
+                    text = (line.text or "").strip()
+                    if not text or getattr(line, "speaker", None) == -2:
+                        continue
+                    if text in sent_texts:
+                        continue
+                    sent_texts.add(text)
                     item_id = session.next_item_id()
-                    await _send_event({"type": "conversation.item.input_audio_transcription.delta", "item_id": item_id, "content_index": 0, "delta": buffer_text})
+                    await _send_event({"type": "conversation.item.input_audio_transcription.delta", "item_id": item_id, "content_index": 0, "delta": text})
+                    session.transcript_parts.append(text)
+                    await _send_event({"type": "conversation.item.input_audio_transcription.completed", "item_id": item_id, "content_index": 0, "transcript": text})
+
+                # 发送缓冲文本变化
+                if buffer_text != last_buffer:
+                    if buffer_text:
+                        item_id = session.next_item_id()
+                        await _send_event({"type": "conversation.item.input_audio_transcription.delta", "item_id": item_id, "content_index": 0, "delta": buffer_text})
                     last_buffer = buffer_text
+
+                await asyncio.sleep(0.1)
 
         except WebSocketDisconnect:
             pass
@@ -167,6 +173,11 @@ async def realtime_transcription(ws: WebSocket):
             pass
         except Exception as e:
             logger.exception("Realtime 结果处理异常: %s", e)
+
+    async def _heartbeat():
+        while True:
+            await asyncio.sleep(5.0)
+            await _send_event({"type": "heartbeat"})
 
     try:
         while True:
@@ -228,6 +239,13 @@ async def realtime_transcription(ws: WebSocket):
     except Exception as e:
         logger.error("Realtime WebSocket 异常: %s", e, exc_info=True)
     finally:
+        if heartbeat_task and not heartbeat_task.done():
+            heartbeat_task.cancel()
+            try:
+                await heartbeat_task
+            except asyncio.CancelledError:
+                pass
+
         if results_task and not results_task.done():
             results_task.cancel()
             try:

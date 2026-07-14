@@ -28,18 +28,16 @@ class WhisperLiveKitEngine(ASREngine):
 
     def __init__(self, config: EngineConfig):
         self.config = config
-        self._transcription_engine: Optional[TranscriptionEngine] = None
+        # 启动时立即初始化 TranscriptionEngine，避免首次连接等待 80s+
+        cfg = self._build_config()
+        self._transcription_engine = TranscriptionEngine(config=cfg)
+        logger.info(
+            "WhisperLiveKit TranscriptionEngine 已初始化: backend=%s, policy=%s",
+            cfg.backend, cfg.backend_policy,
+        )
 
     @property
     def transcription_engine(self) -> TranscriptionEngine:
-        """懒加载 TranscriptionEngine 单例。"""
-        if self._transcription_engine is None:
-            config = self._build_config()
-            self._transcription_engine = TranscriptionEngine(config=config)
-            logger.info(
-                "WhisperLiveKit TranscriptionEngine 已初始化: backend=%s, policy=%s",
-                config.backend, config.backend_policy,
-            )
         return self._transcription_engine
 
     def _build_config(self, language: str | None = None) -> WhisperLiveKitConfig:

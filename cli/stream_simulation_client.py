@@ -263,16 +263,20 @@ class StreamSimulationClient:
 
                         if event_type == "conversation.item.input_audio_transcription.delta":
                             delta = event.get("delta", "")
-                            print(f"\r[delta] {delta}", end="", flush=True)
+                            # 用 \r + \n 确保不被进度条覆盖
+                            print(f"\r\033[K[delta] {delta}")
 
                         elif event_type == "conversation.item.input_audio_transcription.completed":
                             transcript = event.get("transcript", "")
-                            print(f"\n[完成] {transcript}")
+                            print(f"\033[K[完成] {transcript}")
                             received_events.append(event)
 
                         elif event_type == "done":
                             print("\n[完成] 服务端已结束转录")
                             return
+
+                        elif event_type == "heartbeat":
+                            pass  # 忽略心跳
 
                         elif event_type == "error":
                             error = event.get("error", {})
