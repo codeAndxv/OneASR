@@ -108,20 +108,26 @@ def _ensure_wav(data: bytes, filename: str, request_id: str) -> bytes:
 async def create_transcription(
     file: Optional[UploadFile] = File(None),
     file_uuid: Optional[str] = Form(None, description="已上传文件的UUID（与 file 二选一）"),
-    model: Optional[str] = Form(None, description="Provider 名称（如 whisper1）"),
+    model: Optional[str] = Form(None, description="Provider 名称（兼容 OpenAI 格式，如 whisper1）"),
+    provider: Optional[str] = Form(None, description="Provider 名称（如 whisper1，与 model 二选一）"),
     language: Optional[str] = Form(None, description="语言代码"),
     response_format: OutputFormat = Form(OutputFormat.JSON, description="输出格式"),
     prompt: Optional[str] = Form(None, description="提示词"),
     stream: bool = Form(False, description="是否流式返回"),
     temperature: Optional[float] = Form(None, description="采样温度"),
 ):
-    """创建语音识别任务（兼容 OpenAI 格式）。"""
+    """创建语音识别任务（兼容 OpenAI 格式）。model 和 provider 二选一，指向 Provider 名称。"""
     rid = f"{int(time.time() * 1000)}"
     record_id = str(uuid.uuid4())
     t_start = time.time()
 
-    logger.info("[transcriptions][%s] model=%s lang=%s fmt=%s stream=%s file=%s uuid=%s",
-                rid, model, language, response_format, stream,
+    # provider 优先，model 作为 OpenAI 兼容字段兜底
+    provider_name = provider or model
+    if not provider_name:
+        raise HTTPException(status_code=400, detail="必须提供 provider 或 model 参数")
+
+    logger.info("[transcriptions][%s] provider=%s lang=%s fmt=%s stream=%s file=%s uuid=%s",
+                rid, provider_name, language, response_format, stream,
                 file.filename if file else None, file_uuid)
 
     try:
@@ -132,15 +138,15 @@ async def create_transcription(
         data = _ensure_wav(data, filename, rid)
 
         # 3. 获取引擎
-        eng = get_engine(model)
-        logger.info("[transcriptions][%s] 引擎就绪: %s", rid, model)
+        eng = get_engine(provider_name)
+        logger.info("[transcriptions][%s] 引擎就绪: %s", rid, provider_name)
 
         # 4. 流式 / 非流式
         if stream:
-            return await _handle_stream(rid, record_id, data, filename, eng, model, language,
+            return await _handle_stream(rid, record_id, data, filename, eng, provider_name, language,
                                         response_format, t_start)
         else:
-            return await _handle_sync(rid, record_id, data, filename, eng, model, language,
+            return await _handle_sync(rid, record_id, data, filename, eng, provider_name, language,
                                       response_format, t_start)
 
     except HTTPException:
@@ -151,7 +157,7 @@ async def create_transcription(
             record_id=record_id,
             filename=locals().get("filename", "unknown"),
             file_size=len(data) if "data" in locals() else 0,
-            engine_name=model or app_config.default_provider,
+            engine_name=provider_name,
             total_time=time.time() - t_start,
             is_completed=False,
             error_message=str(e),
