@@ -1,4 +1,4 @@
-"""统一的语音识别 API 接口（参考 OpenAI 格式）。"""
+"""统一的语音识别 API 接口（兼容 OpenAI 格式）。"""
 
 import json
 import logging
@@ -115,6 +115,7 @@ async def create_transcription(
     prompt: Optional[str] = Form(None, description="提示词"),
     stream: bool = Form(False, description="是否流式返回"),
     temperature: Optional[float] = Form(None, description="采样温度"),
+    timestamp_granularities: Optional[str] = Form(None, description="时间戳粒度（word/segment）"),
 ):
     """创建语音识别任务（兼容 OpenAI 格式）。model 和 provider 二选一，指向 Provider 名称。"""
     rid = f"{int(time.time() * 1000)}"
@@ -165,35 +166,49 @@ async def create_transcription(
         raise HTTPException(status_code=500, detail=f"识别失败: {e}")
 
 
-# ── 流式 SSE ────────────────────────────────────────────────────
+# ── 流式 SSE（兼容 OpenAI 格式）────────────────────────────────
 
 async def _handle_stream(rid, record_id, data, filename, eng, model, language,
                          response_format, t_start):
+    """流式返回，兼容 OpenAI AudioTranscriptionStreamResult 格式。
+
+    每个事件格式:
+      data: {"type": "transcript.text.delta", "delta": "<增量文本>"}
+      data: {"type": "transcript.text.done", "text": "<完整文本>"}
+    """
     async def _generate():
-        idx = 0
+        full_text = ""
         t_stream = time.time()
         try:
             async for seg in eng.transcribe_file_stream(data):
-                event = {"index": idx, "start": seg.start, "end": seg.end, "text": seg.text}
-                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
-                idx += 1
-            yield 'data: {"done": true}\n\n'
-            logger.info("[transcriptions][%s] 流式完成: %d 段, %.2fs",
-                        rid, idx, time.time() - t_stream)
+                # 以增量方式返回每个 segment 的文本
+                delta_text = seg.text
+                if delta_text:
+                    full_text += delta_text
+                    event = {"type": "transcript.text.delta", "delta": delta_text}
+                    yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+            # 发送完成事件
+            done_event = {"type": "transcript.text.done", "text": full_text}
+            yield f"data: {json.dumps(done_event, ensure_ascii=False)}\n\n"
+
+            logger.info("[transcriptions][%s] 流式完成: %d 字符, %.2fs",
+                        rid, len(full_text), time.time() - t_stream)
             await save_file_transcription_record(
                 record_id=record_id, filename=filename, file_size=len(data),
                 engine_name=model or app_config.default_provider,
                 model_name=eng.model_name if hasattr(eng, "model_name") else None,
                 device_info=eng.device if hasattr(eng, "device") else None,
                 language=language, response_format="stream",
-                segment_count=idx, total_time=time.time() - t_stream,
+                result_length=len(full_text), total_time=time.time() - t_stream,
                 is_completed=True,
             )
         except (ConnectionResetError, BrokenPipeError, OSError) as e:
             logger.info("[transcriptions][%s] SSE 客户端断开: %s", rid, e)
         except Exception as e:
             logger.exception("[transcriptions][%s] SSE 异常: %s", rid, e)
-            yield f'data: {json.dumps({"error": str(e)}, ensure_ascii=False)}\n\n'
+            error_event = {"type": "error", "error": str(e)}
+            yield f"data: {json.dumps(error_event, ensure_ascii=False)}\n\n"
             await save_file_transcription_record(
                 record_id=record_id, filename=filename, file_size=len(data),
                 engine_name=model or app_config.default_provider,
@@ -207,10 +222,11 @@ async def _handle_stream(rid, record_id, data, filename, eng, model, language,
     return StreamingResponse(_generate(), media_type="text/event-stream")
 
 
-# ── 非流式 ──────────────────────────────────────────────────────
+# ── 非流式（兼容 OpenAI 格式）──────────────────────────────────
 
 async def _handle_sync(rid, record_id, data, filename, eng, model, language,
                        response_format, t_start):
+    """非流式返回，兼容 OpenAI AudioTranscriptionResult / AudioTranscriptionVerboseResult 格式。"""
     t_recog = time.time()
     text, segments = await eng.transcribe_file(data)
     recog_time = time.time() - t_recog
@@ -218,10 +234,15 @@ async def _handle_sync(rid, record_id, data, filename, eng, model, language,
     logger.info("[transcriptions][%s] 转录完成: %d 段, %d 字符, %.2fs",
                 rid, len(segments), len(text), recog_time)
 
+    # 计算音频时长（取最后一个 segment 的 end 时间）
+    duration = segments[-1].end if segments else 0.0
+
     response = TranscriptionResponse(
         text=text,
         segments=[Segment(id=i, start=s.start, end=s.end, text=s.text) for i, s in enumerate(segments)],
         engine=model or app_config.default_provider,
+        language=language,
+        duration=duration,
     )
 
     # 持久化
@@ -236,15 +257,32 @@ async def _handle_sync(rid, record_id, data, filename, eng, model, language,
         total_time=total_time, is_completed=True,
     )
 
-    # 格式化输出
+    # 格式化输出（兼容 OpenAI 格式）
     if response_format == OutputFormat.JSON:
-        return response
+        # OpenAI json 格式：只返回 text
+        return {"text": text}
     elif response_format == OutputFormat.VERBOSE_JSON:
+        # OpenAI verbose_json 格式：返回完整信息
         return {
-            "text": response.text,
-            "segments": [{"id": s.id, "start": s.start, "end": s.end, "text": s.text} for s in response.segments],
-            "language": response.language or "",
-            "duration": response.duration or 0.0,
+            "object": "transcription",
+            "text": text,
+            "language": language or "",
+            "duration": duration,
+            "segments": [
+                {
+                    "id": s.id,
+                    "seek": 0,
+                    "start": s.start,
+                    "end": s.end,
+                    "text": s.text,
+                    "tokens": [],
+                    "temperature": 0.0,
+                    "avg_logprob": 0.0,
+                    "compression_ratio": 0.0,
+                    "no_speech_prob": 0.0,
+                }
+                for s in response.segments
+            ],
         }
     elif response_format == OutputFormat.TEXT:
         return PlainTextResponse(text, media_type="text/plain")
