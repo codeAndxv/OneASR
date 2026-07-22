@@ -19,7 +19,7 @@ from app.models.orm_models import UploadedFile
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/v1/files", tags=["files"], dependencies=[Depends(get_api_key)])
+router = APIRouter(prefix="/v1/files", tags=["files"], dependencies=[Depends(get_api_key)])
 
 
 # ── Pydantic schemas ────────────────────────────────────────────────

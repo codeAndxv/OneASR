@@ -8,7 +8,7 @@ import uuid
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import PlainTextResponse, StreamingResponse
 
 from app.api.auth import get_api_key
@@ -22,7 +22,7 @@ from app.utils.format import format_output
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/v1/audio", tags=["audio"], dependencies=[Depends(get_api_key)])
+router = APIRouter(prefix="/v1/audio", tags=["audio"], dependencies=[Depends(get_api_key)])
 
 MAX_FILE_SIZE = 25 * 1024 * 1024  # 25 MB
 NATIVE_AUDIO_FORMATS = {".wav"}
@@ -106,6 +106,7 @@ def _ensure_wav(data: bytes, filename: str, request_id: str) -> bytes:
 
 @router.post("/transcriptions")
 async def create_transcription(
+    request: Request,
     file: Optional[UploadFile] = File(None),
     file_uuid: Optional[str] = Form(None, description="已上传文件的UUID（与 file 二选一）"),
     model: Optional[str] = Form(None, description="Provider 名称（兼容 OpenAI 格式，如 whisper1）"),
@@ -127,9 +128,9 @@ async def create_transcription(
     if not provider_name:
         raise HTTPException(status_code=400, detail="必须提供 provider 或 model 参数")
 
-    logger.info("[transcriptions][%s] provider=%s lang=%s fmt=%s stream=%s file=%s uuid=%s",
+    logger.info("[transcriptions][%s] provider=%s lang=%s fmt=%s stream=%s file=%s uuid=%s content_type=%s",
                 rid, provider_name, language, response_format, stream,
-                file.filename if file else None, file_uuid)
+                file.filename if file else None, file_uuid, request.headers.get("content-type"))
 
     try:
         # 1. 读取音频
@@ -164,6 +165,29 @@ async def create_transcription(
             error_message=str(e),
         )
         raise HTTPException(status_code=500, detail=f"识别失败: {e}")
+
+
+# ── 请求验证调试 ──────────────────────────────────────────────────
+
+@router.post("/debug")
+async def debug_transcription(request: Request):
+    """调试端点：显示请求的原始内容和 headers"""
+    content_type = request.headers.get("content-type", "unknown")
+    logger.info("[debug] Content-Type: %s", content_type)
+
+    try:
+        form = await request.form()
+        logger.info("[debug] Form fields: %s", list(form.keys()))
+        for key in form.keys():
+            value = form[key]
+            if hasattr(value, 'filename'):
+                logger.info("[debug]   %s: file=%s, size=%s", key, value.filename, getattr(value, 'size', 'unknown'))
+            else:
+                logger.info("[debug]   %s: %s", key, value)
+    except Exception as e:
+        logger.error("[debug] Failed to parse form: %s", e)
+
+    return {"status": "ok", "content_type": content_type}
 
 
 # ── 流式 SSE（兼容 OpenAI 格式）────────────────────────────────

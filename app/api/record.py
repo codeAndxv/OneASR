@@ -14,7 +14,7 @@ from app.models.orm_models import FileTranscriptionRecord, StreamingRecord, Uplo
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/v1/records", tags=["records"], dependencies=[Depends(get_api_key)])
+router = APIRouter(prefix="/v1/records", tags=["records"], dependencies=[Depends(get_api_key)])
 
 
 # ── Schemas ──────────────────────────────────────────────────────

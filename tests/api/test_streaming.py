@@ -19,12 +19,12 @@ def _parse_sse_events(text: str) -> list[dict]:
 
 
 class TestStreamingTranscription:
-    """测试 /api/v1/audio/transcriptions 流式识别端点。"""
+    """测试 /v1/audio/transcriptions 流式识别端点。"""
 
     def test_stream_no_file_no_uuid(self, client):
         """没有 file 和 file_uuid 应该返回 400。"""
         resp = client.post(
-            "/api/v1/audio/transcriptions",
+            "/v1/audio/transcriptions",
             headers={"X-API-Key": "oneasr-key"},
             data={"model": "whisper1", "stream": "true"},
         )
@@ -42,7 +42,7 @@ class TestStreamingTranscription:
         buf.seek(0)
 
         resp = client.post(
-            "/api/v1/audio/transcriptions",
+            "/v1/audio/transcriptions",
             headers={"X-API-Key": "oneasr-key"},
             files={"file": ("test.wav", buf, "audio/wav")},
             data={"model": "whisper1", "stream": "true"},
@@ -61,7 +61,7 @@ class TestStreamingTranscription:
         files = {"file": ("test_stream.mp3", io.BytesIO(test_content), "audio/mpeg")}
         
         upload_resp = client.post(
-            "/api/v1/files/upload",
+            "/v1/files/upload",
             files=files,
             headers={"X-API-Key": "oneasr-key"},
         )
@@ -70,7 +70,7 @@ class TestStreamingTranscription:
 
         # 使用 file_uuid 进行流式转录
         resp = client.post(
-            "/api/v1/audio/transcriptions",
+            "/v1/audio/transcriptions",
             headers={"X-API-Key": "oneasr-key"},
             data={
                 "file_uuid": file_id,
@@ -84,7 +84,7 @@ class TestStreamingTranscription:
     def test_stream_file_uuid_not_found(self, client):
         """使用不存在的 file_uuid 进行流式识别应该返回 404。"""
         resp = client.post(
-            "/api/v1/audio/transcriptions",
+            "/v1/audio/transcriptions",
             headers={"X-API-Key": "oneasr-key"},
             data={
                 "file_uuid": "nonexistent-uuid",
@@ -106,7 +106,7 @@ class TestStreamingTranscription:
         buf.seek(0)
 
         resp = client.post(
-            "/api/v1/audio/transcriptions",
+            "/v1/audio/transcriptions",
             headers={"X-API-Key": "oneasr-key"},
             files={"file": ("test.wav", buf, "audio/wav")},
             data={"model": "whisper1", "stream": "true"},

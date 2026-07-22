@@ -7,11 +7,11 @@ import pytest
 
 
 class TestAudioModelsEndpoint:
-    """测试 /api/v1/audio/models 端点。"""
+    """测试 /v1/audio/models 端点。"""
 
     def test_list_models(self, client):
         """列出可用模型。"""
-        resp = client.get("/api/v1/audio/models", headers={"X-API-Key": "oneasr-key"})
+        resp = client.get("/v1/audio/models", headers={"X-API-Key": "oneasr-key"})
         assert resp.status_code == 200
         data = resp.json()
         assert data["object"] == "list"
@@ -33,7 +33,7 @@ class TestTranscriptionFormats:
         buf.seek(0)
 
         resp = client.post(
-            "/api/v1/audio/transcriptions",
+            "/v1/audio/transcriptions",
             headers={"X-API-Key": "oneasr-key"},
             files={"file": ("test.wav", buf, "audio/wav")},
             data={"model": "whisper1", "response_format": "json"},
@@ -54,7 +54,7 @@ class TestTranscriptionFormats:
         buf.seek(0)
 
         resp = client.post(
-            "/api/v1/audio/transcriptions",
+            "/v1/audio/transcriptions",
             headers={"X-API-Key": "oneasr-key"},
             files={"file": ("test.wav", buf, "audio/wav")},
             data={"model": "whisper1", "response_format": "text"},
@@ -65,7 +65,7 @@ class TestTranscriptionFormats:
     def test_transcribe_no_params(self, client):
         """没有文件应该返回 400。"""
         resp = client.post(
-            "/api/v1/audio/transcriptions",
+            "/v1/audio/transcriptions",
             headers={"X-API-Key": "oneasr-key"},
             data={"model": "whisper1"},
         )
@@ -75,7 +75,7 @@ class TestTranscriptionFormats:
     def test_transcribe_no_api_key(self, client):
         """没有 API Key 应该返回 401 或 422。"""
         resp = client.post(
-            "/api/v1/audio/transcriptions",
+            "/v1/audio/transcriptions",
             data={"model": "whisper1"},
         )
         assert resp.status_code in [401, 422]
