@@ -128,9 +128,15 @@ async def create_transcription(
     if not provider_name:
         raise HTTPException(status_code=400, detail="必须提供 provider 或 model 参数")
 
-    logger.info("[transcriptions][%s] provider=%s lang=%s fmt=%s stream=%s file=%s uuid=%s content_type=%s",
+    logger.info("[transcriptions][%s] provider=%s lang=%s fmt=%s stream=%s file=%s uuid=%s content_type=%s timestamp_granularities=%s",
                 rid, provider_name, language, response_format, stream,
-                file.filename if file else None, file_uuid, request.headers.get("content-type"))
+                file.filename if file else None, file_uuid, request.headers.get("content-type"),
+                timestamp_granularities)
+
+    # 解析 timestamp_granularities（支持 "segment" 或 "word" 或 "segment,word"）
+    ts_granularities = None
+    if timestamp_granularities:
+        ts_granularities = [g.strip() for g in timestamp_granularities.split(",") if g.strip()]
 
     try:
         # 1. 读取音频
@@ -146,7 +152,7 @@ async def create_transcription(
         # 4. 流式 / 非流式
         if stream:
             return await _handle_stream(rid, record_id, data, filename, eng, provider_name, language,
-                                        response_format, t_start)
+                                        response_format, t_start, ts_granularities)
         else:
             return await _handle_sync(rid, record_id, data, filename, eng, provider_name, language,
                                       response_format, t_start)
@@ -193,23 +199,29 @@ async def debug_transcription(request: Request):
 # ── 流式 SSE（兼容 OpenAI 格式）────────────────────────────────
 
 async def _handle_stream(rid, record_id, data, filename, eng, model, language,
-                         response_format, t_start):
+                         response_format, t_start, timestamp_granularities=None):
     """流式返回，兼容 OpenAI AudioTranscriptionStreamResult 格式。
 
     每个事件格式:
       data: {"type": "transcript.text.delta", "delta": "<增量文本>"}
+      data: {"type": "transcript.text.delta", "delta": "<增量文本>", "start": 0.0, "end": 1.5}  (带时间戳)
       data: {"type": "transcript.text.done", "text": "<完整文本>"}
     """
+    # 是否包含时间戳
+    include_timestamps = timestamp_granularities and "segment" in timestamp_granularities
+
     async def _generate():
         full_text = ""
         t_stream = time.time()
         try:
             async for seg in eng.transcribe_file_stream(data):
-                # 以增量方式返回每个 segment 的文本
                 delta_text = seg.text
                 if delta_text:
                     full_text += delta_text
                     event = {"type": "transcript.text.delta", "delta": delta_text}
+                    if include_timestamps:
+                        event["start"] = seg.start
+                        event["end"] = seg.end
                     yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
             # 发送完成事件
