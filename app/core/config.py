@@ -15,6 +15,9 @@ class EngineConfig:
         self.device = config.get("device", "cpu")
         self.compute_type = config.get("compute_type", "float32")
         self.max_duration = config.get("max_duration")  # 最大音频时长（秒）
+        # 数据类型配置
+        self.input_types = config.get("input_types", ["audioFile", "videoFile"])
+        self.output_types = config.get("output_types", ["text"])
         # 云端引擎配置
         self.api_key = config.get("api_key", "")
         self.base_url = config.get("base_url", "")
