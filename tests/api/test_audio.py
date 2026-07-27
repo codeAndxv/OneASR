@@ -12,7 +12,7 @@ class TestAudioModelsEndpoint:
 
     def test_list_models(self, client):
         """列出可用模型。"""
-        resp = client.get("/v1/audio/models", headers={"X-API-Key": "oneasr-key"})
+        resp = client.get("/v1/audio/models", headers={"Authorization": "Bearer oneasr-key"})
         assert resp.status_code == 200
         data = resp.json()
         assert data["object"] == "list"
@@ -37,7 +37,7 @@ class TestAudioTranscriptionsEndpoint:
         """没有 file 和 file_uuid 应该返回 400。"""
         resp = client.post(
             "/v1/audio/transcriptions",
-            headers={"X-API-Key": "oneasr-key"},
+            headers={"Authorization": "Bearer oneasr-key"},
             data={"model": "whisper1"},
         )
         assert resp.status_code == 400
@@ -56,7 +56,7 @@ class TestAudioTranscriptionsEndpoint:
 
         resp = client.post(
             "/v1/audio/transcriptions",
-            headers={"X-API-Key": "oneasr-key"},
+            headers={"Authorization": "Bearer oneasr-key"},
             files={"file": ("test.wav", buf, "audio/wav")},
             data={"model": "whisper1", "response_format": "json"},
         )
@@ -78,7 +78,7 @@ class TestAudioTranscriptionsEndpoint:
 
         resp = client.post(
             "/v1/audio/transcriptions",
-            headers={"X-API-Key": "oneasr-key"},
+            headers={"Authorization": "Bearer oneasr-key"},
             files={"file": ("test.wav", buf, "audio/wav")},
             data={"model": "whisper1", "response_format": "text"},
         )
@@ -94,7 +94,7 @@ class TestAudioTranscriptionsEndpoint:
         upload_resp = client.post(
             "/v1/files/upload",
             files=files,
-            headers={"X-API-Key": "oneasr-key"},
+            headers={"Authorization": "Bearer oneasr-key"},
         )
         assert upload_resp.status_code == 200
         file_id = upload_resp.json()["file_id"]
@@ -102,7 +102,7 @@ class TestAudioTranscriptionsEndpoint:
         # 使用 file_uuid 进行转录
         resp = client.post(
             "/v1/audio/transcriptions",
-            headers={"X-API-Key": "oneasr-key"},
+            headers={"Authorization": "Bearer oneasr-key"},
             data={
                 "file_uuid": file_id,
                 "model": "whisper1",
@@ -116,7 +116,7 @@ class TestAudioTranscriptionsEndpoint:
         """使用不存在的 file_uuid 应该返回 404。"""
         resp = client.post(
             "/v1/audio/transcriptions",
-            headers={"X-API-Key": "oneasr-key"},
+            headers={"Authorization": "Bearer oneasr-key"},
             data={
                 "file_uuid": "nonexistent-uuid",
                 "model": "whisper1",
@@ -133,7 +133,7 @@ class TestAudioTranscriptionsEndpoint:
 
         resp = client.post(
             "/v1/audio/transcriptions",
-            headers={"X-API-Key": "oneasr-key"},
+            headers={"Authorization": "Bearer oneasr-key"},
             files=files,
             data={"model": "whisper1"},
         )
@@ -152,7 +152,7 @@ class TestAudioTranscriptionsEndpoint:
 
         resp = client.post(
             "/v1/audio/transcriptions",
-            headers={"X-API-Key": "oneasr-key"},
+            headers={"Authorization": "Bearer oneasr-key"},
             files={"file": ("test.wav", buf, "audio/wav")},
             data={"model": "whisper1", "stream": "true"},
         )
@@ -179,7 +179,7 @@ class TestAudioTranscriptionsEndpoint:
         upload_resp = client.post(
             "/v1/files/upload",
             files=files,
-            headers={"X-API-Key": "oneasr-key"},
+            headers={"Authorization": "Bearer oneasr-key"},
         )
         assert upload_resp.status_code == 200
         file_id = upload_resp.json()["file_id"]
@@ -187,7 +187,7 @@ class TestAudioTranscriptionsEndpoint:
         # 使用 file_uuid 进行流式转录
         resp = client.post(
             "/v1/audio/transcriptions",
-            headers={"X-API-Key": "oneasr-key"},
+            headers={"Authorization": "Bearer oneasr-key"},
             data={
                 "file_uuid": file_id,
                 "model": "whisper1",
@@ -206,7 +206,7 @@ class TestAudioTranscriptionsEndpoint:
 
         resp = client.post(
             "/v1/audio/transcriptions",
-            headers={"X-API-Key": "oneasr-key"},
+            headers={"Authorization": "Bearer oneasr-key"},
             files=files,
             data={"model": "whisper1", "response_format": "json"},
         )
@@ -223,7 +223,7 @@ class TestAudioTranscriptionsEndpoint:
 
         resp = client.post(
             "/v1/audio/transcriptions",
-            headers={"X-API-Key": "oneasr-key"},
+            headers={"Authorization": "Bearer oneasr-key"},
             files=files,
             data={"model": "whisper1", "response_format": "json"},
         )
@@ -252,7 +252,7 @@ class TestRealFileTranscription:
 
         resp = client.post(
             "/v1/files/upload",
-            headers={"X-API-Key": "oneasr-key"},
+            headers={"Authorization": "Bearer oneasr-key"},
             files={"file": (mp4_path.name, io.BytesIO(file_data), "video/mp4")},
         )
         assert resp.status_code == 200
@@ -270,7 +270,7 @@ class TestRealFileTranscription:
 
         resp = client.post(
             "/v1/audio/transcriptions",
-            headers={"X-API-Key": "oneasr-key"},
+            headers={"Authorization": "Bearer oneasr-key"},
             data={
                 "file_uuid": file_id,
                 "model": "whisper1",
@@ -298,7 +298,7 @@ class TestRealFileTranscription:
 
         resp = client.post(
             "/v1/audio/transcriptions",
-            headers={"X-API-Key": "oneasr-key"},
+            headers={"Authorization": "Bearer oneasr-key"},
             data={
                 "file_uuid": file_id,
                 "model": "whisper1",
@@ -323,7 +323,7 @@ class TestRealFileTranscription:
 
         resp = client.post(
             "/v1/audio/transcriptions",
-            headers={"X-API-Key": "oneasr-key"},
+            headers={"Authorization": "Bearer oneasr-key"},
             data={
                 "file_uuid": file_id,
                 "model": "whisper1",
@@ -347,7 +347,7 @@ class TestRealFileTranscription:
 
         resp = client.post(
             "/v1/audio/transcriptions",
-            headers={"X-API-Key": "oneasr-key"},
+            headers={"Authorization": "Bearer oneasr-key"},
             data={
                 "file_uuid": file_id,
                 "model": "whisper1",

@@ -23,6 +23,7 @@ def _clean_db():
         await init_db()
         async with async_session() as session:
             await session.execute(text("DELETE FROM uploaded_files"))
+            await session.execute(text("DELETE FROM media_parse_records"))
             await session.commit()
 
     asyncio.run(_setup())

@@ -16,3 +16,4 @@ torchaudio>=2.0
 openai>=1.0.0
 whisperlivekit>=0.2.20
 onnxruntime>=1.17.0
+yt-dlp>=2024.8.6

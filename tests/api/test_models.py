@@ -11,7 +11,7 @@ class TestAudioModelsEndpoint:
 
     def test_list_models(self, client):
         """列出可用模型。"""
-        resp = client.get("/v1/audio/models", headers={"X-API-Key": "oneasr-key"})
+        resp = client.get("/v1/audio/models", headers={"Authorization": "Bearer oneasr-key"})
         assert resp.status_code == 200
         data = resp.json()
         assert data["object"] == "list"
@@ -34,7 +34,7 @@ class TestTranscriptionFormats:
 
         resp = client.post(
             "/v1/audio/transcriptions",
-            headers={"X-API-Key": "oneasr-key"},
+            headers={"Authorization": "Bearer oneasr-key"},
             files={"file": ("test.wav", buf, "audio/wav")},
             data={"model": "whisper1", "response_format": "json"},
         )
@@ -55,7 +55,7 @@ class TestTranscriptionFormats:
 
         resp = client.post(
             "/v1/audio/transcriptions",
-            headers={"X-API-Key": "oneasr-key"},
+            headers={"Authorization": "Bearer oneasr-key"},
             files={"file": ("test.wav", buf, "audio/wav")},
             data={"model": "whisper1", "response_format": "text"},
         )
@@ -66,7 +66,7 @@ class TestTranscriptionFormats:
         """没有文件应该返回 400。"""
         resp = client.post(
             "/v1/audio/transcriptions",
-            headers={"X-API-Key": "oneasr-key"},
+            headers={"Authorization": "Bearer oneasr-key"},
             data={"model": "whisper1"},
         )
         assert resp.status_code == 400

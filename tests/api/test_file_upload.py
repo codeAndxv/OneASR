@@ -21,7 +21,7 @@ class TestFileUpload:
         response = client.post(
             "/v1/files/upload",
             files=files,
-            headers={"X-API-Key": "oneasr-key"},
+            headers={"Authorization": "Bearer oneasr-key"},
         )
 
         assert response.status_code == 200
@@ -41,7 +41,7 @@ class TestFileUpload:
         response = client.post(
             "/v1/files/upload",
             files=files,
-            headers={"X-API-Key": "oneasr-key"},
+            headers={"Authorization": "Bearer oneasr-key"},
         )
 
         assert response.status_code == 400
@@ -68,7 +68,7 @@ class TestFileUpload:
         response = client.post(
             "/v1/files/upload?file_md5={}&file_size={}".format(md5, 999999),
             files=files,
-            headers={"X-API-Key": "oneasr-key"},
+            headers={"Authorization": "Bearer oneasr-key"},
         )
 
         assert response.status_code == 400
@@ -85,7 +85,7 @@ class TestFileUpload:
         resp1 = client.post(
             "/v1/files/upload",
             files=files1,
-            headers={"X-API-Key": "oneasr-key"},
+            headers={"Authorization": "Bearer oneasr-key"},
         )
         assert resp1.status_code == 200
         data1 = resp1.json()
@@ -96,7 +96,7 @@ class TestFileUpload:
         resp2 = client.post(
             f"/v1/files/upload?file_md5={md5}&file_size={size}",
             files=files2,
-            headers={"X-API-Key": "oneasr-key"},
+            headers={"Authorization": "Bearer oneasr-key"},
         )
         assert resp2.status_code == 200
         data2 = resp2.json()
@@ -112,7 +112,7 @@ class TestFileList:
         """测试获取文件列表"""
         response = client.get(
             "/v1/files/list",
-            headers={"X-API-Key": "oneasr-key"},
+            headers={"Authorization": "Bearer oneasr-key"},
         )
         
         assert response.status_code == 200
@@ -139,7 +139,7 @@ class TestFileDelete:
         upload_response = client.post(
             "/v1/files/upload",
             files=files,
-            headers={"X-API-Key": "oneasr-key"},
+            headers={"Authorization": "Bearer oneasr-key"},
         )
         assert upload_response.status_code == 200
         file_id = upload_response.json()["file_id"]
@@ -147,7 +147,7 @@ class TestFileDelete:
         # 删除文件
         response = client.delete(
             f"/v1/files/{file_id}",
-            headers={"X-API-Key": "oneasr-key"},
+            headers={"Authorization": "Bearer oneasr-key"},
         )
         
         assert response.status_code == 200
@@ -157,7 +157,7 @@ class TestFileDelete:
         """测试删除不存在的文件"""
         response = client.delete(
             "/v1/files/nonexistent-id",
-            headers={"X-API-Key": "oneasr-key"},
+            headers={"Authorization": "Bearer oneasr-key"},
         )
         
         assert response.status_code == 404
@@ -183,7 +183,7 @@ class TestFileInfo:
         upload_response = client.post(
             "/v1/files/upload",
             files=files,
-            headers={"X-API-Key": "oneasr-key"},
+            headers={"Authorization": "Bearer oneasr-key"},
         )
         assert upload_response.status_code == 200
         file_id = upload_response.json()["file_id"]
@@ -191,7 +191,7 @@ class TestFileInfo:
         # 获取文件信息
         response = client.get(
             f"/v1/files/{file_id}",
-            headers={"X-API-Key": "oneasr-key"},
+            headers={"Authorization": "Bearer oneasr-key"},
         )
         
         assert response.status_code == 200
@@ -203,7 +203,7 @@ class TestFileInfo:
         """测试获取不存在文件的信息"""
         response = client.get(
             "/v1/files/nonexistent-id",
-            headers={"X-API-Key": "oneasr-key"},
+            headers={"Authorization": "Bearer oneasr-key"},
         )
         
         assert response.status_code == 404
@@ -222,7 +222,7 @@ class TestTranscriptionWithUUID:
         upload_response = client.post(
             "/v1/files/upload",
             files=files,
-            headers={"X-API-Key": "oneasr-key"},
+            headers={"Authorization": "Bearer oneasr-key"},
         )
         assert upload_response.status_code == 200
         file_id = upload_response.json()["file_id"]
@@ -237,7 +237,7 @@ class TestTranscriptionWithUUID:
         response = client.post(
             "/v1/audio/transcriptions",
             data=form_data,
-            headers={"X-API-Key": "oneasr-key"},
+            headers={"Authorization": "Bearer oneasr-key"},
         )
         
         # 注意：实际转录可能失败（因为测试环境没有模型），但接口应该正常响应
@@ -248,7 +248,7 @@ class TestTranscriptionWithUUID:
         response = client.post(
             "/v1/audio/transcriptions",
             data={},
-            headers={"X-API-Key": "oneasr-key"},
+            headers={"Authorization": "Bearer oneasr-key"},
         )
         
         assert response.status_code == 400

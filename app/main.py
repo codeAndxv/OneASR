@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import audio, provider, record, realtime, upload
+from app.api import audio, media, provider, record, realtime, upload
 from app.core.config import settings
 
 # 配置日志级别
@@ -36,6 +36,12 @@ async def lifespan(app: FastAPI):
     """应用生命周期：启动时初始化数据库、后台加载所有 Provider。"""
     from app.db import init_db
     await init_db()
+
+    # 清洗重启前未完成的媒体下载任务，避免状态永久卡在 pending/running
+    from app.services import media_service
+    n = await media_service.reset_stale_tasks()
+    if n:
+        logger.info("[startup] 重置 %d 个未完成的媒体下载任务为 failed", n)
 
     # 后台加载所有 Provider，不阻塞服务启动
     load_task = asyncio.create_task(_load_all_providers())
@@ -72,6 +78,9 @@ app.include_router(record.router)
 
 # 流式识别 API（OpenAI Realtime Transcription 协议）
 app.include_router(realtime.router)
+
+# 媒体 URL 异步下载（抖音/TikTok/B站/YouTube）
+app.include_router(media.router)
 
 
 @app.get("/health")

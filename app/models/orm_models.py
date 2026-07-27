@@ -46,6 +46,36 @@ class FileTranscriptionRecord(Base):
     created_at = Column(DateTime(timezone=True), default=_utcnow, comment="请求时间")
 
 
+class MediaParseRecord(Base):
+    """媒体 URL 异步下载任务记录 —— 抖音/TikTok/B站/YouTube 等。
+
+    一条记录 = 一个下载任务 = 一份下载完成的本地媒体文件。
+    `id` 同时作为 task_id 和 media_id 使用。
+    """
+    __tablename__ = "media_parse_records"
+
+    id = Column(String(36), primary_key=True, comment="UUID，同时作为 task_id 与 media_id")
+    url = Column(String(2048), nullable=False, index=True, comment="原始 URL")
+    platform = Column(String(32), nullable=True, comment="平台：douyin/tiktok/bilibili/youtube/unknown")
+    format = Column(String(16), nullable=False, default="audio", comment="下载格式：audio/video")
+
+    status = Column(String(16), nullable=False, default="pending", index=True,
+                    comment="任务状态：pending/running/succeeded/failed")
+    progress = Column(Float, nullable=False, default=0.0, comment="下载进度 0.0~1.0")
+
+    title = Column(String(512), nullable=True, comment="媒体标题")
+    duration_seconds = Column(Integer, nullable=True, comment="媒体时长（秒）")
+    uploader = Column(String(256), nullable=True, comment="上传者/作者")
+
+    file_path = Column(String(1024), nullable=True, comment="成功后的本地相对路径")
+    file_size = Column(Integer, nullable=True, comment="文件大小（字节）")
+    error_message = Column(Text, nullable=True, comment="失败信息")
+
+    created_at = Column(DateTime(timezone=True), default=_utcnow, comment="提交时间")
+    updated_at = Column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, comment="状态更新时间")
+    completed_at = Column(DateTime(timezone=True), nullable=True, comment="下载完成时间")
+
+
 class StreamingRecord(Base):
     """流式语音识别记录"""
     __tablename__ = "streaming_records"
