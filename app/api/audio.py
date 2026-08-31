@@ -8,6 +8,7 @@ import uuid
 from pathlib import Path
 from typing import Optional
 
+import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import PlainTextResponse, StreamingResponse
 
@@ -46,14 +47,15 @@ async def list_models():
     return {"object": "list", "data": models}
 
 
-# ── 文件读取（内联上传 或 UUID）─────────────────────────────────
+# ── 文件读取（内联上传 / URL / UUID）──────────────────────────────
 
 async def _load_audio_data(
     file: UploadFile | None,
+    file_url: str | None,
     file_uuid: str | None,
     request_id: str,
 ) -> tuple[bytes, str]:
-    """返回 (音频字节, 文件名)。"""
+    """返回 (音频字节, 文件名)。优先级: file > file_url > file_uuid。"""
     if file:
         data = await file.read()
         size_mb = len(data) / (1024 * 1024)
@@ -65,6 +67,29 @@ async def _load_audio_data(
                        "请使用文件上传接口先上传文件，然后通过 file_uuid 参数进行转录。",
             )
         return data, file.filename or "audio.wav"
+
+    if file_url:
+        logger.info("[transcriptions][%s] 从 URL 下载: %s", request_id, file_url)
+        try:
+            async with httpx.AsyncClient(timeout=300.0) as client:
+                response = await client.get(file_url)
+                response.raise_for_status()
+                data = response.content
+        except httpx.HTTPStatusError as e:
+            raise HTTPException(status_code=400, detail=f"下载文件失败: HTTP {e.response.status_code}")
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"下载文件失败: {e}")
+
+        size_mb = len(data) / (1024 * 1024)
+        logger.info("[transcriptions][%s] URL 文件下载完成: %.2f MB", request_id, size_mb)
+        if len(data) > MAX_FILE_SIZE:
+            raise HTTPException(
+                status_code=400,
+                detail=f"文件大小超过限制: {size_mb:.1f}MB，最大支持 25MB。",
+            )
+        # 从 URL 提取文件名
+        filename = Path(file_url.split("?")[0]).name or "audio.wav"
+        return data, filename
 
     if file_uuid:
         info = await get_uploaded_file(file_uuid)
@@ -78,7 +103,7 @@ async def _load_audio_data(
                      request_id, info.filename, len(data) / (1024 * 1024))
         return data, info.filename
 
-    raise HTTPException(status_code=400, detail="必须提供 file 或 file_uuid 参数")
+    raise HTTPException(status_code=400, detail="必须提供 file、file_url 或 file_uuid 参数")
 
 
 # ── 音频格式转换 ─────────────────────────────────────────────────
@@ -108,30 +133,29 @@ def _ensure_wav(data: bytes, filename: str, request_id: str) -> bytes:
 async def create_transcription(
     request: Request,
     file: Optional[UploadFile] = File(None),
-    file_uuid: Optional[str] = Form(None, description="已上传文件的UUID（与 file 二选一）"),
-    model: Optional[str] = Form(None, description="Provider 名称（兼容 OpenAI 格式，如 whisper1）"),
-    provider: Optional[str] = Form(None, description="Provider 名称（如 whisper1，与 model 二选一）"),
-    language: Optional[str] = Form(None, description="语言代码"),
+    file_url: Optional[str] = Form(None, description="音频文件 URL（与 file 和 file_url 三选一）"),
+    file_uuid: Optional[str] = Form(None, description="已上传文件的UUID（与 file 和 file_url 三选一）"),
+    model: str = Form(..., description="模型标识，格式为 engine_name/model_name（如 whisper1 或 faster-whisper/base）"),
+    language: Optional[str] = Form(None, description="语言代码（ISO-639-1 格式，如 en、zh）"),
     response_format: OutputFormat = Form(OutputFormat.JSON, description="输出格式"),
     prompt: Optional[str] = Form(None, description="提示词"),
     stream: bool = Form(False, description="是否流式返回"),
-    temperature: Optional[float] = Form(None, description="采样温度"),
+    temperature: Optional[float] = Form(None, description="采样温度（0-1）"),
     timestamp_granularities: Optional[str] = Form(None, description="时间戳粒度（word/segment）"),
 ):
-    """创建语音识别任务（兼容 OpenAI 格式）。model 和 provider 二选一，指向 Provider 名称。"""
+    """创建语音识别任务（兼容 OpenAI 格式）。
+
+    file、file_url、file_uuid 三选一，优先级: file > file_url > file_uuid。
+    model 格式为 engine_name/model_name。
+    """
     rid = f"{int(time.time() * 1000)}"
     record_id = str(uuid.uuid4())
     t_start = time.time()
 
-    # provider 优先，model 作为 OpenAI 兼容字段兜底
-    provider_name = provider or model
-    if not provider_name:
-        raise HTTPException(status_code=400, detail="必须提供 provider 或 model 参数")
-
-    logger.info("[transcriptions][%s] provider=%s lang=%s fmt=%s stream=%s file=%s uuid=%s content_type=%s timestamp_granularities=%s",
-                rid, provider_name, language, response_format, stream,
-                file.filename if file else None, file_uuid, request.headers.get("content-type"),
-                timestamp_granularities)
+    logger.info("[transcriptions][%s] model=%s lang=%s fmt=%s stream=%s file=%s url=%s uuid=%s content_type=%s timestamp_granularities=%s",
+                rid, model, language, response_format, stream,
+                file.filename if file else None, file_url, file_uuid,
+                request.headers.get("content-type"), timestamp_granularities)
 
     # 解析 timestamp_granularities（支持 "segment" 或 "word" 或 "segment,word"）
     ts_granularities = None
@@ -140,21 +164,21 @@ async def create_transcription(
 
     try:
         # 1. 读取音频
-        data, filename = await _load_audio_data(file, file_uuid, rid)
+        data, filename = await _load_audio_data(file, file_url, file_uuid, rid)
 
         # 2. 格式转换
         data = _ensure_wav(data, filename, rid)
 
         # 3. 获取引擎
-        eng = get_engine(provider_name)
-        logger.info("[transcriptions][%s] 引擎就绪: %s", rid, provider_name)
+        eng = get_engine(model)
+        logger.info("[transcriptions][%s] 引擎就绪: %s", rid, model)
 
         # 4. 流式 / 非流式
         if stream:
-            return await _handle_stream(rid, record_id, data, filename, eng, provider_name, language,
+            return await _handle_stream(rid, record_id, data, filename, eng, model, language,
                                         response_format, t_start, ts_granularities)
         else:
-            return await _handle_sync(rid, record_id, data, filename, eng, provider_name, language,
+            return await _handle_sync(rid, record_id, data, filename, eng, model, language,
                                       response_format, t_start)
 
     except HTTPException:
@@ -165,7 +189,7 @@ async def create_transcription(
             record_id=record_id,
             filename=locals().get("filename", "unknown"),
             file_size=len(data) if "data" in locals() else 0,
-            engine_name=provider_name,
+            engine_name=model,
             total_time=time.time() - t_start,
             is_completed=False,
             error_message=str(e),
