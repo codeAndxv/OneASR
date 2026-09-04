@@ -76,6 +76,49 @@ class MediaParseRecord(Base):
     completed_at = Column(DateTime(timezone=True), nullable=True, comment="下载完成时间")
 
 
+class TranscriptionTask(Base):
+    """异步转录任务 — 支持大文件（≤2GB）长时间转录。"""
+    __tablename__ = "transcription_tasks"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    task_id = Column(String(36), unique=True, nullable=False, index=True, comment="任务 UUID")
+
+    # ── 状态 ──────────────────────────────────────────────────────
+    status = Column(String(16), nullable=False, default="pending", index=True,
+                    comment="pending / processing / completed / failed / cancelled")
+    progress = Column(Float, nullable=False, default=0.0, comment="进度 0.0~1.0")
+
+    # ── 文件来源（三选一）────────────────────────────────────────
+    source_type = Column(String(16), nullable=False, comment="file / file_url / file_uuid")
+    filename = Column(String(512), nullable=False, comment="原始文件名")
+    file_size = Column(Integer, nullable=True, comment="文件大小（字节）")
+    file_url = Column(String(2048), nullable=True, comment="音频文件 URL（source_type=file_url 时）")
+    file_uuid = Column(String(36), nullable=True, comment="已上传文件 UUID（source_type=file_uuid 时）")
+
+    # ── 转录参数 ─────────────────────────────────────────────────
+    model = Column(String(64), nullable=False, comment="模型标识 (engine_name/model_name)")
+    language = Column(String(16), nullable=True, comment="语言代码 (ISO-639-1)")
+    response_format = Column(String(16), nullable=True, default="json", comment="输出格式")
+
+    # ── 结果 ─────────────────────────────────────────────────────
+    result_text = Column(Text, nullable=True, comment="完整转录文本")
+    result_segments = Column(Text, nullable=True, comment="分段结果 JSON")
+    result_duration = Column(Float, nullable=True, comment="音频时长（秒）")
+    segment_count = Column(Integer, nullable=True, comment="识别段落数")
+
+    # ── 引擎信息 ─────────────────────────────────────────────────
+    device_info = Column(String(64), nullable=True, comment="计算设备 (cpu/cuda)")
+
+    # ── 错误 ─────────────────────────────────────────────────────
+    error_message = Column(Text, nullable=True, comment="失败信息")
+
+    # ── 时间 ─────────────────────────────────────────────────────
+    total_time = Column(Float, nullable=True, comment="转录总耗时（秒）")
+    created_at = Column(DateTime(timezone=True), default=_utcnow, comment="创建时间")
+    updated_at = Column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, comment="更新时间")
+    completed_at = Column(DateTime(timezone=True), nullable=True, comment="完成时间")
+
+
 class StreamingRecord(Base):
     """流式语音识别记录"""
     __tablename__ = "streaming_records"
