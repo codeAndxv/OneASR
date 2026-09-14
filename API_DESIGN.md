@@ -9,7 +9,7 @@
 | **风格** | 单请求同步/流式 | 上传 → 提交 → 流式订阅 / 最终结果 |
 | **文件上限** | 25 MB | 2 GB |
 | **适用场景** | 小文件快速转录、兼容 OpenAI 生态 | 大文件、长时间转录、需要边转边看 |
-| **核心路由** | `POST /v1/audio/transcriptions` | `POST /v1/files/upload` + `POST /v1/tasks/transcriptions` + 两个消费端点 |
+| **核心路由** | `POST /v1/audio/transcriptions` | `POST /v1/file/upload` + `POST /v1/file/transcriptions` + 两个消费端点 |
 
 ---
 
@@ -124,16 +124,16 @@ data: {"type": "error", "error": "错误信息"}
 ```
 客户端                              服务端
   │                                   │
-  │  ① POST /v1/files/upload          │
+  │  ① POST /v1/file/upload           │
   │  ───────────────────────────────► │  上传文件（支持 MD5 秒传）
   │  ◄── file_id ───────────────────  │
   │                                   │
-  │  ② POST /v1/tasks/transcriptions  │
+  │  ② POST /v1/file/transcriptions   │
   │  file_uuid: <file_id>             │
   │  ───────────────────────────────► │  创建后台转录任务
   │  ◄── task_id + status: pending ─  │
   │                                   │
-  │  ③ GET /v1/tasks/transcriptions/{task_id}/stream     │
+  │  ③ GET /v1/file/transcriptions/{task_id}/stream     │
   │  ───────────────────────────────► │  SSE 订阅，实时接收转录片段
   │  ◄── SSE: delta events ────────  │
   │  ◄── SSE: progress events ─────  │
@@ -142,11 +142,11 @@ data: {"type": "error", "error": "错误信息"}
 
 ### ① 文件上传（已有）
 
-`POST /v1/files/upload` — 已实现，支持 MD5 秒传。
+`POST /v1/file/upload` — 已实现，支持 MD5 秒传。
 
 ### ② 创建转录任务
 
-`POST /v1/tasks/transcriptions` — 创建后台转录任务。
+`POST /v1/file/transcriptions` — 创建后台转录任务。
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
@@ -187,9 +187,9 @@ async def _run_transcription(task_id: str):
     update_task_status(task_id, "completed", full_text=full_text)
 ```
 
-### ③ 流式获取结果（新增）
+### ③ 流式获取结果
 
-`GET /v1/tasks/transcriptions/{task_id}/stream`
+`GET /v1/file/transcriptions/{task_id}/stream`
 
 SSE 端点，通过轮询数据库获取新数据并推送。
 
@@ -249,6 +249,92 @@ async def stream_transcription_result(task_id: str):
     return StreamingResponse(_generate(), media_type="text/event-stream")
 ```
 
+### ④ 查询任务状态（轮询消费）
+
+`GET /v1/file/transcriptions/{task_id}`
+
+同步查询转录任务的当前状态，返回所有已识别的分段结果。适用于不需要实时流式推送的场景（如轮询等待完成）。
+
+#### 请求
+
+```
+GET /v1/file/transcriptions/{task_id}
+Authorization: Bearer <api_key>
+```
+
+#### 响应（TaskStatusResponse）
+
+```json
+{
+  "task_id": "550e8400-e29b-41d4-a716-446655440000",
+  "status": "completed",
+  "progress": 1.0,
+  "filename": "speech.mp3",
+  "file_size": 42822746,
+  "source_type": "file_uuid",
+  "model": "whisper1",
+  "language": "zh",
+  "response_format": "json",
+  "total_time": 45.2,
+  "segment_count": 12,
+  "text": "完整转录文本...",
+  "segments": [
+    {"id": 0, "start": 0.0, "end": 3.5, "text": "第一段文本"},
+    {"id": 1, "start": 3.5, "end": 7.2, "text": "第二段文本"}
+  ],
+  "error_message": null,
+  "created_at": "2026-01-15T10:30:00+00:00",
+  "updated_at": "2026-01-15T10:30:45+00:00",
+  "completed_at": "2026-01-15T10:30:45+00:00"
+}
+```
+
+#### 字段说明
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `task_id` | string | 任务 UUID |
+| `status` | string | `pending` / `processing` / `completed` / `failed` / `cancelled` |
+| `progress` | float | 进度 0.0 ~ 1.0 |
+| `filename` | string | 原始文件名 |
+| `file_size` | int? | 文件大小（字节） |
+| `source_type` | string | `file` / `file_url` / `file_uuid` |
+| `model` | string | 引擎标识 |
+| `language` | string? | 语言代码 |
+| `response_format` | string? | 输出格式 |
+| `total_time` | float? | 总耗时（秒） |
+| `segment_count` | int? | 分段数 |
+| `text` | string? | 完整转录文本（completed 时有值） |
+| `segments` | array | 已识别的分段列表 |
+| `error_message` | string? | 失败原因（failed 时有值） |
+| `created_at` | string | 创建时间（ISO 8601） |
+| `updated_at` | string | 最后更新时间 |
+| `completed_at` | string? | 完成时间 |
+
+#### 轮询示例
+
+客户端可定时轮询此接口，根据 `status` 字段判断任务状态：
+
+```python
+import time, requests
+
+task_id = "550e8400-..."
+while True:
+    resp = requests.get(f"{base_url}/v1/file/transcriptions/{task_id}",
+                        headers={"Authorization": f"Bearer {api_key}"})
+    data = resp.json()
+    print(f"status={data['status']}, progress={data['progress']:.0%}")
+
+    if data["status"] == "completed":
+        print(data["text"])
+        break
+    elif data["status"] in ("failed", "cancelled"):
+        print(f"Error: {data.get('error_message')}")
+        break
+
+    time.sleep(1)  # 1 秒轮询间隔
+```
+
 ---
 
 ## 两套方案的接口汇总
@@ -258,12 +344,15 @@ async def stream_transcription_result(task_id: str):
   POST   /v1/audio/transcriptions          文件转录 (stream 参数区分同步/流式)
 
 方案二 (异步任务流式):
-  POST   /v1/files/upload                  上传文件 (MD5 秒传)
-  POST   /v1/tasks/transcriptions           提交转录任务
-  GET    /v1/tasks/transcriptions/{id}      查询任务状态
-  GET    /v1/tasks/transcriptions/{id}/stream  流式获取结果 [新增]
-  DELETE /v1/tasks/transcriptions/{id}      取消任务
-  GET    /v1/tasks/transcriptions           列出任务
+  POST   /v1/file/upload                   上传文件 (MD5 秒传)
+  POST   /v1/file/transcriptions           提交转录任务
+  GET    /v1/file/transcriptions/{id}      查询任务状态
+  GET    /v1/file/transcriptions/{id}/stream  流式获取结果
+  DELETE /v1/file/transcriptions/{id}      取消任务
+  GET    /v1/file/transcriptions           列出任务
+  GET    /v1/file/list                     列出已上传文件
+  GET    /v1/file/{file_id}               查询文件信息
+  DELETE /v1/file/{file_id}               删除文件
 ```
 
 ---
@@ -276,7 +365,7 @@ async def stream_transcription_result(task_id: str):
 |---|------|------|------|
 | 0a | **方案一 `temperature` 参数未透传** | `audio.py:81` 接收了 `temperature` 参数但未传递给引擎调用，参数被静默忽略 | 在调用 `transcribe_file` / `transcribe_file_stream` 时透传 temperature；引擎不支持时忽略或 warn |
 | 0b | **方案一 `word` 级别时间戳未实现** | `timestamp_granularities` 仅支持 `segment` 粒度（`audio.py:141`），`word` 粒度未实现 | 引擎层需开启 `word_timestamps=True`（faster-whisper 支持），在 Segment 中增加 word 级别对齐数据；OpenAI 云端 API 原生支持 |
-| 1 | **方案二缺少流式消费端点** | 现有 `tasks.py` 只有同步接口，无法实时获取中间结果 | 新增 `/stream` SSE 端点，通过数据库轮询获取新 segment（见方案二 ③） |
+| 1 | **方案二缺少流式消费端点** | 现有 `file_transcription.py` 只有同步接口，无法实时获取中间结果 | 新增 `/stream` SSE 端点，通过数据库轮询获取新 segment（见方案二 ③） |
 | 2 | **后台 worker 未使用流式引擎** | `_run_transcription` 调用 `transcribe_file()` 而非 `transcribe_file_stream()`，无法产生中间事件 | 改为始终调用 `transcribe_file_stream()`，逐条写入数据库 |
 | 3 | **任务与流式订阅的解耦** | 当前无机制将后台任务产生的中间结果推送到 SSE 端点 | 后台逐条写入 segment 表，SSE 端点轮询新行（见方案二 ③） |
 | 4 | **文件清理策略缺失** | 任务完成后，上传的文件和临时 WAV 未自动清理 | 增加 TTL 清理：任务完成/失败后 N 小时自动删除关联文件 |
@@ -287,11 +376,11 @@ async def stream_transcription_result(task_id: str):
 
 #### A. 统一任务引擎（推荐）
 
-当前 `audio.py` 和 `tasks.py` 各自独立实现文件加载、格式转换、转录调用，存在重复。建议抽取公共的 `TranscriptionService`：
+当前 `audio.py` 和 `file_transcription.py` 各自独立实现文件加载、格式转换、转录调用，存在重复。建议抽取公共的 `TranscriptionService`：
 
 ```python
 class TranscriptionService:
-    """统一的转录调度层，供 audio.py 和 tasks.py 共用。"""
+    """统一的转录调度层，供 audio.py 和 file_transcription.py 共用。"""
 
     async def run(
         self,
@@ -341,7 +430,7 @@ SSE 是单向的（服务端 → 客户端），对于方案二的流式消费�
 对于服务端主动推送场景（如 CI/CD 流水线、后台批处理），可在创建任务时指定回调 URL：
 
 ```
-POST /v1/tasks/transcriptions
+POST /v1/file/transcriptions
 callback_url: https://example.com/webhook
 
 → 任务完成时 POST callback_url:
@@ -383,7 +472,7 @@ pending → processing → completed
 |--------|------|--------|
 | **P0** | 方案二新增 `/stream` SSE 端点（数据库轮询） | 中 — 需要 segment 表 + 轮询逻辑 |
 | **P0** | 改造 `_run_transcription` 始终使用流式引擎 + 逐条写入 DB | 小 — 移除 stream 标志判断，每条 segment 写入数据库 |
-| **P1** | 抽取 `TranscriptionService` 统一转录逻辑 | 中 — 消除 audio.py / tasks.py 重复 |
+| **P1** | 抽取 `TranscriptionService` 统一转录逻辑 | 中 — 消除 audio.py / file_transcription.py 重复 |
 | **P1** | 任务文件自动清理（TTL） | 小 — 后台定时任务 |
 | **P2** | 流式断线重连（客户端传入 last_segment_id） | 小 — 数据库方案天然支持，只需前端传参 |
 | **P2** | Webhook 回调 | 小 — 新增 callback_url 参数 + HTTP 回调 |

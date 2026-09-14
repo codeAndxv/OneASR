@@ -3,11 +3,11 @@
 Supports files up to 2 GB and long-running transcriptions (hours).
 
 Endpoints:
-  POST   /v1/tasks/transcriptions                  Create a transcription task
-  GET    /v1/tasks/transcriptions                   List tasks (with filters)
-  GET    /v1/tasks/transcriptions/{task_id}         Get task status + all segments
-  GET    /v1/tasks/transcriptions/{task_id}/stream  SSE streaming result
-  DELETE /v1/tasks/transcriptions/{task_id}         Cancel a task
+  POST   /v1/file/transcriptions                  Create a transcription task
+  GET    /v1/file/transcriptions                   List tasks (with filters)
+  GET    /v1/file/transcriptions/{task_id}         Get task status + all segments
+  GET    /v1/file/transcriptions/{task_id}/stream  SSE streaming result
+  DELETE /v1/file/transcriptions/{task_id}         Cancel a task
 """
 
 import asyncio
@@ -36,7 +36,7 @@ from app.utils.audio import convert_to_wav
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/v1/tasks", tags=["tasks"], dependencies=[Depends(get_api_key)])
+router = APIRouter(prefix="/v1/file", tags=["file"], dependencies=[Depends(get_api_key)])
 
 MAX_FILE_SIZE = 2 * 1024 * 1024 * 1024  # 2 GB
 MAX_URL_DOWNLOAD_SIZE = 2 * 1024 * 1024 * 1024  # 2 GB

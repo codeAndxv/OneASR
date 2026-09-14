@@ -238,7 +238,7 @@ export async function uploadFile(file, onProgress) {
       reject(new Error('上传失败'))
     })
 
-    xhr.open('POST', `${API_BASE}/api/v1/files/upload`)
+    xhr.open('POST', `${API_BASE}/api/v1/file/upload`)
     xhr.setRequestHeader('X-API-Key', getApiKey())
     xhr.send(form)
   })
@@ -248,7 +248,7 @@ export async function uploadFile(file, onProgress) {
  * 获取已上传文件列表
  */
 export async function listUploadedFiles() {
-  const res = await apiFetch(`${API_BASE}/api/v1/files/list`)
+  const res = await apiFetch(`${API_BASE}/api/v1/file/list`)
   if (!res.ok) throw new Error('获取文件列表失败')
   return res.json()
 }
@@ -257,7 +257,7 @@ export async function listUploadedFiles() {
  * 删除已上传文件
  */
 export async function deleteUploadedFile(fileId) {
-  const res = await apiFetch(`${API_BASE}/api/v1/files/${fileId}`, { method: 'DELETE' })
+  const res = await apiFetch(`${API_BASE}/api/v1/file/${fileId}`, { method: 'DELETE' })
   if (!res.ok) throw new Error('删除文件失败')
   return res.json()
 }

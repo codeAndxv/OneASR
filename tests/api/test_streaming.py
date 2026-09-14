@@ -61,7 +61,7 @@ class TestStreamingTranscription:
         files = {"file": ("test_stream.mp3", io.BytesIO(test_content), "audio/mpeg")}
         
         upload_resp = client.post(
-            "/v1/files/upload",
+            "/v1/file/upload",
             files=files,
             headers={"Authorization": "Bearer oneasr-key"},
         )

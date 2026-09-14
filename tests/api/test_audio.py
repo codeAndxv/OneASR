@@ -92,7 +92,7 @@ class TestAudioTranscriptionsEndpoint:
         files = {"file": ("test_uuid.mp3", io.BytesIO(test_content), "audio/mpeg")}
         
         upload_resp = client.post(
-            "/v1/files/upload",
+            "/v1/file/upload",
             files=files,
             headers={"Authorization": "Bearer oneasr-key"},
         )
@@ -177,7 +177,7 @@ class TestAudioTranscriptionsEndpoint:
         files = {"file": ("test_stream.mp3", io.BytesIO(test_content), "audio/mpeg")}
         
         upload_resp = client.post(
-            "/v1/files/upload",
+            "/v1/file/upload",
             files=files,
             headers={"Authorization": "Bearer oneasr-key"},
         )
@@ -251,7 +251,7 @@ class TestRealFileTranscription:
             file_data = f.read()
 
         resp = client.post(
-            "/v1/files/upload",
+            "/v1/file/upload",
             headers={"Authorization": "Bearer oneasr-key"},
             files={"file": (mp4_path.name, io.BytesIO(file_data), "video/mp4")},
         )

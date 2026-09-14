@@ -19,7 +19,7 @@ class TestFileUpload:
         files = {"file": ("test.mp3", io.BytesIO(test_content), "audio/mpeg")}
 
         response = client.post(
-            "/v1/files/upload",
+            "/v1/file/upload",
             files=files,
             headers={"Authorization": "Bearer oneasr-key"},
         )
@@ -39,7 +39,7 @@ class TestFileUpload:
         files = {"file": ("test.txt", io.BytesIO(test_content), "text/plain")}
 
         response = client.post(
-            "/v1/files/upload",
+            "/v1/file/upload",
             files=files,
             headers={"Authorization": "Bearer oneasr-key"},
         )
@@ -53,7 +53,7 @@ class TestFileUpload:
         files = {"file": ("test.mp3", io.BytesIO(test_content), "audio/mpeg")}
 
         response = client.post(
-            "/v1/files/upload",
+            "/v1/file/upload",
             files=files,
         )
 
@@ -66,7 +66,7 @@ class TestFileUpload:
         files = {"file": ("test.mp3", io.BytesIO(test_content), "audio/mpeg")}
 
         response = client.post(
-            "/v1/files/upload?file_md5={}&file_size={}".format(md5, 999999),
+            "/v1/file/upload?file_md5={}&file_size={}".format(md5, 999999),
             files=files,
             headers={"Authorization": "Bearer oneasr-key"},
         )
@@ -83,7 +83,7 @@ class TestFileUpload:
         # 第一次上传
         files1 = {"file": ("dedup.mp3", io.BytesIO(test_content), "audio/mpeg")}
         resp1 = client.post(
-            "/v1/files/upload",
+            "/v1/file/upload",
             files=files1,
             headers={"Authorization": "Bearer oneasr-key"},
         )
@@ -94,7 +94,7 @@ class TestFileUpload:
         # 第二次上传（秒传）
         files2 = {"file": ("dedup_copy.mp3", io.BytesIO(test_content), "audio/mpeg")}
         resp2 = client.post(
-            f"/v1/files/upload?file_md5={md5}&file_size={size}",
+            f"/v1/file/upload?file_md5={md5}&file_size={size}",
             files=files2,
             headers={"Authorization": "Bearer oneasr-key"},
         )
@@ -111,7 +111,7 @@ class TestFileList:
     def test_list_files(self, client):
         """测试获取文件列表"""
         response = client.get(
-            "/v1/files/list",
+            "/v1/file/list",
             headers={"Authorization": "Bearer oneasr-key"},
         )
         
@@ -123,7 +123,7 @@ class TestFileList:
     
     def test_list_files_no_auth(self, client):
         """测试无认证获取文件列表"""
-        response = client.get("/v1/files/list")
+        response = client.get("/v1/file/list")
         assert response.status_code in [401, 403, 422]
 
 
@@ -137,7 +137,7 @@ class TestFileDelete:
         files = {"file": ("test_delete.mp3", io.BytesIO(test_content), "audio/mpeg")}
         
         upload_response = client.post(
-            "/v1/files/upload",
+            "/v1/file/upload",
             files=files,
             headers={"Authorization": "Bearer oneasr-key"},
         )
@@ -146,7 +146,7 @@ class TestFileDelete:
         
         # 删除文件
         response = client.delete(
-            f"/v1/files/{file_id}",
+            f"/v1/file/{file_id}",
             headers={"Authorization": "Bearer oneasr-key"},
         )
         
@@ -156,7 +156,7 @@ class TestFileDelete:
     def test_delete_file_not_found(self, client):
         """测试删除不存在的文件"""
         response = client.delete(
-            "/v1/files/nonexistent-id",
+            "/v1/file/nonexistent-id",
             headers={"Authorization": "Bearer oneasr-key"},
         )
         
@@ -166,7 +166,7 @@ class TestFileDelete:
     def test_delete_file_no_auth(self, client):
         """测试无认证删除文件"""
         response = client.delete(
-            "/v1/files/some-id",
+            "/v1/file/some-id",
         )
         assert response.status_code in [401, 403, 422]
 
@@ -181,7 +181,7 @@ class TestFileInfo:
         files = {"file": ("test_info.mp3", io.BytesIO(test_content), "audio/mpeg")}
         
         upload_response = client.post(
-            "/v1/files/upload",
+            "/v1/file/upload",
             files=files,
             headers={"Authorization": "Bearer oneasr-key"},
         )
@@ -190,7 +190,7 @@ class TestFileInfo:
         
         # 获取文件信息
         response = client.get(
-            f"/v1/files/{file_id}",
+            f"/v1/file/{file_id}",
             headers={"Authorization": "Bearer oneasr-key"},
         )
         
@@ -202,7 +202,7 @@ class TestFileInfo:
     def test_get_file_info_not_found(self, client):
         """测试获取不存在文件的信息"""
         response = client.get(
-            "/v1/files/nonexistent-id",
+            "/v1/file/nonexistent-id",
             headers={"Authorization": "Bearer oneasr-key"},
         )
         
@@ -220,7 +220,7 @@ class TestTranscriptionWithUUID:
         files = {"file": ("test_transcribe.mp3", io.BytesIO(test_content), "audio/mpeg")}
         
         upload_response = client.post(
-            "/v1/files/upload",
+            "/v1/file/upload",
             files=files,
             headers={"Authorization": "Bearer oneasr-key"},
         )

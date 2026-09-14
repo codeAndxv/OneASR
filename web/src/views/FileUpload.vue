@@ -97,7 +97,7 @@ const fileInput = ref(null)
 const loadFiles = async () => {
   loading.value = true
   try {
-    const res = await fetch(`${API_BASE}/api/v1/files/list`, {
+    const res = await fetch(`${API_BASE}/api/v1/file/list`, {
       headers: { 'X-API-Key': API_KEY },
     })
     if (res.ok) {
@@ -165,7 +165,7 @@ const uploadFiles = async (filesToUpload) => {
         item.error = t('upload.uploadFail')
       })
       
-      xhr.open('POST', `${API_BASE}/api/v1/files/upload`)
+      xhr.open('POST', `${API_BASE}/api/v1/file/upload`)
       xhr.setRequestHeader('X-API-Key', API_KEY)
       xhr.send(formData)
       
@@ -182,7 +182,7 @@ const deleteFile = async (file) => {
   }
   
   try {
-    const res = await fetch(`${API_BASE}/api/v1/files/${file.file_id}`, {
+    const res = await fetch(`${API_BASE}/api/v1/file/${file.file_id}`, {
       method: 'DELETE',
       headers: { 'X-API-Key': API_KEY },
     })

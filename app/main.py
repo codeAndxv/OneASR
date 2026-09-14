@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import audio, media, model, provider, realtime, tasks, upload
+from app.api import audio, file_transcription, file_upload, media, model, provider, realtime
 from app.core.config import settings
 
 # 配置日志级别
@@ -73,8 +73,8 @@ app.include_router(model.router)
 # Provider 信息 API
 app.include_router(provider.router)
 
-# 文件上传和管理 API
-app.include_router(upload.router)
+# 文件管理 API（上传/列表/查询/删除）
+app.include_router(file_upload.router)
 
 # 流式识别 API（OpenAI Realtime Transcription 协议）
 app.include_router(realtime.router)
@@ -82,8 +82,8 @@ app.include_router(realtime.router)
 # 媒体 URL 异步下载（抖音/TikTok/B站/YouTube）
 app.include_router(media.router)
 
-# 异步转录任务 API（大文件 ≤2GB，长时间转录）
-app.include_router(tasks.router)
+# 文件转录 API（异步任务，大文件 ≤2GB，长时间转录）
+app.include_router(file_transcription.router)
 
 
 @app.get("/health")
