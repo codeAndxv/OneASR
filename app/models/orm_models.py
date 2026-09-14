@@ -102,7 +102,6 @@ class TranscriptionTask(Base):
 
     # ── 结果 ─────────────────────────────────────────────────────
     result_text = Column(Text, nullable=True, comment="完整转录文本")
-    result_segments = Column(Text, nullable=True, comment="分段结果 JSON")
     result_duration = Column(Float, nullable=True, comment="音频时长（秒）")
     segment_count = Column(Integer, nullable=True, comment="识别段落数")
 
@@ -117,6 +116,19 @@ class TranscriptionTask(Base):
     created_at = Column(DateTime(timezone=True), default=_utcnow, comment="创建时间")
     updated_at = Column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, comment="更新时间")
     completed_at = Column(DateTime(timezone=True), nullable=True, comment="完成时间")
+
+
+class TranscriptionSegment(Base):
+    """转录任务的分段结果 — 实时写入，支持流式消费。"""
+    __tablename__ = "transcription_segments"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    task_id = Column(String(36), nullable=False, index=True, comment="关联任务 UUID")
+    segment_index = Column(Integer, nullable=False, comment="段落序号（从 0 开始）")
+    start = Column(Float, nullable=False, comment="开始时间（秒）")
+    end = Column(Float, nullable=False, comment="结束时间（秒）")
+    text = Column(Text, nullable=False, comment="识别文本")
+    created_at = Column(DateTime(timezone=True), default=_utcnow, comment="写入时间")
 
 
 class StreamingRecord(Base):

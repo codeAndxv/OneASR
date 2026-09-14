@@ -10,7 +10,6 @@ class OutputFormat(str, Enum):
     SRT = "srt"        # SRT 字幕格式
     VTT = "vtt"        # WebVTT 字幕格式
     JSON = "json"      # JSON 格式（含时间轴）
-    TSV = "tsv"        # TSV 格式（制表符分隔）
 
 
 def format_time_srt(seconds: float) -> str:
@@ -64,19 +63,11 @@ def to_json(text: str, segments: list[Segment]) -> str:
     return json.dumps(data, ensure_ascii=False, indent=2)
 
 
-def to_tsv(_text: str, segments: list[Segment]) -> str:
-    lines = ["start\tend\ttext"]
-    for seg in segments:
-        lines.append(f"{seg.start:.3f}\t{seg.end:.3f}\t{seg.text}")
-    return "\n".join(lines)
-
-
 _formatters = {
     OutputFormat.TEXT: to_text,
     OutputFormat.SRT: to_srt,
     OutputFormat.VTT: to_vtt,
     OutputFormat.JSON: to_json,
-    OutputFormat.TSV: to_tsv,
 }
 
 

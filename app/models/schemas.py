@@ -10,7 +10,7 @@ class OutputFormat(str, Enum):
     VTT = "vtt"        # WebVTT 字幕格式
     JSON = "json"      # JSON 格式（含时间轴）
     VERBOSE_JSON = "verbose_json"  # 详细 JSON 格式（OpenAI 兼容）
-    TSV = "tsv"        # TSV 格式（制表符分隔）
+    DIARIZED_JSON = "diarized_json"  # 说话人分离 JSON 格式
 
 
 # ========== 统一请求模型（参考 OpenAI 格式） ==========

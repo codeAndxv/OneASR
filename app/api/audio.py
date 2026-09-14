@@ -75,11 +75,15 @@ async def create_transcription(
     file: UploadFile = File(..., description="The audio file to transcribe"),
     model: str = Form(..., description="Model ID (provider name, e.g. whisper1)"),
     language: Optional[str] = Form(None, description="Language in ISO-639-1 (e.g. en, zh)"),
+    languages: Optional[str] = Form(None, description="Possible languages (comma-separated ISO-639-1)"),
     response_format: OutputFormat = Form(OutputFormat.JSON, description="Output format"),
     prompt: Optional[str] = Form(None, description="Prompt to guide model style"),
     stream: bool = Form(False, description="Stream results via SSE"),
     temperature: Optional[float] = Form(None, description="Sampling temperature 0-1"),
     timestamp_granularities: Optional[str] = Form(None, description="word / segment / word,segment"),
+    chunking_strategy: Optional[str] = Form(None, description="auto or VAD config"),
+    include: Optional[str] = Form(None, description="Additional info (comma-separated, e.g. logprobs)"),
+    keywords: Optional[str] = Form(None, description="Keywords to guide transcription"),
 ):
     """Transcribes audio into the input language.
 
@@ -100,6 +104,21 @@ async def create_transcription(
     if timestamp_granularities:
         ts_granularities = [g.strip() for g in timestamp_granularities.split(",") if g.strip()]
 
+    # Parse languages
+    languages_list = None
+    if languages:
+        languages_list = [lang.strip() for lang in languages.split(",") if lang.strip()]
+
+    # Parse include
+    include_list = None
+    if include:
+        include_list = [item.strip() for item in include.split(",") if item.strip()]
+
+    # Parse keywords
+    keywords_list = None
+    if keywords:
+        keywords_list = [kw.strip() for kw in keywords.split(",") if kw.strip()]
+
     data: bytes = b""
     filename = "unknown"
     try:
@@ -116,10 +135,10 @@ async def create_transcription(
         # 4. Stream / sync
         if stream:
             return await _handle_stream(rid, record_id, data, filename, eng, model, language,
-                                        response_format, t_start, ts_granularities)
+                                        languages_list, response_format, t_start, ts_granularities)
         else:
             return await _handle_sync(rid, record_id, data, filename, eng, model, language,
-                                      response_format, t_start)
+                                      languages_list, response_format, t_start)
 
     except HTTPException:
         raise
@@ -136,9 +155,8 @@ async def create_transcription(
 # ── 流式 SSE（兼容 OpenAI 格式）────────────────────────────────
 
 async def _handle_stream(rid, record_id, data, filename, eng, model, language,
-                         response_format, t_start, timestamp_granularities=None):
+                         languages, response_format, t_start, timestamp_granularities=None):
     """SSE stream compatible with OpenAI AudioTranscriptionStreamResult."""
-    include_timestamps = timestamp_granularities and "segment" in timestamp_granularities
 
     async def _generate():
         full_text = ""
@@ -149,12 +167,11 @@ async def _handle_stream(rid, record_id, data, filename, eng, model, language,
                 if delta_text:
                     full_text += delta_text
                     event = {"type": "transcript.text.delta", "delta": delta_text}
-                    if include_timestamps:
-                        event["start"] = seg.start
-                        event["end"] = seg.end
                     yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
             done_event = {"type": "transcript.text.done", "text": full_text}
+            if languages:
+                done_event["languages"] = [{"code": lang} for lang in languages]
             yield f"data: {json.dumps(done_event, ensure_ascii=False)}\n\n"
 
             logger.info("[transcriptions][%s] 流式完成: %d 字符, %.2fs",
@@ -190,7 +207,7 @@ async def _handle_stream(rid, record_id, data, filename, eng, model, language,
 # ── 非流式（兼容 OpenAI 格式）──────────────────────────────────
 
 async def _handle_sync(rid, record_id, data, filename, eng, model, language,
-                       response_format, t_start):
+                       languages, response_format, t_start):
     """Non-streaming response compatible with OpenAI transcription formats."""
     t_recog = time.time()
     text, segments = await eng.transcribe_file(data)
@@ -215,13 +232,24 @@ async def _handle_sync(rid, record_id, data, filename, eng, model, language,
 
     # Format output (OpenAI compatible)
     if response_format == OutputFormat.JSON:
-        return {"text": text}
+        result = {"text": text}
+        if languages:
+            result["languages"] = [{"code": lang} for lang in languages]
+        return result
     elif response_format == OutputFormat.VERBOSE_JSON:
         return {
-            "object": "transcription",
             "text": text,
             "language": language or "",
             "duration": duration,
+            "words": [
+                {
+                    "word": s.text,
+                    "start": s.start,
+                    "end": s.end,
+                    "probability": 0.0,
+                }
+                for s in segments
+            ],
             "segments": [
                 {
                     "id": s.id,
@@ -234,6 +262,22 @@ async def _handle_sync(rid, record_id, data, filename, eng, model, language,
                     "avg_logprob": 0.0,
                     "compression_ratio": 0.0,
                     "no_speech_prob": 0.0,
+                }
+                for s in segments
+            ],
+        }
+    elif response_format == OutputFormat.DIARIZED_JSON:
+        return {
+            "duration": duration,
+            "language": language or "",
+            "text": text,
+            "segments": [
+                {
+                    "id": s.id,
+                    "start": s.start,
+                    "end": s.end,
+                    "text": s.text,
+                    "speaker": f"speaker_{s.speaker}" if s.speaker is not None else "unknown",
                 }
                 for s in segments
             ],

@@ -1,13 +1,13 @@
-"""Async transcription tasks API — upload → create → poll → result.
+"""Async transcription tasks API — upload → create → stream.
 
 Supports files up to 2 GB and long-running transcriptions (hours).
 
 Endpoints:
-  POST   /v1/tasks/transcriptions                Create a transcription task
-  GET    /v1/tasks/transcriptions                 List tasks (with filters)
-  GET    /v1/tasks/transcriptions/{task_id}       Get task status
-  GET    /v1/tasks/transcriptions/{task_id}/result Get transcription result
-  DELETE /v1/tasks/transcriptions/{task_id}       Cancel a task
+  POST   /v1/tasks/transcriptions                  Create a transcription task
+  GET    /v1/tasks/transcriptions                   List tasks (with filters)
+  GET    /v1/tasks/transcriptions/{task_id}         Get task status + all segments
+  GET    /v1/tasks/transcriptions/{task_id}/stream  SSE streaming result
+  DELETE /v1/tasks/transcriptions/{task_id}         Cancel a task
 """
 
 import asyncio
@@ -22,6 +22,7 @@ from typing import Optional
 
 import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select, func
 
@@ -29,7 +30,7 @@ from app.api.auth import get_api_key
 from app.core.config import app_config
 from app.db import async_session
 from app.engines.registry import get_engine
-from app.models.orm_models import TranscriptionTask
+from app.models.orm_models import TranscriptionTask, TranscriptionSegment
 from app.services.file_service import get_uploaded_file
 from app.utils.audio import convert_to_wav
 
@@ -62,19 +63,12 @@ class TaskStatusResponse(BaseModel):
     response_format: Optional[str] = None
     total_time: Optional[float] = None
     segment_count: Optional[int] = None
+    text: Optional[str] = None
+    segments: list[dict] = Field(default_factory=list)
     error_message: Optional[str] = None
     created_at: str
     updated_at: str
     completed_at: Optional[str] = None
-
-
-class TaskResultResponse(BaseModel):
-    text: str
-    segments: list[dict] = Field(default_factory=list)
-    language: Optional[str] = None
-    duration: Optional[float] = None
-    segment_count: Optional[int] = None
-    total_time: Optional[float] = None
 
 
 class TaskListResponse(BaseModel):
@@ -93,7 +87,7 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _task_to_status(t: TranscriptionTask) -> TaskStatusResponse:
+def _task_to_status(t: TranscriptionTask, segments: list[dict] | None = None) -> TaskStatusResponse:
     return TaskStatusResponse(
         task_id=t.task_id,
         status=t.status,
@@ -106,6 +100,8 @@ def _task_to_status(t: TranscriptionTask) -> TaskStatusResponse:
         response_format=t.response_format,
         total_time=t.total_time,
         segment_count=t.segment_count,
+        text=t.result_text,
+        segments=segments or [],
         error_message=t.error_message,
         created_at=t.created_at.isoformat() if t.created_at else "",
         updated_at=t.updated_at.isoformat() if t.updated_at else "",
@@ -134,9 +130,8 @@ def _ensure_wav(data: bytes, filename: str, rid: str) -> bytes:
 # ── Background worker ────────────────────────────────────────────
 
 async def _run_transcription(task_id: str):
-    """Background coroutine: load audio → transcribe → persist result."""
+    """Background coroutine: load audio → stream transcribe → persist segments incrementally."""
     async with async_session() as session:
-        # Load task
         result = await session.execute(
             select(TranscriptionTask).where(TranscriptionTask.task_id == task_id)
         )
@@ -145,7 +140,6 @@ async def _run_transcription(task_id: str):
             logger.error("[tasks][%s] 任务不存在", task_id)
             return
 
-        # Mark processing
         task.status = "processing"
         task.progress = 0.0
         task.updated_at = datetime.now(timezone.utc)
@@ -186,7 +180,6 @@ async def _run_transcription(task_id: str):
             data = storage_path.read_bytes()
             task.file_size = len(data)
 
-        # Enforce size limit
         size_mb = len(data) / (1024 * 1024)
         if len(data) > MAX_FILE_SIZE:
             raise ValueError(f"文件大小 {size_mb:.1f}MB 超过限制（最大 2GB）")
@@ -201,7 +194,6 @@ async def _run_transcription(task_id: str):
         eng = get_engine(task.model)
         logger.info("[tasks][%s] 引擎就绪: %s", rid, task.model)
 
-        # Update progress
         async with async_session() as session:
             result = await session.execute(
                 select(TranscriptionTask).where(TranscriptionTask.task_id == task_id)
@@ -212,22 +204,57 @@ async def _run_transcription(task_id: str):
                 t.updated_at = datetime.now(timezone.utc)
                 await session.commit()
 
-        # 4. Transcribe
+        # 4. Stream transcribe — save each segment to DB immediately
         t_recog = time.time()
-        text, segments = await eng.transcribe_file(data)
+        full_text = ""
+        segment_index = 0
+
+        async for seg in eng.transcribe_file_stream(data):
+            full_text += seg.text
+
+            async with async_session() as session:
+                segment = TranscriptionSegment(
+                    task_id=task_id,
+                    segment_index=segment_index,
+                    start=seg.start,
+                    end=seg.end,
+                    text=seg.text,
+                )
+                session.add(segment)
+                await session.commit()
+
+            segment_index += 1
+
+            # Update progress
+            if seg.end > 0:
+                async with async_session() as session:
+                    result = await session.execute(
+                        select(TranscriptionTask).where(TranscriptionTask.task_id == task_id)
+                    )
+                    t = result.scalar_one_or_none()
+                    if t and t.status == "processing":
+                        t.progress = min(0.9, 0.1 + (seg.end / 3600) * 0.8)
+                        t.updated_at = datetime.now(timezone.utc)
+                        await session.commit()
+
         recog_time = time.time() - t_recog
         total_time = time.time() - t_start
 
-        duration = segments[-1].end if segments else 0.0
-        segments_json = json.dumps(
-            [{"id": i, "start": s.start, "end": s.end, "text": s.text} for i, s in enumerate(segments)],
-            ensure_ascii=False,
-        )
+        # Get duration from last segment
+        async with async_session() as session:
+            result = await session.execute(
+                select(TranscriptionSegment)
+                .where(TranscriptionSegment.task_id == task_id)
+                .order_by(TranscriptionSegment.segment_index.desc())
+                .limit(1)
+            )
+            last_seg = result.scalar_one_or_none()
+            duration = last_seg.end if last_seg else 0.0
 
         logger.info("[tasks][%s] 转录完成: %d 段, %d 字符, %.2fs",
-                     rid, len(segments), len(text), recog_time)
+                     rid, segment_index, len(full_text), recog_time)
 
-        # 5. Persist result
+        # 5. Persist final result
         async with async_session() as session:
             result = await session.execute(
                 select(TranscriptionTask).where(TranscriptionTask.task_id == task_id)
@@ -236,10 +263,9 @@ async def _run_transcription(task_id: str):
             if t:
                 t.status = "completed"
                 t.progress = 1.0
-                t.result_text = text
-                t.result_segments = segments_json
+                t.result_text = full_text
                 t.result_duration = duration
-                t.segment_count = len(segments)
+                t.segment_count = segment_index
                 t.total_time = total_time
                 t.device_info = eng.device if hasattr(eng, "device") else None
                 t.completed_at = datetime.now(timezone.utc)
@@ -386,7 +412,7 @@ async def create_transcription_task(
 
 @router.get("/transcriptions/{task_id}", response_model=TaskStatusResponse)
 async def get_transcription_task(task_id: str):
-    """查询转录任务状态。"""
+    """查询转录任务状态，包含所有已识别的分段结果。"""
     async with async_session() as session:
         result = await session.execute(
             select(TranscriptionTask).where(TranscriptionTask.task_id == task_id)
@@ -396,14 +422,27 @@ async def get_transcription_task(task_id: str):
     if task is None:
         raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
 
-    return _task_to_status(task)
+    # Load segments
+    async with async_session() as session:
+        result = await session.execute(
+            select(TranscriptionSegment)
+            .where(TranscriptionSegment.task_id == task_id)
+            .order_by(TranscriptionSegment.segment_index)
+        )
+        db_segments = result.scalars().all()
+        segments = [
+            {"id": s.segment_index, "start": s.start, "end": s.end, "text": s.text}
+            for s in db_segments
+        ]
+
+    return _task_to_status(task, segments)
 
 
-# ── Get task result ──────────────────────────────────────────────
+# ── Stream task result (SSE) ──────────────────────────────────────
 
-@router.get("/transcriptions/{task_id}/result")
-async def get_transcription_result(task_id: str):
-    """获取转录结果（仅 completed 状态可用）。"""
+@router.get("/transcriptions/{task_id}/stream")
+async def stream_transcription_result(task_id: str):
+    """SSE 流式获取转录结果，通过轮询数据库新行实现。"""
     async with async_session() as session:
         result = await session.execute(
             select(TranscriptionTask).where(TranscriptionTask.task_id == task_id)
@@ -413,8 +452,24 @@ async def get_transcription_result(task_id: str):
     if task is None:
         raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
 
-    if task.status == "pending" or task.status == "processing":
-        raise HTTPException(status_code=202, detail=f"任务仍在处理中 (status={task.status})")
+    if task.status == "completed":
+        # Already completed: push all segments at once
+        async with async_session() as session:
+            result = await session.execute(
+                select(TranscriptionSegment)
+                .where(TranscriptionSegment.task_id == task_id)
+                .order_by(TranscriptionSegment.segment_index)
+            )
+            db_segments = result.scalars().all()
+
+        async def _emit_completed():
+            for seg in db_segments:
+                event = {"type": "transcript.text.delta", "delta": seg.text}
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+            done_event = {"type": "transcript.text.done", "text": task.result_text or ""}
+            yield f"data: {json.dumps(done_event, ensure_ascii=False)}\n\n"
+
+        return StreamingResponse(_emit_completed(), media_type="text/event-stream")
 
     if task.status == "failed":
         raise HTTPException(status_code=500, detail=f"任务失败: {task.error_message}")
@@ -422,16 +477,59 @@ async def get_transcription_result(task_id: str):
     if task.status == "cancelled":
         raise HTTPException(status_code=410, detail="任务已取消")
 
-    segments = json.loads(task.result_segments) if task.result_segments else []
+    # For pending/processing tasks: poll DB for new segments
+    last_segment_index = -1
 
-    return TaskResultResponse(
-        text=task.result_text or "",
-        segments=segments,
-        language=task.language,
-        duration=task.result_duration,
-        segment_count=task.segment_count,
-        total_time=task.total_time,
-    )
+    async def _generate():
+        nonlocal last_segment_index
+        heartbeat_interval = 30
+        last_heartbeat = time.time()
+
+        while True:
+            # Query new segments
+            async with async_session() as session:
+                result = await session.execute(
+                    select(TranscriptionSegment)
+                    .where(TranscriptionSegment.task_id == task_id)
+                    .where(TranscriptionSegment.segment_index > last_segment_index)
+                    .order_by(TranscriptionSegment.segment_index)
+                )
+                new_segments = result.scalars().all()
+
+            for seg in new_segments:
+                event = {"type": "transcript.text.delta", "delta": seg.text}
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                last_segment_index = seg.segment_index
+
+            # Check task status
+            async with async_session() as session:
+                result = await session.execute(
+                    select(TranscriptionTask).where(TranscriptionTask.task_id == task_id)
+                )
+                current_task = result.scalar_one_or_none()
+
+            if current_task.status == "completed":
+                done_event = {"type": "transcript.text.done", "text": current_task.result_text or ""}
+                yield f"data: {json.dumps(done_event, ensure_ascii=False)}\n\n"
+                break
+            elif current_task.status == "failed":
+                error_event = {"type": "task.failed", "error": current_task.error_message}
+                yield f"data: {json.dumps(error_event, ensure_ascii=False)}\n\n"
+                break
+            elif current_task.status == "cancelled":
+                error_event = {"type": "task.failed", "error": "Task cancelled"}
+                yield f"data: {json.dumps(error_event, ensure_ascii=False)}\n\n"
+                break
+
+            # Heartbeat
+            if time.time() - last_heartbeat > heartbeat_interval:
+                yield f"data: {json.dumps({'type': 'heartbeat'})}\n\n"
+                last_heartbeat = time.time()
+
+            # Poll interval
+            await asyncio.sleep(0.1)  # 100ms
+
+    return StreamingResponse(_generate(), media_type="text/event-stream")
 
 
 # ── Cancel task ──────────────────────────────────────────────────
