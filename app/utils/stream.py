@@ -17,7 +17,7 @@ from collections.abc import AsyncGenerator
 
 logger = logging.getLogger(__name__)
 
-# 音频参数：与 WhisperLiveKit 一致
+# 音频参数
 SAMPLE_RATE = 16000
 CHANNELS = 1
 BYTES_PER_SAMPLE = 2  # s16le

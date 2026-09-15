@@ -16,7 +16,7 @@ OpenAI Realtime Transcription 风格 WebSocket 接口。
     python -m cli.stream_simulation_client podcast.mp3
 
     # 指定语言和引擎
-    python -m cli.stream_simulation_client test.wav --language zh --model wlk-live
+    python -m cli.stream_simulation_client test.wav --language zh --model whisper1
 
     # 调整分块大小（模拟不同麦克风采样间隔）
     python -m cli.stream_simulation_client test.wav --chunk-ms 50
@@ -226,7 +226,7 @@ class StreamSimulationClient:
                                 "rate": PCM_SAMPLE_RATE,
                             },
                             "transcription": {
-                                "model": self.model or "whisperlivekit",
+                                "model": self.model or "whisper1",
                             },
                         },
                     },
@@ -378,7 +378,7 @@ def main():
     parser.add_argument(
         "--model", "-m",
         default=None,
-        help="Provider 名称 (如 wlk-live)",
+        help="Provider 名称 (如 whisper1)",
     )
     parser.add_argument(
         "--chunk-ms",

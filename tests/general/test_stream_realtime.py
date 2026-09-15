@@ -8,7 +8,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.engines.whisperlivekit_engine import WhisperLiveKitEngine
 
 
 @pytest.fixture
@@ -17,7 +16,7 @@ def client():
 
 
 def _make_mock_front_data():
-    """创建模拟的 WhisperLiveKit FrontData 对象。"""
+    """创建模拟的 FrontData 对象。"""
     mock = MagicMock()
     mock.to_dict.return_value = {
         "status": "active_transcription",
@@ -49,7 +48,7 @@ class TestRealtimeEndpoint:
         mock_processor.cleanup = AsyncMock()
 
         with patch("app.api.realtime.get_engine") as mock_get_engine:
-            mock_engine = MagicMock(spec=WhisperLiveKitEngine)
+            mock_engine = MagicMock()
             mock_engine.create_audio_processor.return_value = mock_processor
             mock_get_engine.return_value = mock_engine
 
@@ -63,7 +62,7 @@ class TestRealtimeEndpoint:
                             "input": {
                                 "format": {"type": "audio/pcm", "rate": 16000},
                                 "transcription": {
-                                    "model": "wlk-live",
+                                    "model": "whisper1",
                                     "language": "zh",
                                 },
                             },
@@ -93,7 +92,7 @@ class TestRealtimeEndpoint:
         mock_processor.cleanup = AsyncMock()
 
         with patch("app.api.realtime.get_engine") as mock_get_engine:
-            mock_engine = MagicMock(spec=WhisperLiveKitEngine)
+            mock_engine = MagicMock()
             mock_engine.create_audio_processor.return_value = mock_processor
             mock_get_engine.return_value = mock_engine
 
@@ -122,7 +121,7 @@ class TestRealtimeEndpoint:
         mock_processor.cleanup = AsyncMock()
 
         with patch("app.api.realtime.get_engine") as mock_get_engine:
-            mock_engine = MagicMock(spec=WhisperLiveKitEngine)
+            mock_engine = MagicMock()
             mock_engine.create_audio_processor.return_value = mock_processor
             mock_get_engine.return_value = mock_engine
 
@@ -134,7 +133,7 @@ class TestRealtimeEndpoint:
                         "type": "transcription",
                         "audio": {
                             "input": {
-                                "transcription": {"model": "wlk-live"},
+                                "transcription": {"model": "whisper1"},
                             },
                         },
                     },
@@ -169,7 +168,7 @@ class TestRealtimeEndpoint:
         mock_processor.cleanup = AsyncMock()
 
         with patch("app.api.realtime.get_engine") as mock_get_engine:
-            mock_engine = MagicMock(spec=WhisperLiveKitEngine)
+            mock_engine = MagicMock()
             mock_engine.create_audio_processor.return_value = mock_processor
             mock_get_engine.return_value = mock_engine
 
@@ -181,7 +180,7 @@ class TestRealtimeEndpoint:
                         "type": "transcription",
                         "audio": {
                             "input": {
-                                "transcription": {"model": "wlk-live"},
+                                "transcription": {"model": "whisper1"},
                             },
                         },
                     },
@@ -210,7 +209,7 @@ class TestRealtimeEndpoint:
         mock_processor.cleanup = AsyncMock()
 
         with patch("app.api.realtime.get_engine") as mock_get_engine:
-            mock_engine = MagicMock(spec=WhisperLiveKitEngine)
+            mock_engine = MagicMock()
             mock_engine.create_audio_processor.return_value = mock_processor
             mock_get_engine.return_value = mock_engine
 
@@ -222,7 +221,7 @@ class TestRealtimeEndpoint:
                         "type": "transcription",
                         "audio": {
                             "input": {
-                                "transcription": {"model": "wlk-live"},
+                                "transcription": {"model": "whisper1"},
                             },
                         },
                     },

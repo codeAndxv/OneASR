@@ -1,8 +1,12 @@
-"""OpenAI Realtime Transcription 风格的 WebSocket 流式语音识别接口。
+"""扩展版 Realtime Transcription — 兼容 OpenAI 协议 + OneASR 扩展字段。
 
-支持两种引擎模式：
-1. 本地处理器模式（WhisperLiveKit 等，通过 create_audio_processor）
-2. X-ASR 原生流式模式（通过 create_stream_session，基于 sherpa-onnx）
+路由: WS /v1/realtimeext
+
+扩展特性:
+- language（单语言字符串，而非 languages 数组）
+- heartbeat 心跳事件（每 5 秒）
+- buffer delta（未 commit 的中间文本推送）
+- done 事件（commit 完成后通知客户端可关闭）
 """
 
 import asyncio
@@ -15,169 +19,22 @@ import uuid
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.api.auth import verify_ws_api_key
+from app.api.realtime import SessionState
 from app.engines.registry import get_engine
 from app.services.record_service import save_streaming_record
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["realtime"])
+router = APIRouter(tags=["realtimeext"])
 
 
-class SessionState:
-    IDLE = "idle"
-    CONFIGURED = "configured"
-    LISTENING = "listening"
-    FINALIZING = "finalizing"
-
-    def __init__(self):
-        self.state = self.IDLE
-        self.session_id = str(uuid.uuid4())
-        self.language: str | None = None
-        self.model: str | None = None
-        self.delay: str | None = None
-        self.item_counter = 0
-        self.transcript_parts: list[str] = []
-
-    def next_item_id(self) -> str:
-        self.item_counter += 1
-        return f"item_{self.session_id[:8]}_{self.item_counter}"
-
-
-# ═══════════════════════════════════════════════════════════════════
-#  X-ASR 原生流式模式（sherpa-onnx）
-# ═══════════════════════════════════════════════════════════════════
-
-async def _xasr_session(
-    ws: WebSocket,
-    eng,
-    session: SessionState,
-    send_event,
-    send_error,
-):
-    """X-ASR 原生流式识别会话。
-
-    使用 eng.create_stream_session() 创建 sherpa-onnx 会话，
-    在主循环中处理音频和获取结果。
-    """
-    stream_session = eng.create_stream_session()
-
-    session.state = SessionState.CONFIGURED
-
-    # 发送 session.updated 确认
-    await send_event({
-        "type": "session.updated",
-        "session": {
-            "id": session.session_id,
-            "type": "transcription",
-            "audio": {
-                "input": {
-                    "format": {"type": "audio/pcm", "rate": eng.sample_rate},
-                    "transcription": {
-                        "model": session.model or "xasr",
-                        "language": session.language,
-                    },
-                },
-            },
-        },
-    })
-
-    try:
-        while True:
-            raw = await ws.receive_text()
-            try:
-                event = json.loads(raw)
-            except json.JSONDecodeError:
-                await send_error("invalid_message", "无法解析 JSON 消息")
-                continue
-
-            event_type = event.get("type")
-
-            if event_type == "input_audio_buffer.append":
-                audio_b64 = event.get("audio", "")
-                if not audio_b64:
-                    continue
-
-                try:
-                    audio_bytes = base64.b64decode(audio_b64)
-                except Exception:
-                    await send_error("invalid_audio", "无法解码 base64 音频数据")
-                    continue
-
-                if session.state == SessionState.CONFIGURED:
-                    session.state = SessionState.LISTENING
-
-                # 送入 sherpa-onnx 识别
-                stream_session.accept_audio(audio_bytes)
-                stream_session.decode()
-
-                # 发送 partial 结果
-                partial = stream_session.get_partial_result()
-                if partial:
-                    item_id = session.next_item_id()
-                    await send_event({
-                        "type": "conversation.item.input_audio_transcription.delta",
-                        "item_id": item_id,
-                        "content_index": 0,
-                        "delta": partial,
-                    })
-
-                # 检测端点（如果启用了 endpoint detection）
-                if stream_session.is_endpoint():
-                    session.transcript_parts.append(stream_session.get_full_text())
-
-            elif event_type == "input_audio_buffer.commit":
-                if session.state != SessionState.LISTENING:
-                    await send_error("invalid_state", "没有活跃的转录会话")
-                    continue
-
-                session.state = SessionState.FINALIZING
-
-                # 获取最终结果
-                final_text = stream_session.finalize()
-                if final_text:
-                    session.transcript_parts.append(final_text)
-                    item_id = session.next_item_id()
-                    await send_event({
-                        "type": "conversation.item.input_audio_transcription.delta",
-                        "item_id": item_id,
-                        "content_index": 0,
-                        "delta": final_text,
-                    })
-                    await send_event({
-                        "type": "conversation.item.input_audio_transcription.completed",
-                        "item_id": item_id,
-                        "content_index": 0,
-                        "transcript": final_text,
-                    })
-
-                await send_event({"type": "done"})
-                await ws.close()
-                return
-
-            elif event_type == "session.update":
-                pass  # 已配置，忽略重复更新
-
-            else:
-                logger.debug("[xasr] 未知事件类型: %s", event_type)
-
-    except WebSocketDisconnect:
-        pass
-    except Exception as e:
-        logger.error("[xasr] 会话异常: %s", e, exc_info=True)
-        await send_error("session_error", str(e))
-
-
-# ═══════════════════════════════════════════════════════════════════
-#  主端点
-# ═══════════════════════════════════════════════════════════════════
-
-@router.websocket("/v1/realtime")
-async def realtime_transcription(ws: WebSocket):
-    """OpenAI Realtime Transcription 风格的 WebSocket 接口。"""
+@router.websocket("/v1/realtimeext")
+async def realtime_transcription_ext(ws: WebSocket):
+    """扩展版 WebSocket 实时转录接口。"""
     try:
         await ws.accept()
     except Exception as e:
-        logger.warning("接受 WebSocket 连接失败: %s", e)
+        logger.warning("[realtimeext] 接受 WebSocket 连接失败: %s", e)
         return
 
     if not verify_ws_api_key(ws):
@@ -213,7 +70,11 @@ async def realtime_transcription(ws: WebSocket):
         format_cfg = audio_input.get("format", {})
         transcription_cfg = audio_input.get("transcription", {})
 
+        # 扩展：支持 language（单字符串）和 languages（数组）
         session.language = transcription_cfg.get("language")
+        if not session.language and transcription_cfg.get("languages"):
+            langs = transcription_cfg["languages"]
+            session.language = langs[0] if isinstance(langs, list) else langs
         session.model = transcription_cfg.get("model")
         session.delay = transcription_cfg.get("delay")
 
@@ -226,10 +87,10 @@ async def realtime_transcription(ws: WebSocket):
 
         # ── X-ASR 原生流式模式 ──
         if hasattr(eng, "create_stream_session"):
+            from app.api.realtime import _xasr_session
             await _xasr_session(ws, eng, session, _send_event, _send_error)
             return
 
-        # ── 本地处理器模式 ──
         try:
             processor = await asyncio.to_thread(eng.create_audio_processor, language=session.language, pcm_input=True)
         except Exception as e:
@@ -260,7 +121,7 @@ async def realtime_transcription(ws: WebSocket):
         })
 
     async def _forward_results(_ignored_gen):
-        """直接从 AudioProcessor 读取状态。"""
+        """从 AudioProcessor 读取转录结果，发送 delta/completed 事件。"""
         sent_texts: set[str] = set()
         last_buffer = ""
         try:
@@ -278,6 +139,7 @@ async def realtime_transcription(ws: WebSocket):
                 state = await processor.get_current_state()
                 buffer_text = (state.buffer_transcription.text if state.buffer_transcription else "").strip()
 
+                # 已确认的行：发送 delta + completed
                 for line in lines:
                     text = (line.text or "").strip()
                     if not text or getattr(line, "speaker", None) == -2:
@@ -290,6 +152,7 @@ async def realtime_transcription(ws: WebSocket):
                     session.transcript_parts.append(text)
                     await _send_event({"type": "conversation.item.input_audio_transcription.completed", "item_id": item_id, "content_index": 0, "transcript": text})
 
+                # 扩展：发送缓冲文本变化（未 commit 的中间文本）
                 if buffer_text != last_buffer:
                     if buffer_text:
                         item_id = session.next_item_id()
@@ -303,9 +166,10 @@ async def realtime_transcription(ws: WebSocket):
         except asyncio.CancelledError:
             pass
         except Exception as e:
-            logger.exception("Realtime 结果处理异常: %s", e)
+            logger.exception("[realtimeext] 结果处理异常: %s", e)
 
     async def _heartbeat():
+        """扩展：每 5 秒发送心跳事件。"""
         while True:
             await asyncio.sleep(5.0)
             await _send_event({"type": "heartbeat"})
@@ -323,8 +187,6 @@ async def realtime_transcription(ws: WebSocket):
 
             if event_type == "session.update":
                 await _handle_session_update(event)
-                # X-ASR 模式下 _handle_session_update 不会返回
-                # 因为它进入了 _xasr_session 的主循环
 
             elif event_type == "input_audio_buffer.append":
                 if processor is None:
@@ -360,17 +222,18 @@ async def realtime_transcription(ws: WebSocket):
                     except asyncio.TimeoutError:
                         results_task.cancel()
 
+                # 扩展：发送 done 事件通知客户端可关闭
                 await _send_event({"type": "done"})
                 await ws.close()
                 return
 
             else:
-                logger.debug("未知事件类型: %s", event_type)
+                logger.debug("[realtimeext] 未知事件类型: %s", event_type)
 
     except WebSocketDisconnect:
-        logger.info("Realtime 客户端断开连接: session_id=%s", session.session_id)
+        logger.info("[realtimeext] 客户端断开连接: session_id=%s", session.session_id)
     except Exception as e:
-        logger.error("Realtime WebSocket 异常: %s", e, exc_info=True)
+        logger.error("[realtimeext] WebSocket 异常: %s", e, exc_info=True)
     finally:
         if heartbeat_task and not heartbeat_task.done():
             heartbeat_task.cancel()

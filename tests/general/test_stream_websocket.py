@@ -1,7 +1,7 @@
 """实时语音识别集成测试。
 
 将本地视频文件通过 WebSocket 流式发送到 /v1/realtime，
-验证 WhisperLiveKit 实时识别功能并展示结果。
+验证实时识别功能并展示结果。
 
 用法:
     python -m tests.general.test_stream_websocket
@@ -70,7 +70,7 @@ async def test_stream(
     logger.info("音频时长: %.1f 秒, 数据大小: %.2f MB", duration, len(pcm_data) / 1024 / 1024)
 
     # 2. 连接 WebSocket
-    uri = f"ws://{host}:{port}/ws/transcribe/stream?engine=wlk-live&language={language}"
+    uri = f"ws://{host}:{port}/ws/transcribe/stream?engine=whisper1&language={language}"
     logger.info("连接: %s", uri)
 
     all_lines = []

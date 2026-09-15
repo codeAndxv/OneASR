@@ -12,7 +12,7 @@
 
 - **后端**: Python 3.11+、FastAPI
 - **前端**: Vue 3、Vite、Vue Router
-- **ASR 引擎**: faster-whisper、FireRedASR、WhisperLiveKit
+- **ASR 引擎**: faster-whisper、FireRedASR
 - **依赖管理**: requirements.txt（后端）、npm（前端）
 - **虚拟环境**: `.venv`
 
@@ -32,7 +32,6 @@ OneASR/
 │   │   ├── base.py          # 引擎抽象基类
 │   │   ├── whisper_engine.py # faster-whisper 实现
 │   │   ├── firered_engine.py # FireRedASR 实现
-│   │   ├── whisperlivekit_engine.py    # WhisperLiveKit 实现（流式+文件）
 │   │   └── registry.py      # 引擎注册中心
 │   ├── models/schemas.py    # 数据模型
 │   └── utils/download.py    # URL 下载工具
@@ -75,18 +74,6 @@ providers:
     model_name: base
     device: cpu
     compute_type: int8
-  wlk-live:
-    engine: whisperlivekit
-    type: local
-    model_name: base
-    device: cpu
-    compute_type: int8
-    backend: auto
-    backend_policy: simulstreaming
-    language: auto
-    vac: true
-    diarization: false
-    pcm_input: false
 ```
 
 模型路径规则：`{model_dir}/{engine_name}/`

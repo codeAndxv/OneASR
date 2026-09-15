@@ -32,18 +32,20 @@ providers:
       - name: "audioStreamTranscription"
       - name: "fileTranscription"
 
-  # WhisperLiveKit 流式识别（支持 VAD/VAC、实时转录、说话人分离）
-  wlk-live:
-    engine: whisperlivekit
+  # X-ASR 流式识别（基于 sherpa-onnx，zipformer2 transducer）
+  xasr:
+    engine: xasr
     type: local
-    model_name: base           # Whisper 模型大小: tiny/base/small/medium/large-v3
-    device: cpu
-    compute_type: int8
-    backend: auto              # auto / faster-whisper / whisper / mlx-whisper
-    backend_policy: simulstreaming  # simulstreaming（低延迟） / localagreement（高准确）
-    language: auto             # auto / zh / en / ja 等
-    vac: true                  # 语音活动控制（Silero VAD）
-    diarization: false         # 说话人分离
-    pcm_input: true            # 接收原始 PCM s16le 16kHz mono（绕过 FFmpeg）
+    model_name: xasr-zh-en
+    tokens: models/chunk-160ms-model/tokens.txt
+    encoder: models/chunk-160ms-model/encoder-160ms.onnx
+    decoder: models/chunk-160ms-model/decoder-160ms.onnx
+    joiner: models/chunk-160ms-model/joiner-160ms.onnx
+    provider: cpu
+    sample_rate: 16000
+    feature_dim: 80
+    num_threads: 1
+    decoding_method: greedy_search
+    enable_endpoint_detection: false
     functions:
       - name: "audioStreamTranscription"

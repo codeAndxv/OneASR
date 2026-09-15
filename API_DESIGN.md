@@ -1,8 +1,10 @@
-# 文件转录接口设计
+# OneASR API 接口设计
 
 ## 概述
 
-为 OneASR 设计两套文件转录流程，覆盖不同使用场景：
+OneASR 覆盖三大场景：文件转录（同步/异步）和实时语音识别。
+
+### 文件转录
 
 | | 方案一：OpenAI 兼容 | 方案二：异步任务流式 |
 |---|---|---|
@@ -10,6 +12,16 @@
 | **文件上限** | 25 MB | 2 GB |
 | **适用场景** | 小文件快速转录、兼容 OpenAI 生态 | 大文件、长时间转录、需要边转边看 |
 | **核心路由** | `POST /v1/audio/transcriptions` | `POST /v1/file/upload` + `POST /v1/file/transcriptions` + 两个消费端点 |
+
+### 实时语音识别
+
+| | 方案一：OpenAI 标准协议 | 方案二：扩展 OpenAI 协议 |
+|---|---|---|
+| **风格** | 严格遵循 OpenAI Realtime Transcription | 兼容 OpenAI 格式 + OneASR 扩展 |
+| **连接方式** | WebSocket | WebSocket |
+| **核心路由** | `WS /v1/realtime` | `WS /v1/realtimeext` |
+| **适用场景** | 对接 OpenAI 生态客户端 | 自部署场景，需要更多控制参数 |
+| **引擎要求** | OpenAI Realtime API (gpt-live-transcribe) | faster-whisper (本地引擎) |
 
 ---
 
@@ -337,22 +349,297 @@ while True:
 
 ---
 
-## 两套方案的接口汇总
+## 实时语音识别
+
+### 概述
+
+| | 方案一：OpenAI 标准协议 | 方案二：扩展 OpenAI 协议 |
+|---|---|---|
+| **风格** | 严格遵循 OpenAI Realtime Transcription | 兼容 OpenAI 格式 + OneASR 扩展 |
+| **连接方式** | WebSocket | WebSocket |
+| **核心路由** | `WS /v1/realtime` | `WS /v1/realtimeext` |
+| **适用场景** | 对接 OpenAI 生态客户端 | 自部署场景，需要更多控制参数 |
+| **引擎要求** | OpenAI Realtime API (gpt-live-transcribe) | faster-whisper (本地引擎) |
+
+---
+
+### 方案一：OpenAI 标准协议
+
+严格遵循 OpenAI Realtime Transcription API 协议。客户端可无缝切换到 OpenAI 云端服务。
+
+#### 连接
 
 ```
-方案一 (OpenAI 兼容):
-  POST   /v1/audio/transcriptions          文件转录 (stream 参数区分同步/流式)
+ws://<host>/v1/realtime?api_key=<key>
+```
 
-方案二 (异步任务流式):
-  POST   /v1/file/upload                   上传文件 (MD5 秒传)
-  POST   /v1/file/transcriptions           提交转录任务
-  GET    /v1/file/transcriptions/{id}      查询任务状态
-  GET    /v1/file/transcriptions/{id}/stream  流式获取结果
-  DELETE /v1/file/transcriptions/{id}      取消任务
-  GET    /v1/file/transcriptions           列出任务
-  GET    /v1/file/list                     列出已上传文件
-  GET    /v1/file/{file_id}               查询文件信息
-  DELETE /v1/file/{file_id}               删除文件
+或通过 Header：
+```
+Authorization: Bearer <api_key>
+```
+
+#### 会话配置
+
+发送 `session.update` 创建转录会话：
+
+```jsonc
+{
+  "type": "session.update",
+  "session": {
+    "type": "transcription",
+    "audio": {
+      "input": {
+        "format": {
+          "type": "audio/pcm",
+          "rate": 24000
+        },
+        "transcription": {
+          "model": "gpt-live-transcribe"  // 或 OneASR provider 名称
+        },
+        "turn_detection": null  // 禁用自动 VAD，手动 commit
+      }
+    }
+  }
+}
+```
+
+**响应**：
+```jsonc
+{
+  "type": "session.updated",
+  "session": {
+    "id": "session_abc123",
+    "type": "transcription",
+    "audio": {
+      "input": {
+        "format": { "type": "audio/pcm", "rate": 24000 },
+        "transcription": {
+          "model": "gpt-live-transcribe"
+        }
+      }
+    }
+  }
+}
+```
+
+#### 流式传输音频
+
+发送 PCM 音频数据（base64 编码）：
+
+```jsonc
+{
+  "type": "input_audio_buffer.append",
+  "audio": "<base64-encoded-pcm16-audio>"
+}
+```
+
+手动提交音频 turn：
+
+```jsonc
+{
+  "type": "input_audio_buffer.commit"
+}
+```
+
+#### 接收转录结果
+
+**增量 delta 事件**（实时部分文本）：
+```jsonc
+{
+  "type": "conversation.item.input_audio_transcription.delta",
+  "item_id": "item_001",
+  "content_index": 0,
+  "delta": "你好，"
+}
+```
+
+**完成事件**（最终转录文本）：
+```jsonc
+{
+  "type": "conversation.item.input_audio_transcription.completed",
+  "item_id": "item_001",
+  "content_index": 0,
+  "transcript": "你好，请问有什么可以帮您？"
+}
+```
+
+#### 会话中更新配置
+
+可在会话期间发送新的 `session.update` 更改配置（如添加上下文）：
+
+```jsonc
+{
+  "type": "session.update",
+  "session": {
+    "type": "transcription",
+    "audio": {
+      "input": {
+        "format": { "type": "audio/pcm", "rate": 24000 },
+        "transcription": {
+          "model": "gpt-live-transcribe",
+          "prompt": "客服通话，关于高级套餐和账户 AC-42",
+          "keywords": ["premium plan", "AC-42", "billing"],
+          "languages": ["en", "zh"],
+          "delay": "low"
+        }
+      },
+      "turn_detection": null
+    }
+  }
+}
+```
+
+#### 支持的语言格式
+
+- ISO 639-1：`en`、`es`、`zh`
+- ISO 639-3：`eng`、`spa`、`yue`、`cmn`
+- 中文区域码：`zh-cn`、`zh-tw`、`zh-hk`
+
+#### 延迟调节
+
+通过 `delay` 参数控制延迟与准确率的平衡：
+
+| delay | 说明 |
+|-------|------|
+| `minimal` | 最低延迟，适合实时交互 |
+| `low` | 低延迟，适合实时字幕 |
+| `medium` | 延迟与准确率平衡 |
+| `high` | 准确率优先 |
+| `xhigh` | 最高准确率，最大延迟 |
+
+---
+
+### 方案二：扩展 OpenAI 协议
+
+在 OpenAI 标准协议基础上，增加 OneASR 特有的扩展字段和行为。完全兼容标准客户端，同时支持更多控制能力。
+
+#### 与 OpenAI 标准的差异
+
+| 维度 | OpenAI 标准 | OneASR 扩展 |
+|------|-----------|------------|
+| `language` | 使用 `languages`（数组） | 额外支持 `language`（单个字符串） |
+| `heartbeat` | 无 | 每 5 秒发送心跳事件 |
+| `delay` | OpenAI 原生支持 | 透传到本地引擎 |
+| `buffer delta` | 无 | 发送未确认的缓冲文本变化 |
+| `done` 事件 | 无（commit 后直接 close） | commit 完成后发送 `{"type": "done"}` 再关闭 |
+| 引擎限制 | 仅 OpenAI 云端 | 仅 faster-whisper（本地引擎） |
+
+#### 扩展事件：心跳
+
+服务端每 5 秒发送心跳，客户端可据此判断连接存活：
+
+```jsonc
+{
+  "type": "heartbeat"
+}
+```
+
+#### 扩展事件：缓冲文本 delta
+
+未 commit 的音频产生的中间文本，通过 delta 事件推送：
+
+```jsonc
+{
+  "type": "conversation.item.input_audio_transcription.delta",
+  "item_id": "item_buffer_001",
+  "content_index": 0,
+  "delta": "正在识别中..."
+}
+```
+
+与标准 delta 的区别：缓冲文本可能被后续音频修正，commit 后的 delta 是最终结果。
+
+#### 扩展会话配置示例
+
+```jsonc
+{
+  "type": "session.update",
+  "session": {
+    "type": "transcription",
+    "audio": {
+      "input": {
+        "format": { "type": "audio/pcm", "rate": 16000 },
+        "transcription": {
+          "model": "whisper1",       // faster-whisper provider 名称
+          "language": "zh",          // 扩展：单语言字段
+          "delay": "low"             // 扩展：延迟调节
+        }
+      }
+    }
+  }
+}
+```
+
+#### 扩展 commit 流程
+
+```
+客户端                         服务端
+  │  input_audio_buffer.commit  │
+  │  ────────────────────────►  │
+  │                             │  处理剩余音频
+  │  ◄── delta events ───────  │  推送最终转录片段
+  │  ◄── completed events ───  │  推送完成事件
+  │  ◄── {"type": "done"} ───  │  扩展：通知客户端可关闭
+  │                             │  关闭 WebSocket
+```
+
+#### 完整交互示例
+
+```
+客户端                              服务端
+  │                                   │
+  │  WS /v1/realtimeext?api_key=xxx     │
+  │  ───────────────────────────────► │  建立连接
+  │                                   │
+  │  session.update                   │
+  │  { type: "transcription",         │
+  │    model: "whisper1",             │
+  │    language: "zh" }               │
+  │  ───────────────────────────────► │  配置会话
+  │  ◄── session.updated ───────────  │
+  │                                   │
+  │  input_audio_buffer.append        │
+  │  { audio: "<pcm16-base64>" }      │
+  │  ───────────────────────────────► │  发送音频流
+  │  ... (持续发送) ...               │
+  │                                   │
+  │  ◄── delta: "你好" ────────────  │  实时转录
+  │  ◄── delta: "你好请问" ────────  │  文本修正
+  │  ◄── completed: "你好请问" ────  │  行完成
+  │  ◄── heartbeat ────────────────  │  心跳保活
+  │                                   │
+  │  input_audio_buffer.commit        │
+  │  ───────────────────────────────► │  提交 turn
+  │  ◄── delta: "有什么可以帮您" ─  │  最终转录
+  │  ◄── completed: "有什么..." ───  │  行完成
+  │  ◄── {"type": "done"} ────────  │  扩展：结束通知
+  │                                   │  关闭连接
+```
+
+---
+
+## 三套场景的接口汇总
+
+```
+文件转录 — 方案一 (OpenAI 兼容):
+  POST   /v1/audio/transcriptions              文件转录 (stream 参数区分同步/流式)
+
+文件转录 — 方案二 (异步任务流式):
+  POST   /v1/file/upload                       上传文件 (MD5 秒传)
+  POST   /v1/file/transcriptions               提交转录任务
+  GET    /v1/file/transcriptions/{id}          查询任务状态
+  GET    /v1/file/transcriptions/{id}/stream   流式获取结果
+  DELETE /v1/file/transcriptions/{id}          取消任务
+  GET    /v1/file/transcriptions               列出任务
+  GET    /v1/file/list                         列出已上传文件
+  GET    /v1/file/{file_id}                    查询文件信息
+  DELETE /v1/file/{file_id}                    删除文件
+
+实时语音识别 — 方案一 (OpenAI 标准):
+  WS     /v1/realtime                          WebSocket 实时转录 (OpenAI 协议)
+
+实时语音识别 — 方案二 (扩展 OpenAI):
+  WS     /v1/realtimeext                     WebSocket 实时转录 (扩展协议)
 ```
 
 ---

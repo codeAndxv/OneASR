@@ -66,39 +66,6 @@ def check_firered(config: dict) -> bool:
         return False
 
 
-def check_whisperlivekit(config: dict) -> bool:
-    """检查 WhisperLiveKit 模型是否可用。"""
-    model_name = config.get("model_name", "base")
-    device = config.get("device", "cpu")
-    compute_type = config.get("compute_type", "int8")
-    print(f"  模型: {model_name}, 设备: {device}")
-
-    try:
-        from whisperlivekit import TranscriptionEngine
-        from whisperlivekit.config import WhisperLiveKitConfig
-
-        wl_config = WhisperLiveKitConfig.from_kwargs(
-            model_size=model_name,
-            device=device,
-            compute_type=compute_type,
-            backend=config.get("backend", "auto"),
-            backend_policy=config.get("backend_policy", "simulstreaming"),
-            lan=config.get("language", "auto"),
-            vac=config.get("vac", True),
-            pcm_input=config.get("pcm_input", False),
-            diarization=config.get("diarization", False),
-            transcription=True,
-        )
-        print("  正在初始化 TranscriptionEngine（首次可能需要下载模型）...")
-        engine = TranscriptionEngine(config=wl_config)
-        print("  [OK] WhisperLiveKit 引擎初始化成功")
-        del engine
-        return True
-    except Exception as e:
-        print(f"  [FAIL] WhisperLiveKit 引擎初始化失败: {e}")
-        return False
-
-
 def check_cloud_api(name: str, config: dict) -> bool:
     """检查云端 API（OpenAI 兼容接口）是否可用。"""
     api_key = config.get("api_key", "")
@@ -127,7 +94,6 @@ def check_cloud_api(name: str, config: dict) -> bool:
 CHECKERS = {
     "faster-whisper": ("faster-whisper", check_whisper),
     "firered": ("FireRedASR", check_firered),
-    "whisperlivekit": ("WhisperLiveKit", check_whisperlivekit),
     "openai": ("OpenAI API", check_cloud_api),
     "mimo": ("MiMo API", check_cloud_api),
 }

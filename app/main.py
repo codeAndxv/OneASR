@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import audio, file_transcription, file_upload, media, model, provider, realtime
+from app.api import audio, file_transcription, file_upload, media, model, provider, realtime, realtime_ext
 from app.core.config import settings
 
 # 配置日志级别
@@ -78,6 +78,9 @@ app.include_router(file_upload.router)
 
 # 流式识别 API（OpenAI Realtime Transcription 协议）
 app.include_router(realtime.router)
+
+# 流式识别 API（扩展版，/v1/realtimeext）
+app.include_router(realtime_ext.router)
 
 # 媒体 URL 异步下载（抖音/TikTok/B站/YouTube）
 app.include_router(media.router)

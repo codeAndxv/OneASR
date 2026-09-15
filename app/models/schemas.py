@@ -78,15 +78,5 @@ class StreamLine(BaseModel):
     end: str = ""
 
 
-class WLKStreamResponse(BaseModel):
-    """WhisperLiveKit 风格的流式识别响应。"""
-    status: str = "active_transcription"  # active_transcription / no_audio_detected / error
-    lines: list[StreamLine] = []
-    buffer_transcription: str = ""
-    buffer_diarization: str = ""
-    buffer_translation: str = ""
-    error: str = ""
-
-
 # 解决前向引用
 TranscriptionResponse.model_rebuild()
