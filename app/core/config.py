@@ -19,6 +19,12 @@ class EngineConfig:
         functions = config.get("functions", [])
         self.supports_file = "file" in functions
         self.supports_stream = "stream" in functions
+        # 支持的语言列表（逗号分隔字符串 → list）
+        raw = config.get("languages", "")
+        if isinstance(raw, str):
+            self.languages = [lang.strip() for lang in raw.split(",") if lang.strip()]
+        else:
+            self.languages = list(raw)
         # 云端引擎配置
         self.api_key = config.get("api_key", "")
         self.base_url = config.get("base_url", "")

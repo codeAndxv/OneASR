@@ -37,6 +37,7 @@ async def list_providers():
             "streaming": info.streaming,
             "loaded": True,
             "functions": supports,
+            "languages": base_config.languages if base_config else [],
         })
 
     logger.info(

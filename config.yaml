@@ -17,6 +17,7 @@ ASR-Providers:
     max_duration: null
     functions:
       - file
+    languages: zh, en, ja, ko, fr, de, es, it, ru, pt, nl, pl, ar, cs, da, fi, el, he, hu, id, ms, no, ro, sk, sv, th, tr, uk, vi, hi
 
   # X-ASR 流式识别（基于 sherpa-onnx，zipformer2 transducer）
   xasr:
@@ -35,6 +36,7 @@ ASR-Providers:
     enable_endpoint_detection: false
     functions:
       - stream
+    languages: zh, en
 
   # Qwen3-ASR 文件转录（基于 qwen_asr，需要 GPU）
   qwen:
@@ -48,3 +50,4 @@ ASR-Providers:
     forced_aligner: Qwen/Qwen3-ForcedAligner-0.6B
     functions:
       - file
+    languages: zh, en, ja, ko, fr, de, es, it, ru, pt, nl, pl, ar, cs, da, fi, el, he, hu, id, ms, no, ro, sk, sv, th, tr, uk, vi, hi
