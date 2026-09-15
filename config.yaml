@@ -3,34 +3,20 @@
 # API Key（所有接口必须携带此 key）
 api_key: oneasr-key
 
-# 默认 Provider
-default_provider: whisper1
-
 # 模型根目录（取消注释并指定路径可强制使用本地模型）
 # model_dir: ./models
 
-# Provider 配置
-providers:
+# ASR Provider 配置
+ASR-Providers:
   whisper1:
-    engine: faster-whisper  # 底层引擎类型
-    type: local             # local 或 cloud
+    engine: faster-whisper
+    type: local
     model_name: medium
     device: cpu
     compute_type: int8
-    max_duration: null      # 无时长限制
+    max_duration: null
     functions:
-      - name: "audioStreamTranscription"
-      - name: "fileTranscription"
-
-  mimo:
-    engine: mimo
-    type: cloud
-    model_name: mimo-audio
-    api_key:   # 小米 MiMo API Key
-    base_url:
-    functions:
-      - name: "audioStreamTranscription"
-      - name: "fileTranscription"
+      - file
 
   # X-ASR 流式识别（基于 sherpa-onnx，zipformer2 transducer）
   xasr:
@@ -48,4 +34,17 @@ providers:
     decoding_method: greedy_search
     enable_endpoint_detection: false
     functions:
-      - name: "audioStreamTranscription"
+      - stream
+
+  # Qwen3-ASR 文件转录（基于 qwen_asr，需要 GPU）
+  qwen:
+    engine: qwen
+    type: local
+    model_name: Qwen/Qwen3-ASR-1.7B
+    device: cuda:0
+    dtype: bfloat16
+    max_new_tokens: 256
+    max_inference_batch_size: 32
+    forced_aligner: Qwen/Qwen3-ForcedAligner-0.6B
+    functions:
+      - file

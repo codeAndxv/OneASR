@@ -21,6 +21,12 @@ async def list_providers():
 
     for key, info in loaded.items():
         base_config = app_config.providers.get(info.provider_name)
+        supports = []
+        if base_config:
+            if base_config.supports_file:
+                supports.append("file")
+            if base_config.supports_stream:
+                supports.append("stream")
         providers.append({
             "id": info.provider_name,
             "engine": info.engine_name,
@@ -30,8 +36,7 @@ async def list_providers():
             "type": base_config.type if base_config else "unknown",
             "streaming": info.streaming,
             "loaded": True,
-            "inputTypes": base_config.input_types if base_config else ["audioStream", "audioFile"],
-            "outputTypes": base_config.output_types if base_config else ["text"],
+            "functions": supports,
         })
 
     logger.info(
@@ -42,5 +47,4 @@ async def list_providers():
     return {
         "object": "list",
         "data": providers,
-        "default": app_config.default_provider,
     }

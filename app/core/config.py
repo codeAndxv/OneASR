@@ -8,22 +8,23 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent
 
 class EngineConfig:
     def __init__(self, name: str, config: dict, model_dir: Path | None):
-        self.name = name  # Provider 名（如 "whisper1"）
-        self.engine_name = config.get("engine", name)  # 底层引擎类型（如 "faster-whisper"）
+        self.name = name
+        self.engine_name = config.get("engine", name)
         self.type = config.get("type", "local")
         self.model_name = config.get("model_name", "")
         self.device = config.get("device", "cpu")
         self.compute_type = config.get("compute_type", "float32")
-        self.max_duration = config.get("max_duration")  # 最大音频时长（秒）
-        # 数据类型配置
-        self.input_types = config.get("input_types", ["audioFile", "videoFile"])
-        self.output_types = config.get("output_types", ["text"])
+        self.max_duration = config.get("max_duration")
+        # 功能支持：从 functions 列表推导
+        functions = config.get("functions", [])
+        self.supports_file = "file" in functions
+        self.supports_stream = "stream" in functions
         # 云端引擎配置
         self.api_key = config.get("api_key", "")
         self.base_url = config.get("base_url", "")
         # 流式引擎配置
         self.sample_rate = config.get("sample_rate", 16000)
-        # 如果指定了 model_dir，则构建本地模型路径（按引擎类型组织）
+        # 模型路径
         self.model_path = model_dir / self.engine_name if model_dir else None
 
 
@@ -33,9 +34,7 @@ class AppConfig:
         with open(config_path, "r", encoding="utf-8") as f:
             self._data = yaml.safe_load(f)
 
-        self.default_provider = self._data.get("default_provider", "whisper1")
-
-        # 处理 model_dir：如果未指定则为 None
+        # 处理 model_dir
         model_dir_str = self._data.get("model_dir")
         if model_dir_str:
             self.model_dir = Path(model_dir_str)
@@ -44,8 +43,9 @@ class AppConfig:
         else:
             self.model_dir = None
 
+        # ASR Providers
         self.providers: dict[str, EngineConfig] = {}
-        for name, prov_conf in self._data.get("providers", {}).items():
+        for name, prov_conf in self._data.get("ASR-Providers", {}).items():
             self.providers[name] = EngineConfig(name, prov_conf, self.model_dir)
 
         # API Key 配置

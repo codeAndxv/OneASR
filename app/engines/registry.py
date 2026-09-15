@@ -8,6 +8,7 @@ from app.engines.firered_engine import FireRedEngine
 from app.engines.openai_engine import OpenAIEngine
 from app.engines.mimo_engine import MiMoEngine
 from app.engines.xasr_engine import XASREngine
+from app.engines.qwen_engine import QwenEngine
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +19,7 @@ _engine_classes: dict[str, type[ASREngine]] = {
     "openai": OpenAIEngine,
     "mimo": MiMoEngine,
     "xasr": XASREngine,
+    "qwen": QwenEngine,
 }
 
 
@@ -54,7 +56,7 @@ def get_engine(name: str | None = None) -> ASREngine:
     - "whisper1/medium" → 使用指定模型的实例
     - "whisper1/medium/cpu/int8" → 使用精确配置的实例
     """
-    name = name or app_config.default_provider
+    name = name or next(iter(app_config.providers))
 
     # 支持完整路径 "provider/model/device/compute_type"
     parts = name.split("/")

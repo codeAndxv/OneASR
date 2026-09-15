@@ -120,14 +120,12 @@ def main():
     args = parser.parse_args()
 
     config = load_config()
-    providers_conf = config.get("providers", {})
-    default_provider = config.get("default_provider", "")
+    providers_conf = config.get("ASR-Providers", {})
 
     if args.list:
         for name, conf in providers_conf.items():
             engine_type = conf.get("engine", "?")
-            marker = " <-- default" if name == default_provider else ""
-            print(f"  {name} (engine={engine_type}, type={conf.get('type', 'local')}){marker}")
+            print(f"  {name} (engine={engine_type}, type={conf.get('type', 'local')})")
         return
 
     print("=" * 50)
@@ -153,8 +151,7 @@ def main():
     all_ok = True
     for name, ok in results.items():
         tag = "OK" if ok else "FAIL"
-        marker = " <-- default" if name == default_provider else ""
-        print(f"  [{tag}] {name}{marker}")
+        print(f"  [{tag}] {name}")
         if not ok:
             all_ok = False
 
