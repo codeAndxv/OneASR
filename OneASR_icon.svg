@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+<defs>
+  <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="#16B8F2"/>
+    <stop offset="1" stop-color="#1248E8"/>
+  </linearGradient>
+  <linearGradient id="wave" x1="0" y1="0" x2="1" y2="0">
+    <stop offset="0" stop-color="#19B9F2"/>
+    <stop offset="1" stop-color="#1760EE"/>
+  </linearGradient>
+</defs>
+
+<!-- Transparent outside the icon -->
+<rect x="32" y="32" width="448" height="448" rx="92" fill="url(#bg)"/>
+
+<!-- Microphone -->
+<rect x="188" y="92" width="136" height="190" rx="68" fill="#fff"/>
+<rect x="214" y="150" width="18" height="62" rx="9" fill="url(#wave)"/>
+<rect x="247" y="124" width="18" height="114" rx="9" fill="url(#wave)"/>
+<rect x="280" y="150" width="18" height="62" rx="9" fill="url(#wave)"/>
+
+<!-- Mic support -->
+<path d="M145 207v10c0 61 50 111 111 111s111-50 111-111v-10"
+      fill="none" stroke="#fff" stroke-width="24" stroke-linecap="round"/>
+<path d="M256 328v42M215 370h82"
+      fill="none" stroke="#fff" stroke-width="24" stroke-linecap="round"/>
+
+<!-- OneASR wordmark -->
+<text x="256" y="428" text-anchor="middle"
+      font-family="Arial, Helvetica, sans-serif" font-size="54" font-weight="700"
+      letter-spacing="-3">
+  <tspan fill="#fff">One</tspan><tspan fill="#63E5F4">ASR</tspan>
+</text>
+</svg>

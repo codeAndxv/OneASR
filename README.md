@@ -1,5 +1,9 @@
 # OneASR
 
+<p align="center">
+  <img src="OneASR_icon.svg" width="128" alt="OneASR Logo">
+</p>
+
 A unified speech recognition API that integrates multiple ASR engines.
 
 [中文文档](README_CN.md)

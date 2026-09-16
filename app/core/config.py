@@ -15,10 +15,8 @@ class EngineConfig:
         self.device = config.get("device", "cpu")
         self.compute_type = config.get("compute_type", "float32")
         self.max_duration = config.get("max_duration")
-        # 功能支持：从 functions 列表推导
-        functions = config.get("functions", [])
-        self.supports_file = "file" in functions
-        self.supports_stream = "stream" in functions
+        # 功能支持
+        self.functions: list[str] = config.get("functions", [])
         # 支持的语言列表（逗号分隔字符串 → list）
         raw = config.get("languages", "")
         if isinstance(raw, str):

@@ -1,6 +1,7 @@
 """Provider 信息 API。"""
 
 import logging
+import time
 
 from fastapi import APIRouter, Depends
 
@@ -21,22 +22,13 @@ async def list_providers():
 
     for key, info in loaded.items():
         base_config = app_config.providers.get(info.provider_name)
-        supports = []
-        if base_config:
-            if base_config.supports_file:
-                supports.append("file")
-            if base_config.supports_stream:
-                supports.append("stream")
         providers.append({
             "id": info.provider_name,
-            "engine": info.engine_name,
-            "model": info.model_name,
-            "device": info.device,
-            "compute_type": info.compute_type,
-            "type": base_config.type if base_config else "unknown",
-            "streaming": info.streaming,
-            "loaded": True,
-            "functions": supports,
+            "object": "provider",
+            "created": int(time.time()),
+            "owned_by": base_config.type if base_config else "unknown",
+            "shutdown_date": "9999-12-31T23:59:59Z",
+            "functions": base_config.functions if base_config else [],
             "languages": base_config.languages if base_config else [],
         })
 

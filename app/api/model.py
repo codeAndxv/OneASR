@@ -1,6 +1,7 @@
 """Model listing API — compatible with OpenAI GET /v1/models."""
 
 import logging
+import time
 
 from fastapi import APIRouter, Depends
 
@@ -20,8 +21,9 @@ async def list_models():
         providers.append({
             "id": name,
             "object": "model",
-            "created": 0,
+            "created": int(time.time()),
             "owned_by": engine_config.type,
+            "shutdown_date": None,
         })
 
     logger.info("[models] 查询可用模型: 共 %d 个", len(providers))
