@@ -20,23 +20,24 @@ A unified speech recognition API that integrates multiple ASR engines.
 
 ### Prerequisites
 
-- Python 3.11+
+- Python 3.12+ (managed by uv)
+- [uv](https://docs.astral.sh/uv/) — fast Python package manager
 - Node.js 18+
 - FFmpeg (required for audio processing)
 
 ### Backend Setup
 
 ```bash
-# 1. Create and activate virtual environment
-python3 -m venv .venv
-source .venv/bin/activate  # macOS/Linux
-# or: .venv\Scripts\activate  # Windows
+# 1. Create virtual environment (requires uv: https://docs.astral.sh/uv/)
+uv venv --python 3.12
 
 # 2. Install dependencies
-pip install -r requirements.txt
+uv pip install -r requirements.txt
+# or install with dev dependencies:
+uv pip install -e ".[dev]"
 
 # 3. Start the server
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8020
+uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8020
 ```
 
 The server runs at `http://localhost:8020`. Visit `http://localhost:8020/docs` for interactive API documentation.
@@ -61,8 +62,7 @@ The frontend runs at `http://localhost:3020` and automatically proxies API reque
 **Terminal 1 - Backend:**
 ```bash
 cd OneASR
-source .venv/bin/activate
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8020
+uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8020
 ```
 
 **Terminal 2 - Frontend:**
@@ -241,22 +241,22 @@ python -m cli.stream_simulation_client test.wav --url ws://remote:8020/v1/realti
 
 ```bash
 # Run all tests
-python -m pytest tests/ -v
+uv run pytest tests/ -v
 
 # Run API tests only (fast, no external dependencies)
-python -m pytest tests/api/ -v
+uv run pytest tests/api/ -v
 
 # Run general/unit tests only
-python -m pytest tests/general/ -v
+uv run pytest tests/general/ -v
 
 # Run a specific test file
-python -m pytest tests/api/test_file_upload.py -v
+uv run pytest tests/api/test_file_upload.py -v
 
 # Skip integration tests (need real audio files and running services)
-python -m pytest tests/ -m "not integration" -v
+uv run pytest tests/ -m "not integration" -v
 
 # Run with short traceback
-python -m pytest tests/api/ -v --tb=short
+uv run pytest tests/api/ -v --tb=short
 ```
 
 ### Test Structure
@@ -367,7 +367,9 @@ OneASR/
 ├── data/                         # SQLite database (auto-created)
 ├── uploads/                      # Uploaded files storage
 ├── config.yaml                   # API Key and engine configuration
-└── requirements.txt
+├── pyproject.toml                # Project metadata and dependencies (uv)
+├── requirements.txt              # Pinned dependencies
+└── .python-version               # Python version (3.12)
 ```
 
 ## License

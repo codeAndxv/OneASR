@@ -10,11 +10,11 @@
 
 ## 技术栈
 
-- **后端**: Python 3.11+、FastAPI
+- **后端**: Python 3.12+、FastAPI
 - **前端**: Vue 3、Vite、Vue Router
 - **ASR 引擎**: faster-whisper、FireRedASR
-- **依赖管理**: requirements.txt（后端）、npm（前端）
-- **虚拟环境**: `.venv`
+- **依赖管理**: uv（后端）、npm（前端）
+- **虚拟环境**: `.venv`（由 uv 管理）
 
 ## 项目结构
 
@@ -50,8 +50,10 @@ OneASR/
 │   ├── whisper/
 │   └── firered/
 ├── config.yaml              # API Key 和引擎配置
+├── pyproject.toml           # 项目元数据和依赖（uv）
+├── requirements.txt         # 依赖清单
+├── .python-version          # Python 版本（3.12）
 ├── tests/
-├── requirements.txt
 ├── README.md
 └── CLAUDE.md
 ```

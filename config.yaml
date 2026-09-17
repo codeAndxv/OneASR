@@ -3,9 +3,6 @@
 # API Key（所有接口必须携带此 key）
 api_key: oneasr-key
 
-# 模型根目录（取消注释并指定路径可强制使用本地模型）
-# model_dir: ./models
-
 # ASR Provider 配置
 ASR-Providers:
   whisper1:
