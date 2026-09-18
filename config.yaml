@@ -1,26 +1,33 @@
 # OneASR 模型配置文件
 
+# 模型统一存储根目录（支持相对路径或绝对路径）
+model_dir: models
+
 # API Key（所有接口必须携带此 key）
 api_key: oneasr-key
 
 # ASR Provider 配置
 ASR-Providers:
-  whisper1:
+  fast-whisper:
+    enable: false
     engine: faster-whisper
     type: local
     model_name: medium
+    # model_path: models/medium # 可选：显式指定本地模型路径（若配置则优先加载该路径，否则按 model_name 加载）
     device: cpu
     compute_type: int8
     max_duration: null
     functions:
-      - fileASR
+      - FileASR
     languages: zh, en, ja, ko, fr, de, es, it, ru, pt, nl, pl, ar, cs, da, fi, el, he, hu, id, ms, no, ro, sk, sv, th, tr, uk, vi, hi
 
   # X-ASR 流式识别（基于 sherpa-onnx，zipformer2 transducer）
   xasr:
+    enable: false
     engine: xasr
     type: local
     model_name: xasr-zh-en
+    # model_path: models/chunk-160ms-model # 可选：显式指定本地模型目录
     tokens: models/chunk-160ms-model/tokens.txt
     encoder: models/chunk-160ms-model/encoder-160ms.onnx
     decoder: models/chunk-160ms-model/decoder-160ms.onnx
@@ -32,19 +39,22 @@ ASR-Providers:
     decoding_method: greedy_search
     enable_endpoint_detection: false
     functions:
-      - realtimeASR
+      - RealtimeASR
     languages: zh, en
 
   # Qwen3-ASR 文件转录（基于 qwen_asr，需要 GPU）
   qwen:
+    enable: true
     engine: qwen
     type: local
     model_name: Qwen/Qwen3-ASR-1.7B
+    # model_path: models/Qwen3-ASR-1.7B # 可选：显式指定本地模型路径
     device: cuda:0
     dtype: bfloat16
     max_new_tokens: 256
     max_inference_batch_size: 32
     forced_aligner: Qwen/Qwen3-ForcedAligner-0.6B
+    # forced_aligner_path: models/Qwen3-ForcedAligner-0.6B # 可选：显式指定本地对齐模型路径
     functions:
-      - fileASR
+      - FileASR
     languages: zh, en, ja, ko, fr, de, es, it, ru, pt, nl, pl, ar, cs, da, fi, el, he, hu, id, ms, no, ro, sk, sv, th, tr, uk, vi, hi

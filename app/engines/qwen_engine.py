@@ -58,23 +58,36 @@ class QwenEngine(ASREngine):
         }
         dtype = dtype_map.get(self._dtype, torch.bfloat16)
 
+        device = self._device
+        if device.startswith("cuda") and not torch.cuda.is_available():
+            device = "mps" if torch.backends.mps.is_available() else "cpu"
+            if device == "cpu" and dtype == torch.float16:
+                dtype = torch.float32
+            logger.warning("[Qwen] CUDA 不可用，自动切换至设备: %s (dtype=%s)", device, dtype)
+
+        model_path = self.config.resolve_model_path(self._model_name)
+
         kwargs = dict(
             dtype=dtype,
-            device_map=self._device,
+            device_map=device,
             max_inference_batch_size=self._max_batch_size,
             max_new_tokens=self._max_new_tokens,
         )
 
+        if self.config.model_dir:
+            kwargs["cache_dir"] = str(self.config.model_dir)
+
         # 可选：加载 forced_aligner 以获取时间戳
         if self._forced_aligner:
-            kwargs["forced_aligner"] = self._forced_aligner
+            aligner_path = self.config.resolve_model_path(self._forced_aligner)
+            kwargs["forced_aligner"] = aligner_path
             kwargs["forced_aligner_kwargs"] = dict(
                 dtype=dtype,
-                device_map=self._device,
+                device_map=device,
             )
 
-        logger.info("[Qwen] 正在加载模型: %s (device=%s, dtype=%s)", self._model_name, self._device, self._dtype)
-        self._model = Qwen3ASRModel.from_pretrained(self._model_name, **kwargs)
+        logger.info("[Qwen] 正在加载模型: %s (device=%s, dtype=%s)", model_path, device, dtype)
+        self._model = Qwen3ASRModel.from_pretrained(model_path, **kwargs)
         logger.info("[Qwen] 模型加载完成")
 
     async def transcribe_file(self, audio_data: bytes) -> tuple[str, list[Segment]]:

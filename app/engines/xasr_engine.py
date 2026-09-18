@@ -137,13 +137,32 @@ class XASREngine(ASREngine):
             return
 
         import sherpa_onnx
+        from pathlib import Path
 
-        logger.info("[XASR] 正在加载模型: encoder=%s", self._encoder)
+        tokens_path = self.config.resolve_model_path(self._tokens)
+        encoder_path = self.config.resolve_model_path(self._encoder)
+        decoder_path = self.config.resolve_model_path(self._decoder)
+        joiner_path = self.config.resolve_model_path(self._joiner)
+
+        # 若未指定具体文件路径，尝试从 model_name 目录自动探测
+        model_dir_path = Path(self.config.resolve_model_path(self.config.model_name))
+        if model_dir_path.is_dir():
+            for f in model_dir_path.iterdir():
+                if f.name == "tokens.txt" and not (tokens_path and Path(tokens_path).exists()):
+                    tokens_path = str(f)
+                elif "encoder" in f.name and f.suffix == ".onnx" and not (encoder_path and Path(encoder_path).exists()):
+                    encoder_path = str(f)
+                elif "decoder" in f.name and f.suffix == ".onnx" and not (decoder_path and Path(decoder_path).exists()):
+                    decoder_path = str(f)
+                elif "joiner" in f.name and f.suffix == ".onnx" and not (joiner_path and Path(joiner_path).exists()):
+                    joiner_path = str(f)
+
+        logger.info("[XASR] 正在加载模型: encoder=%s, tokens=%s", encoder_path, tokens_path)
         self._recognizer = sherpa_onnx.OnlineRecognizer.from_transducer(
-            tokens=self._tokens,
-            encoder=self._encoder,
-            decoder=self._decoder,
-            joiner=self._joiner,
+            tokens=tokens_path,
+            encoder=encoder_path,
+            decoder=decoder_path,
+            joiner=joiner_path,
             num_threads=self._num_threads,
             sample_rate=self.sample_rate,
             provider=self._provider,

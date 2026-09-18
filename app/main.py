@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 async def _load_all_providers():
-    """后台并发加载所有 Provider（本地引擎可能需要下载模型）。"""
+    """后台并发加载所有启用的 Provider（本地引擎可能需要下载模型）。"""
     from app.core.config import app_config
     from app.engines.registry import get_engine
 
@@ -27,8 +27,13 @@ async def _load_all_providers():
         except Exception as e:
             logger.warning("[startup] Provider 加载失败: %s — %s", name, e)
 
-    # 并发加载所有 Provider，总耗时 = 最慢的那个
-    await asyncio.gather(*[_load_one(name) for name in app_config.providers])
+    # 仅并发加载已启用的 Provider
+    enabled_providers = [
+        name for name, cfg in app_config.providers.items()
+        if getattr(cfg, "enable", True)
+    ]
+    logger.info("[startup] 待加载启用的 Provider: %s", enabled_providers)
+    await asyncio.gather(*[_load_one(name) for name in enabled_providers])
 
 
 @asynccontextmanager

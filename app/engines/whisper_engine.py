@@ -16,15 +16,14 @@ class WhisperEngine(ASREngine):
     def __init__(self, config: EngineConfig):
         self.config = config
 
-        # 检查是否指定了本地模型目录
-        if config.model_path and config.model_path.exists():
-            model_path = str(config.model_path)
-        else:
-            model_path = config.model_name  # 使用模型名称，faster-whisper 会自动下载
+        model_path = config.resolve_model_path(config.model_name)
+        download_root = str(config.model_dir) if config.model_dir else None
+
         self.model = WhisperModel(
             model_path,
             device=config.device,
             compute_type=config.compute_type,
+            download_root=download_root,
         )
 
     async def transcribe_file(self, audio_data: bytes) -> tuple[str, list[Segment]]:
