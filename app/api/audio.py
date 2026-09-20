@@ -41,7 +41,7 @@ async def _load_audio_data(file: UploadFile, request_id: str) -> tuple[bytes, st
     if len(data) > MAX_FILE_SIZE:
         raise HTTPException(
             status_code=400,
-            detail=f"文件大小超过限制: {size_mb:.1f}MB，最大支持 25MB。",
+            detail=f"文件大小超过限制: {size_mb:.1f}MB，OpenAI 兼容接口单次最大支持 25MB。大文件转录请在 DuRT 中选用 OneASR 服务类型（走 /v1/file/transcriptions 任务流，支持最大 2GB）。",
         )
     return data, file.filename or "audio.wav"
 
@@ -166,7 +166,13 @@ async def _handle_stream(rid, record_id, data, filename, eng, model, language,
                 delta_text = seg.text
                 if delta_text:
                     full_text += delta_text
-                    event = {"type": "transcript.text.delta", "delta": delta_text}
+                    event = {
+                        "type": "transcript.text.delta",
+                        "delta": delta_text,
+                        "start": getattr(seg, "start", 0.0),
+                        "end": getattr(seg, "end", 0.0),
+                        "is_endpoint": getattr(seg, "is_endpoint", True),
+                    }
                     yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
             done_event = {"type": "transcript.text.done", "text": full_text}

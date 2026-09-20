@@ -464,7 +464,13 @@ async def stream_transcription_result(task_id: str):
 
         async def _emit_completed():
             for seg in db_segments:
-                event = {"type": "transcript.text.delta", "delta": seg.text}
+                event = {
+                    "type": "transcript.text.delta",
+                    "delta": seg.text,
+                    "start": seg.start,
+                    "end": seg.end,
+                    "is_endpoint": True,
+                }
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
             done_event = {"type": "transcript.text.done", "text": task.result_text or ""}
             yield f"data: {json.dumps(done_event, ensure_ascii=False)}\n\n"
@@ -497,7 +503,13 @@ async def stream_transcription_result(task_id: str):
                 new_segments = result.scalars().all()
 
             for seg in new_segments:
-                event = {"type": "transcript.text.delta", "delta": seg.text}
+                event = {
+                    "type": "transcript.text.delta",
+                    "delta": seg.text,
+                    "start": seg.start,
+                    "end": seg.end,
+                    "is_endpoint": True,
+                }
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
                 last_segment_index = seg.segment_index
 

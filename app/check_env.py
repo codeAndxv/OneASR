@@ -21,11 +21,24 @@ def load_config() -> dict:
         return yaml.safe_load(f)
 
 
+def _get_field(config: dict, key: str, default=""):
+    load_cfg = config.get("load", {}) if isinstance(config.get("load"), dict) else {}
+    props_cfg = config.get("properties", {}) if isinstance(config.get("properties"), dict) else {}
+    if key in load_cfg:
+        return load_cfg[key]
+    if key in props_cfg:
+        return props_cfg[key]
+    return config.get(key, default)
+
+
 def check_whisper(config: dict) -> bool:
     """检查 faster-whisper 模型是否可用，不可用则下载。"""
     model_name = config.get("model_name", "base")
     device = config.get("device", "cpu")
     compute_type = config.get("compute_type", "int8")
+    model_name = _get_field(config, "model_name", "base")
+    device = _get_field(config, "device", "cpu")
+    compute_type = _get_field(config, "compute_type", "int8")
     print(f"  模型: {model_name}, 设备: {device}, 计算类型: {compute_type}")
 
     try:
@@ -44,6 +57,7 @@ def check_whisper(config: dict) -> bool:
 def check_firered(config: dict) -> bool:
     """检查 FireRedASR 模型是否可用，不可用则下载。"""
     model_name = config.get("model_name", "aed")
+    model_name = _get_field(config, "model_name", "aed")
     asr_type = model_name.lower()
     if asr_type not in ("aed", "llm"):
         asr_type = "aed"
@@ -71,6 +85,9 @@ def check_cloud_api(name: str, config: dict) -> bool:
     api_key = config.get("api_key", "")
     base_url = config.get("base_url", "")
     model_name = config.get("model_name", "")
+    api_key = _get_field(config, "api_key", "")
+    base_url = _get_field(config, "base_url", "")
+    model_name = _get_field(config, "model_name", "")
     print(f"  模型: {model_name}, URL: {base_url}")
 
     if not api_key or not base_url:
@@ -109,6 +126,7 @@ def check_provider(provider_name: str, prov_conf: dict) -> bool:
     label, checker = CHECKERS[engine_type]
     prov_type = prov_conf.get("type", "local")
     print(f"\n[{provider_name}] {label} (engine={engine_type}, type={prov_type})")
+    print(f"\n[{provider_name}] {label} (engine={engine_type})")
 
     return checker(provider_name, prov_conf) if checker is check_cloud_api else checker(prov_conf)
 
@@ -126,6 +144,7 @@ def main():
         for name, conf in providers_conf.items():
             engine_type = conf.get("engine", "?")
             print(f"  {name} (engine={engine_type}, type={conf.get('type', 'local')})")
+            print(f"  {name} (engine={engine_type})")
         return
 
     print("=" * 50)

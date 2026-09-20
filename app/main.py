@@ -94,6 +94,52 @@ app.include_router(media.router)
 app.include_router(file_transcription.router)
 
 
+# ── 全局错误处理（兼容 FastAPI detail 与 OpenAI error.message）──────
+
+from fastapi import HTTPException, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    """统一 HTTP 异常格式，同时兼容 FastAPI detail 与 OpenAI 客户端 error.message。"""
+    detail = exc.detail
+    message = detail if isinstance(detail, str) else str(detail)
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "detail": detail,
+            "error": {
+                "message": message,
+                "type": "invalid_request_error" if exc.status_code < 500 else "api_error",
+                "param": None,
+                "code": "bad_request" if exc.status_code == 400 else str(exc.status_code),
+            },
+        },
+        headers=exc.headers,
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """统一参数校验异常格式。"""
+    errors = exc.errors()
+    message = "; ".join(f"{'.'.join(str(loc) for loc in e.get('loc', []))}: {e.get('msg', '')}" for e in errors)
+    return JSONResponse(
+        status_code=400,
+        content={
+            "detail": errors,
+            "error": {
+                "message": message,
+                "type": "invalid_request_error",
+                "param": None,
+                "code": "validation_error",
+            },
+        },
+    )
+
+
 @app.get("/health")
 async def health():
     return {"status": "ok"}

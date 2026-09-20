@@ -11,98 +11,79 @@ class EngineConfig:
         self.name = name
         self.raw_config = config
         self.model_dir = model_dir
+
+        load_conf = config.get("load", {}) if isinstance(config.get("load"), dict) else {}
+        props_conf = config.get("properties", {}) if isinstance(config.get("properties"), dict) else {}
+        self.load = load_conf
+        self.properties = props_conf
+
+        def _get_val(key, default=None):
+            if key in load_conf:
+                return load_conf[key]
+            if key in props_conf:
+                return props_conf[key]
+            return config.get(key, default)
+
         self.enable = bool(config.get("enable", config.get("enabled", True)))
         self.engine_name = config.get("engine", name)
-        self.type = config.get("type", "local")
-        self.model_name = config.get("model_name", "")
-        self.model_path = config.get("model_path", "")  # 显式指定的本地模型路径
-        self.device = config.get("device", "cpu")
-        self.compute_type = config.get("compute_type", "float32")
-        self.max_duration = config.get("max_duration")
-        self.dtype = config.get("dtype", "bfloat16")
-        self.max_new_tokens = config.get("max_new_tokens", 256)
-        self.max_inference_batch_size = config.get("max_inference_batch_size", 32)
-        self.forced_aligner = config.get("forced_aligner", "")
-        self.forced_aligner_path = config.get("forced_aligner_path", "")
-        self.language = config.get("language", "")
+        self.type = _get_val("type", "local")
+        self.model_name = _get_val("model_name", "")
+        self.device = _get_val("device", "cpu")
+        self.compute_type = _get_val("compute_type", "float32")
+        self.max_duration = _get_val("max_duration")
+        self.dtype = _get_val("dtype", "bfloat16")
+        self.max_new_tokens = _get_val("max_new_tokens", 256)
+        self.max_inference_batch_size = _get_val("max_inference_batch_size", 32)
+        self.forced_aligner = _get_val("forced_aligner", "")
+        self.language = _get_val("language", "")
         # X-ASR 字段
-        self.tokens = config.get("tokens", "")
-        self.encoder = config.get("encoder", "")
-        self.decoder = config.get("decoder", "")
-        self.joiner = config.get("joiner", "")
-        self.provider = config.get("provider", "cpu")
-        self.num_threads = config.get("num_threads", 1)
-        self.decoding_method = config.get("decoding_method", "greedy_search")
-        self.enable_endpoint_detection = config.get("enable_endpoint_detection", False)
+        self.tokens = _get_val("tokens", "")
+        self.encoder = _get_val("encoder", "")
+        self.decoder = _get_val("decoder", "")
+        self.joiner = _get_val("joiner", "")
+        self.provider = _get_val("provider", "cpu")
+        self.feature_dim = _get_val("feature_dim", 80)
+        self.num_threads = _get_val("num_threads", 1)
+        self.decoding_method = _get_val("decoding_method", "greedy_search")
+        self.enable_endpoint_detection = _get_val("enable_endpoint_detection", False)
         # 功能支持
-        self.functions: list[str] = config.get("functions", [])
+        self.functions: list[str] = _get_val("functions", [])
         # 支持的语言列表（逗号分隔字符串 → list）
-        raw = config.get("languages", "")
+        raw = _get_val("languages", "")
         if isinstance(raw, str):
             self.languages = [lang.strip() for lang in raw.split(",") if lang.strip()]
         else:
             self.languages = list(raw)
         # 云端引擎配置
-        self.api_key = config.get("api_key", "")
-        self.base_url = config.get("base_url", "")
+        self.api_key = _get_val("api_key", "")
+        self.base_url = _get_val("base_url", "")
         # 流式引擎配置
-        self.sample_rate = config.get("sample_rate", 16000)
+        self.sample_rate = _get_val("sample_rate", 16000)
 
     def resolve_model_path(self, identifier: str | None = None) -> str:
         """解析模型或权重文件的实际加载路径。
 
-        规则：
-        1. 若未传入特定的 identifier，且配置中显式指定了 self.model_path：
-           - 首先检查 self.model_path（绝对路径、相对 PROJECT_ROOT、或相对 model_dir）
-           - 若本地存在，直接返回该绝对路径；若指定了路径但尚未下载，返回解析后的路径
-        2. 若未指定 self.model_path 或指定了具体 identifier：
-           - 使用 identifier（默认使用 self.model_name）
-           - 优先探测本地是否存在（绝对路径、相对 PROJECT_ROOT、model_dir/identifier、model_dir/pure_name）
-           - 若本地存在则返回本地绝对路径
-           - 若本地不存在则返回原始名称（由引擎在线下载）
+        逻辑：
+        检查 model_dir + model_name 是否存在该目录/文件。
+        如果存在，则返回 model_dir + model_name 路径；
+        否则，返回 model_name。
         """
-        # 1. 未传入特定 identifier 且配置了显式 model_path
-        if identifier is None and self.model_path:
-            p_obj = Path(self.model_path)
-            if p_obj.is_absolute() and p_obj.exists():
-                return str(p_obj)
-            proj_rel = PROJECT_ROOT / p_obj
-            if proj_rel.exists():
-                return str(proj_rel)
-            if self.model_dir and (self.model_dir / p_obj).exists():
-                return str(self.model_dir / p_obj)
-            return str(proj_rel if not p_obj.is_absolute() else p_obj)
-
         ident = identifier if identifier is not None else self.model_name
         if not ident:
             return ""
 
-        path_obj = Path(ident)
+        # 1. 检查 model_dir + ident 是否存在
+        if self.model_dir:
+            candidate = self.model_dir / ident
+            if candidate.exists():
+                return str(candidate)
 
-        # 2. 直接绝对路径
-        if path_obj.is_absolute() and path_obj.exists():
+        # 2. 若 ident 本身已是绝对路径或直接存在的相对路径
+        path_obj = Path(ident)
+        if path_obj.exists():
             return str(path_obj)
 
-        # 3. 相对项目根目录
-        project_rel = PROJECT_ROOT / path_obj
-        if project_rel.exists():
-            return str(project_rel)
-
-        # 4. 在 model_dir 下探测
-        if self.model_dir:
-            p1 = self.model_dir / path_obj
-            if p1.exists():
-                return str(p1)
-
-            pure_name = ident.split("/")[-1]
-            p2 = self.model_dir / pure_name
-            if p2.exists():
-                return str(p2)
-
-            p3 = self.model_dir / self.engine_name / pure_name
-            if p3.exists():
-                return str(p3)
-
+        # 3. 不存在本地目录时，返回原始名称（由引擎在线下载或作为云端标识）
         return ident
 
 

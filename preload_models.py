@@ -7,6 +7,7 @@
     python preload_models.py              # 预加载所有 enable: true 的本地模型
     python preload_models.py --all        # 预加载 config.yaml 中的所有本地模型（包含 enable: false）
     python preload_models.py qwen fast-whisper # 仅预加载指定的 provider
+    python preload_models.py qwen faster-whisper # 仅预加载指定的 provider
     python preload_models.py --list       # 列出所有可预加载的 provider
 """
 
@@ -247,6 +248,7 @@ def main():
             p_type = p_conf.type
             status = "已启用" if enabled else "已禁用"
             print(f"  • {name:<12} (引擎: {engine:<15} 类型: {p_type:<6} 状态: {status})")
+            print(f"  • {name:<15} (引擎: {engine:<15} 状态: {status})")
         print("-" * 60)
         return
 
@@ -255,6 +257,8 @@ def main():
     for name, p_conf in providers.items():
         if p_conf.type != "local":
             continue  # 跳过云端 API
+        if p_conf.engine_name not in HANDLERS:
+            continue  # 跳过非本地或未在 HANDLERS 中注册的云端 API
 
         if args.providers:
             if name in args.providers:

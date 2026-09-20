@@ -36,7 +36,7 @@ class WhisperEngine(ASREngine):
             segments = []
             full_text_parts = []
             for seg in segments_iter:
-                segments.append(Segment(start=seg.start, end=seg.end, text=seg.text.strip()))
+                segments.append(Segment(start=seg.start, end=seg.end, text=seg.text.strip(), is_endpoint=True))
                 full_text_parts.append(seg.text.strip())
             return " ".join(full_text_parts), segments
         finally:
@@ -55,7 +55,7 @@ class WhisperEngine(ASREngine):
                 segments_iter, info = self.model.transcribe(str(tmp_path), beam_size=5)
                 for seg in segments_iter:
                     asyncio.run_coroutine_threadsafe(
-                        queue.put(Segment(start=seg.start, end=seg.end, text=seg.text.strip())),
+                        queue.put(Segment(start=seg.start, end=seg.end, text=seg.text.strip(), is_endpoint=True)),
                         loop,
                     )
             finally:

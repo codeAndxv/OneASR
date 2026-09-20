@@ -43,6 +43,7 @@ class Segment(BaseModel):
     end: float = Field(..., description="结束时间（秒）")
     text: str = Field(..., description="识别文本")
     speaker: Optional[int] = Field(None, description="说话人 ID")
+    is_endpoint: bool = Field(False, description="是否为确定端点/完整句子")
 
 
 # ========== 旧模型（保持兼容） ==========
