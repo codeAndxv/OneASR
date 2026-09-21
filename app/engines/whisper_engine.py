@@ -1,4 +1,6 @@
 import asyncio
+import logging
+import sys
 import tempfile
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -9,6 +11,20 @@ from app.core.config import EngineConfig
 from app.engines.base import ASREngine
 from app.models.schemas import Segment
 
+logger = logging.getLogger(__name__)
+
+
+def _infer_whisper_repo_id(model_name: str) -> str:
+    """根据 model_name 推导完整的 Hugging Face / ModelScope 仓库 ID。"""
+    name = (model_name or "").strip()
+    if not name:
+        return "Systran/faster-whisper-medium"
+    if "/" in name:
+        return name
+    if name.startswith("faster-whisper-"):
+        return f"Systran/{name}"
+    return f"Systran/faster-whisper-{name}"
+
 
 class WhisperEngine(ASREngine):
     """基于 faster-whisper 的 ASR 引擎。"""
@@ -16,15 +32,48 @@ class WhisperEngine(ASREngine):
     def __init__(self, config: EngineConfig):
         self.config = config
 
-        model_path = config.resolve_model_path(config.model_name)
-        download_root = str(config.model_dir) if config.model_dir else None
+        model_to_load: str
+        if config.model_path:
+            resolved = config.resolve_path(config.model_path)
+            if not resolved or not resolved.exists():
+                repo_id = _infer_whisper_repo_id(config.model_name)
+                err_msg = (
+                    f"\n{'='*70}\n"
+                    f"[faster-whisper] 配置的模型路径不存在: {config.model_path} (绝对路径: {resolved})\n"
+                    f"请使用 Hugging Face CLI 或 ModelScope 下载对应模型。\n"
+                    f"推荐下载命令:\n"
+                    f"  1. 使用 hf (Hugging Face CLI):\n"
+                    f"     hf download {repo_id} --local-dir {config.model_path}\n"
+                    f"  2. 使用 ModelScope CLI:\n"
+                    f"     modelscope download --model {repo_id} --local_dir {config.model_path}\n"
+                    f"{'='*70}"
+                )
+                logger.error(err_msg)
+                raise RuntimeError(err_msg)
+            model_to_load = str(resolved)
+        elif config.model_name:
+            model_to_load = config.model_name
+        else:
+            err_msg = "[faster-whisper] 未配置 model_path 也未配置 model_name，无法加载模型"
+            logger.error(err_msg)
+            raise RuntimeError(err_msg)
 
-        self.model = WhisperModel(
-            model_path,
-            device=config.device,
-            compute_type=config.compute_type,
-            download_root=download_root,
+        logger.info(
+            "[faster-whisper] 正在加载模型: %s (device=%s, compute_type=%s)",
+            model_to_load, config.device, config.compute_type,
         )
+
+        try:
+            self.model = WhisperModel(
+                model_to_load,
+                device=config.device,
+                compute_type=config.compute_type,
+            )
+            logger.info("[faster-whisper] 模型加载成功: %s", model_to_load)
+        except Exception as e:
+            err_msg = f"[faster-whisper] 模型加载失败 ({model_to_load}): {e}"
+            logger.error(err_msg, exc_info=True)
+            raise RuntimeError(err_msg) from e
 
     async def transcribe_file(self, audio_data: bytes) -> tuple[str, list[Segment]]:
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:

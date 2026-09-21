@@ -37,7 +37,7 @@ uv pip install -r requirements.txt
 uv pip install -e ".[dev]"
 
 # 3. Start the server
-uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8020
+uv run uvicorn app.main:app --host 0.0.0.0 --port 8020
 ```
 
 The server runs at `http://localhost:8020`. Visit `http://localhost:8020/docs` for interactive API documentation.
@@ -62,7 +62,7 @@ The frontend runs at `http://localhost:3020` and automatically proxies API reque
 **Terminal 1 - Backend:**
 ```bash
 cd OneASR
-uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8020
+uv run uvicorn app.main:app --host 0.0.0.0 --port 8020
 ```
 
 **Terminal 2 - Frontend:**

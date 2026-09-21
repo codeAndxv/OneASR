@@ -1,8 +1,5 @@
 # OneASR 模型配置文件
 
-# 模型统一存储根目录（支持相对路径或绝对路径）
-model_dir: models
-
 # API Key（所有接口必须携带此 key）
 api_key: oneasr-key
 
@@ -17,10 +14,10 @@ ASR-Providers:
     # 加载配置
     load:
       model_name: xasr-zh-en
-      tokens: models/chunk-160ms-model/tokens.txt
-      encoder: models/chunk-160ms-model/encoder-160ms.onnx
-      decoder: models/chunk-160ms-model/decoder-160ms.onnx
-      joiner: models/chunk-160ms-model/joiner-160ms.onnx
+      tokens_path: models/chunk-160ms-model/tokens.txt
+      encoder_path: models/chunk-160ms-model/encoder-160ms.onnx
+      decoder_path: models/chunk-160ms-model/decoder-160ms.onnx
+      joiner_path: models/chunk-160ms-model/joiner-160ms.onnx
       provider: cpu
       sample_rate: 16000
       feature_dim: 80
@@ -36,12 +33,13 @@ ASR-Providers:
 
   # Faster-Whisper 文件转录
   faster-whisper:
-    enable: true
+    enable: false
     engine: faster-whisper
 
     # 加载配置
     load:
       model_name: medium
+      model_path: models/faster-whisper-medium
       device: cpu
       compute_type: int8
       max_duration: null
@@ -52,19 +50,21 @@ ASR-Providers:
         - FileASR
       languages: zh, en, ja, ko, fr, de, es, it, ru, pt, nl, pl, ar, cs, da, fi, el, he, hu, id, ms, no, ro, sk, sv, th, tr, uk, vi, hi
 
-  # Qwen3-ASR 文件转录（基于 qwen_asr，需要 GPU）
+  # Qwen3-ASR 文件转录（基于 qwen_asr，支持 CPU / GPU）
   qwen:
-    enable: false
+    enable: true
     engine: qwen
 
     # 加载配置
     load:
       model_name: Qwen/Qwen3-ASR-1.7B
-      device: cuda:0
-      dtype: bfloat16
+      model_path: models/Qwen3-ASR-1.7B
+      device: cpu
+      dtype: float32
       max_new_tokens: 256
       max_inference_batch_size: 32
-      forced_aligner: Qwen/Qwen3-ForcedAligner-0.6B
+      forced_aligner_name: Qwen/Qwen3-ForcedAligner-0.6B
+      forced_aligner_path: models/Qwen3-ForcedAligner-0.6B
 
     # 属性
     properties:

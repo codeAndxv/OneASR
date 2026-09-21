@@ -99,11 +99,11 @@ async def parse_media(req: ParseRequest):
     不同步等待下载完成 —— 客户端用 GET /v1/media/parse/{task_id} 轮询。
     """
     if not req.url:
-        raise HTTPException(status_code=400, detail="url 不能为空")
+        raise HTTPException(status_code=400, detail="URL cannot be empty")
 
     fmt = req.format.lower()
     if fmt not in ("audio", "video"):
-        raise HTTPException(status_code=400, detail="format 必须是 audio 或 video")
+        raise HTTPException(status_code=400, detail="format must be audio or video")
 
     platform = media_service.detect_platform(req.url)
     task_id = await media_service.create_parse_task(req.url, fmt)
@@ -129,7 +129,7 @@ async def get_parse_task(task_id: str):
     """查询单个任务的最新状态与进度。"""
     record = await media_service.get_task(task_id)
     if not record:
-        raise HTTPException(status_code=404, detail="任务不存在")
+        raise HTTPException(status_code=404, detail="Task not found")
     return _record_to_info(record)
 
 
@@ -150,15 +150,15 @@ async def download_parse_file(task_id: str):
     """下载已完成的文件到客户端。仅 succeeded 状态可下载。"""
     record = await media_service.get_task(task_id)
     if not record:
-        raise HTTPException(status_code=404, detail="任务不存在")
+        raise HTTPException(status_code=404, detail="Task not found")
     if record.status != "succeeded":
-        raise HTTPException(status_code=409, detail=f"任务未完成，当前状态: {record.status}")
+        raise HTTPException(status_code=409, detail=f"Task is not completed, current status: {record.status}")
     if not record.file_path:
-        raise HTTPException(status_code=409, detail="任务无文件路径")
+        raise HTTPException(status_code=409, detail="Task has no file path")
 
     disk_path = Path(record.file_path)
     if not disk_path.exists():
-        raise HTTPException(status_code=404, detail="文件已被删除")
+        raise HTTPException(status_code=404, detail="File has been deleted")
 
     # 文件名展示用平台+原标题，避免 yt-dlp 内部 id 命名难读
     title = record.title or task_id

@@ -26,6 +26,8 @@ dependencies = [
     "sherpa-onnx>=1.13.0",
     "numpy>=1.24.0",
     "yt-dlp>=2024.8.6",
+    "accelerate>=1.12.0",
+    "qwen-asr>=0.0.6",
 ]
 
 [project.optional-dependencies]

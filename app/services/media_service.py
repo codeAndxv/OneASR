@@ -173,7 +173,7 @@ async def delete_task(task_id: str) -> tuple[bool, str]:
         )
         record = result.scalar_one_or_none()
         if not record:
-            return False, "任务不存在"
+            return False, "Task not found"
 
         # 删文件（成功任务才有 file_path）
         file_deleted = False
@@ -187,7 +187,7 @@ async def delete_task(task_id: str) -> tuple[bool, str]:
         await session.delete(record)
         await session.commit()
 
-    return True, "已删除" + ("（含文件）" if file_deleted else "（无文件）")
+    return True, "Deleted successfully" + (" (with file)" if file_deleted else " (no file)")
 
 
 async def reset_stale_tasks() -> int:
@@ -196,7 +196,7 @@ async def reset_stale_tasks() -> int:
         result = await session.execute(
             update(MediaParseRecord)
             .where(MediaParseRecord.status.in_(["pending", "running"]))
-            .values(status="failed", error_message="服务重启", updated_at=_utcnow())
+            .values(status="failed", error_message="Server restarted", updated_at=_utcnow())
         )
         await session.commit()
         return result.rowcount or 0

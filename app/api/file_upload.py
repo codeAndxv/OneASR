@@ -94,15 +94,15 @@ async def upload_file(
 
     无论是否秒传，`file_md5` 都会出现在响应中。
     """
-    # 验证文件名
+    # Validate filename
     if not file.filename:
-        raise HTTPException(status_code=400, detail="文件名不能为空")
+        raise HTTPException(status_code=400, detail="Filename cannot be empty")
 
-    # 验证文件格式
+    # Validate file format
     if not _validate_file_format(file.filename):
         raise HTTPException(
             status_code=400,
-            detail=f"不支持的文件格式。支持的格式: {', '.join(sorted(SUPPORTED_FORMATS))}",
+            detail=f"Unsupported file format. Supported formats: {', '.join(sorted(SUPPORTED_FORMATS))}",
         )
 
     t_start = time.time()
@@ -118,14 +118,14 @@ async def upload_file(
         # 验证文件大小（最大 2GB）
         max_size = 2 * 1024 * 1024 * 1024
         if actual_size > max_size:
-            raise HTTPException(status_code=400, detail="文件大小超过限制（最大 2GB）")
+            raise HTTPException(status_code=400, detail="File size exceeds limit (maximum 2GB)")
 
         # 计算实际 MD5
         actual_md5 = _compute_md5(content)
 
         # 如果客户端传了 file_size 且与实际不符，拒绝
         if file_size is not None and file_size != actual_size:
-            raise HTTPException(status_code=400, detail=f"file_size 参数({file_size})与实际文件大小({actual_size})不匹配")
+            raise HTTPException(status_code=400, detail=f"file_size parameter ({file_size}) does not match actual file size ({actual_size})")
 
         # ── 秒传检查 ────────────────────────────────────────────
         async with async_session() as session:
@@ -197,7 +197,7 @@ async def upload_file(
         raise
     except Exception as e:
         logger.exception("文件上传失败: %s", e)
-        raise HTTPException(status_code=500, detail=f"文件上传失败: {e}")
+        raise HTTPException(status_code=500, detail=f"File upload failed: {e}")
 
 
 # ── 查询 ────────────────────────────────────────────────────────────
@@ -233,7 +233,7 @@ async def get_file_info(file_id: str):
         record = result.scalar_one_or_none()
 
     if not record:
-        raise HTTPException(status_code=404, detail="文件不存在")
+        raise HTTPException(status_code=404, detail="File not found")
 
     return FileInfo(
         file_id=record.file_id,
@@ -255,7 +255,7 @@ async def delete_file(file_id: str):
         record = result.scalar_one_or_none()
 
         if not record:
-            raise HTTPException(status_code=404, detail="文件不存在")
+            raise HTTPException(status_code=404, detail="File not found")
 
         # 删除磁盘文件
         from pathlib import Path

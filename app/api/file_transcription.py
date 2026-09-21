@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select, func
@@ -44,6 +44,14 @@ NATIVE_AUDIO_FORMATS = {".wav"}
 
 
 # ── Pydantic response models ─────────────────────────────────────
+
+class TaskCreateRequest(BaseModel):
+    file_uuid: Optional[str] = Field(None, description="Uploaded file UUID")
+    file_url: Optional[str] = Field(None, description="Audio file URL")
+    model: str = Field(..., description="Model identifier (engine_name/model_name)")
+    language: Optional[str] = Field(None, description="Language code (ISO-639-1)")
+    response_format: Optional[str] = Field("json", description="Output format")
+
 
 class TaskCreateResponse(BaseModel):
     task_id: str
@@ -165,7 +173,7 @@ async def _run_transcription(task_id: str):
         elif task.source_type == "file_uuid":
             info = await get_uploaded_file(task.file_uuid)
             if info is None:
-                raise FileNotFoundError(f"文件不存在: {task.file_uuid}")
+                raise FileNotFoundError(f"File not found: {task.file_uuid}")
             data = info.read_bytes()
             filename = info.filename
             task.file_size = len(data)
@@ -175,14 +183,14 @@ async def _run_transcription(task_id: str):
             pattern = f"./uploads/{task.file_uuid}.*"
             matches = _glob.glob(pattern)
             if not matches:
-                raise FileNotFoundError(f"文件不存在: {task.file_uuid}")
+                raise FileNotFoundError(f"File not found: {task.file_uuid}")
             storage_path = Path(matches[0])
             data = storage_path.read_bytes()
             task.file_size = len(data)
 
         size_mb = len(data) / (1024 * 1024)
         if len(data) > MAX_FILE_SIZE:
-            raise ValueError(f"文件大小 {size_mb:.1f}MB 超过限制（最大 2GB）")
+            raise ValueError(f"File size {size_mb:.1f}MB exceeds limit (maximum 2GB)")
 
         logger.info("[tasks][%s] 音频就绪: %s, %.2f MB", rid, filename, size_mb)
 
@@ -310,18 +318,12 @@ _running_tasks: dict[str, asyncio.Task] = {}
 
 @router.post("/transcriptions", response_model=TaskCreateResponse)
 async def create_transcription_task(
-    background_tasks: BackgroundTasks,
-    file: Optional[UploadFile] = File(None),
-    file_url: Optional[str] = Form(None, description="音频文件 URL"),
-    file_uuid: Optional[str] = Form(None, description="已上传文件的 UUID"),
-    model: str = Form(..., description="模型标识 (engine_name/model_name)"),
-    language: Optional[str] = Form(None, description="语言代码 (ISO-639-1)"),
-    response_format: str = Form("json", description="输出格式"),
+    req: TaskCreateRequest,
 ):
     """创建异步转录任务。
 
-    file / file_url / file_uuid 三选一，优先级: file > file_url > file_uuid。
-    文件上限 2GB，适用于大文件和长时间转录。
+    通过 file_url 或 file_uuid 创建后台异步转录任务（application/json）。
+    适用于大文件和长时间转录。
     """
     task_id = str(uuid.uuid4())
     rid = task_id[:8]
@@ -333,41 +335,23 @@ async def create_transcription_task(
     file_size: int | None = None
     saved_file_uuid: str | None = None
 
-    if file:
-        source_type = "file"
-        filename = file.filename or "audio.wav"
-        # Save to temp storage for background worker
-        content = await file.read()
-        file_size = len(content)
-        if file_size > MAX_FILE_SIZE:
-            raise HTTPException(status_code=400, detail=f"文件大小超过限制: {file_size / 1024 / 1024:.1f}MB，最大 2GB")
-
-        # Store file for background processing
-        upload_dir = Path("./uploads")
-        upload_dir.mkdir(parents=True, exist_ok=True)
-        saved_file_uuid = str(uuid.uuid4())
-        ext = Path(filename).suffix or ".bin"
-        file_path = upload_dir / f"{saved_file_uuid}{ext}"
-        file_path.write_bytes(content)
-        logger.info("[tasks][%s] 文件已保存: %s (%.2f MB)", rid, filename, file_size / 1024 / 1024)
-
-    elif file_url:
+    if req.file_url:
         source_type = "file_url"
-        filename = Path(file_url.split("?")[0]).name or "audio.wav"
-        logger.info("[tasks][%s] URL 来源: %s", rid, file_url)
+        filename = Path(req.file_url.split("?")[0]).name or "audio.wav"
+        logger.info("[tasks][%s] URL source: %s", rid, req.file_url)
 
-    elif file_uuid:
+    elif req.file_uuid:
         source_type = "file_uuid"
-        info = await get_uploaded_file(file_uuid)
+        info = await get_uploaded_file(req.file_uuid)
         if info is None:
-            raise HTTPException(status_code=404, detail=f"文件不存在: {file_uuid}")
+            raise HTTPException(status_code=404, detail=f"File not found: {req.file_uuid}")
         filename = info.filename
         file_size = info.file_size if hasattr(info, "file_size") else None
-        saved_file_uuid = file_uuid
-        logger.info("[tasks][%s] UUID 来源: %s (%s)", rid, file_uuid, filename)
+        saved_file_uuid = req.file_uuid
+        logger.info("[tasks][%s] UUID source: %s (%s)", rid, req.file_uuid, filename)
 
     else:
-        raise HTTPException(status_code=400, detail="必须提供 file、file_url 或 file_uuid 参数")
+        raise HTTPException(status_code=400, detail="Must provide either file_uuid or file_url parameter")
 
     # Create DB record
     async with async_session() as session:
@@ -378,11 +362,11 @@ async def create_transcription_task(
             source_type=source_type,
             filename=filename,
             file_size=file_size,
-            file_url=file_url if source_type == "file_url" else None,
+            file_url=req.file_url if source_type == "file_url" else None,
             file_uuid=saved_file_uuid,
-            model=model,
-            language=language,
-            response_format=response_format,
+            model=req.model,
+            language=req.language,
+            response_format=req.response_format or "json",
             created_at=now,
             updated_at=now,
         )
@@ -399,7 +383,7 @@ async def create_transcription_task(
         _running_tasks.pop(_tid, None)
     asyncio.create_task(_cleanup())
 
-    logger.info("[tasks][%s] 任务已创建: model=%s lang=%s file=%s", rid, model, language, filename)
+    logger.info("[tasks][%s] 任务已创建: model=%s lang=%s file=%s", rid, req.model, req.language, filename)
 
     return TaskCreateResponse(
         task_id=task_id,
@@ -420,7 +404,7 @@ async def get_transcription_task(task_id: str):
         task = result.scalar_one_or_none()
 
     if task is None:
-        raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
+        raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
 
     # Load segments
     async with async_session() as session:
@@ -450,7 +434,7 @@ async def stream_transcription_result(task_id: str):
         task = result.scalar_one_or_none()
 
     if task is None:
-        raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
+        raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
 
     if task.status == "completed":
         # Already completed: push all segments at once
@@ -478,10 +462,10 @@ async def stream_transcription_result(task_id: str):
         return StreamingResponse(_emit_completed(), media_type="text/event-stream")
 
     if task.status == "failed":
-        raise HTTPException(status_code=500, detail=f"任务失败: {task.error_message}")
+        raise HTTPException(status_code=500, detail=f"Task failed: {task.error_message}")
 
     if task.status == "cancelled":
-        raise HTTPException(status_code=410, detail="任务已取消")
+        raise HTTPException(status_code=410, detail="Task was cancelled")
 
     # For pending/processing tasks: poll DB for new segments
     last_segment_index = -1
@@ -556,10 +540,10 @@ async def cancel_transcription_task(task_id: str):
         task = result.scalar_one_or_none()
 
     if task is None:
-        raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
+        raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
 
     if task.status not in ("pending", "processing"):
-        raise HTTPException(status_code=400, detail=f"任务状态为 {task.status}，无法取消")
+        raise HTTPException(status_code=400, detail=f"Task status is {task.status}, cannot cancel")
 
     # Cancel asyncio task
     async_task = _running_tasks.pop(task_id, None)

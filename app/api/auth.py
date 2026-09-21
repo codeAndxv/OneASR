@@ -1,6 +1,8 @@
+from typing import Optional
 from fastapi import Header, HTTPException, WebSocket
 
 from app.core.config import app_config
+from app.core.errors import OpenAIAPIException
 
 
 def verify_api_key(key: str) -> bool:
@@ -8,15 +10,35 @@ def verify_api_key(key: str) -> bool:
     return bool(app_config.api_key) and key == app_config.api_key
 
 
-async def get_api_key(authorization: str = Header(...)) -> str:
+async def get_api_key(authorization: Optional[str] = Header(None)) -> str:
     """FastAPI 依赖：从 Authorization header 获取并验证 API Key。
     格式：Authorization: Bearer <key>
     """
+    if not authorization:
+        raise OpenAIAPIException(
+            status_code=401,
+            message="You didn't provide an API key. You need to provide your API key in an Authorization header using Bearer auth (i.e. Authorization: Bearer YOUR_KEY).",
+            error_type="authentication_error",
+            param=None,
+            code="invalid_api_key",
+        )
     if not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="需要 Authorization: Bearer <key> 格式")
+        raise OpenAIAPIException(
+            status_code=401,
+            message="You must provide a valid API key in the Authorization header using 'Bearer <token>' format.",
+            error_type="authentication_error",
+            param=None,
+            code="invalid_api_key",
+        )
     key = authorization[7:].strip()
     if not verify_api_key(key):
-        raise HTTPException(status_code=401, detail="API Key 无效")
+        raise OpenAIAPIException(
+            status_code=401,
+            message="Incorrect API key provided.",
+            error_type="authentication_error",
+            param=None,
+            code="invalid_api_key",
+        )
     return key
 
 

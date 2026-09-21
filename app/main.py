@@ -14,31 +14,9 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 logger = logging.getLogger(__name__)
 
 
-async def _load_all_providers():
-    """后台并发加载所有启用的 Provider（本地引擎可能需要下载模型）。"""
-    from app.core.config import app_config
-    from app.engines.registry import get_engine
-
-    async def _load_one(name: str):
-        try:
-            logger.info("[startup] 正在加载 Provider: %s", name)
-            await asyncio.to_thread(get_engine, name)
-            logger.info("[startup] Provider 加载成功: %s", name)
-        except Exception as e:
-            logger.warning("[startup] Provider 加载失败: %s — %s", name, e)
-
-    # 仅并发加载已启用的 Provider
-    enabled_providers = [
-        name for name, cfg in app_config.providers.items()
-        if getattr(cfg, "enable", True)
-    ]
-    logger.info("[startup] 待加载启用的 Provider: %s", enabled_providers)
-    await asyncio.gather(*[_load_one(name) for name in enabled_providers])
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """应用生命周期：启动时初始化数据库、后台加载所有 Provider。"""
+    """应用生命周期：启动时初始化数据库、同步校验并加载所有已启用的 Provider。"""
     from app.db import init_db
     await init_db()
 
@@ -48,15 +26,26 @@ async def lifespan(app: FastAPI):
     if n:
         logger.info("[startup] 重置 %d 个未完成的媒体下载任务为 failed", n)
 
-    # 后台加载所有 Provider，不阻塞服务启动
-    load_task = asyncio.create_task(_load_all_providers())
+    # 启动时同步校验并加载所有已启用的 Provider
+    # 若配置了路径但模型缺失或加载失败，直接抛出异常终止服务启动 (Fail-Fast)
+    from app.core.config import app_config
+    from app.engines.registry import get_engine
+
+    enabled_providers = [
+        name for name, cfg in app_config.providers.items()
+        if getattr(cfg, "enable", True)
+    ]
+    logger.info("[startup] 待加载启用的 Provider: %s", enabled_providers)
+    for name in enabled_providers:
+        try:
+            logger.info("[startup] 正在加载 Provider: %s", name)
+            await asyncio.to_thread(get_engine, name)
+            logger.info("[startup] Provider 加载成功: %s", name)
+        except Exception as e:
+            logger.error("[startup] Provider [%s] 加载失败，终止服务启动: %s", name, e)
+            raise RuntimeError(f"Provider [{name}] 加载失败: {e}") from e
 
     yield
-
-    # 关闭时等待加载任务完成（如果还在进行）
-    if not load_task.done():
-        logger.info("[shutdown] 等待 Provider 加载完成...")
-        await load_task
 
 
 app = FastAPI(title=settings.app_name, debug=settings.debug, lifespan=lifespan)
@@ -98,45 +87,106 @@ app.include_router(file_transcription.router)
 
 from fastapi import HTTPException, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
+
+from app.core.errors import (
+    OpenAIAPIException,
+    build_openai_error_json_response,
+    get_default_error_code,
+    get_default_error_type,
+)
+
+
+@app.exception_handler(OpenAIAPIException)
+async def openai_api_exception_handler(request: Request, exc: OpenAIAPIException):
+    """处理自定义 OpenAI API 异常。"""
+    return build_openai_error_json_response(
+        status_code=exc.status_code,
+        message=exc.message,
+        error_type=exc.error_type,
+        param=exc.param,
+        code=exc.code,
+        raw_detail=exc.detail,
+        headers=exc.headers,
+    )
 
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
-    """统一 HTTP 异常格式，同时兼容 FastAPI detail 与 OpenAI 客户端 error.message。"""
-    detail = exc.detail
-    message = detail if isinstance(detail, str) else str(detail)
-    return JSONResponse(
+    """统一 HTTP 异常格式，兼容 detail 字典/字符串与 OpenAI error 规范。"""
+    if isinstance(exc.detail, dict):
+        message = exc.detail.get("message", str(exc.detail))
+        error_type = exc.detail.get("type", get_default_error_type(exc.status_code))
+        param = exc.detail.get("param")
+        code = exc.detail.get("code", get_default_error_code(exc.status_code))
+        raw_detail = exc.detail
+    else:
+        message = str(exc.detail)
+        error_type = get_default_error_type(exc.status_code)
+        param = None
+        code = get_default_error_code(exc.status_code)
+        raw_detail = exc.detail
+
+    return build_openai_error_json_response(
         status_code=exc.status_code,
-        content={
-            "detail": detail,
-            "error": {
-                "message": message,
-                "type": "invalid_request_error" if exc.status_code < 500 else "api_error",
-                "param": None,
-                "code": "bad_request" if exc.status_code == 400 else str(exc.status_code),
-            },
-        },
+        message=message,
+        error_type=error_type,
+        param=param,
+        code=code,
+        raw_detail=raw_detail,
+        headers=exc.headers,
+    )
+
+
+@app.exception_handler(StarletteHTTPException)
+async def starlette_http_exception_handler(request: Request, exc: StarletteHTTPException):
+    """处理 Starlette 底层抛出的 HTTP 异常（如 404 Not Found 等）。"""
+    message = str(exc.detail)
+    return build_openai_error_json_response(
+        status_code=exc.status_code,
+        message=message,
+        error_type=get_default_error_type(exc.status_code),
+        param=None,
+        code=get_default_error_code(exc.status_code),
+        raw_detail=exc.detail,
         headers=exc.headers,
     )
 
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    """统一参数校验异常格式。"""
+    """统一参数校验异常格式，提取首个失败参数为 param。"""
     errors = exc.errors()
     message = "; ".join(f"{'.'.join(str(loc) for loc in e.get('loc', []))}: {e.get('msg', '')}" for e in errors)
-    return JSONResponse(
+    first_param = None
+    if errors:
+        loc = errors[0].get("loc", [])
+        if len(loc) > 1:
+            first_param = str(loc[-1])
+        elif len(loc) == 1:
+            first_param = str(loc[0])
+
+    return build_openai_error_json_response(
         status_code=400,
-        content={
-            "detail": errors,
-            "error": {
-                "message": message,
-                "type": "invalid_request_error",
-                "param": None,
-                "code": "validation_error",
-            },
-        },
+        message=message,
+        error_type="invalid_request_error",
+        param=first_param,
+        code="validation_error",
+        raw_detail=errors,
+    )
+
+
+@app.exception_handler(Exception)
+async def generic_exception_handler(request: Request, exc: Exception):
+    """全局兜底异常处理器，避免 500 时返回非 JSON 文本。"""
+    logger.exception("[unhandled_exception] %s: %s", request.url.path, exc)
+    return build_openai_error_json_response(
+        status_code=500,
+        message=f"Internal Server Error: {str(exc)}",
+        error_type="api_error",
+        param=None,
+        code="internal_error",
+        raw_detail=str(exc),
     )
 
 

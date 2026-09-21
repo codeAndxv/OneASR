@@ -6,7 +6,6 @@
 用法:
     python preload_models.py              # 预加载所有 enable: true 的本地模型
     python preload_models.py --all        # 预加载 config.yaml 中的所有本地模型（包含 enable: false）
-    python preload_models.py qwen fast-whisper # 仅预加载指定的 provider
     python preload_models.py qwen faster-whisper # 仅预加载指定的 provider
     python preload_models.py --list       # 列出所有可预加载的 provider
 """
@@ -42,21 +41,54 @@ def clean_memory():
         pass
 
 
-def preload_whisper(engine_cfg: EngineConfig) -> bool:
-    """预加载 faster-whisper 模型（优先本地，缺失自动下载至 model_dir）。"""
-    model_path = engine_cfg.resolve_model_path(engine_cfg.model_name)
-    download_root = str(engine_cfg.model_dir) if engine_cfg.model_dir else None
+def _infer_whisper_repo_id(model_name: str) -> str:
+    name = (model_name or "").strip()
+    if not name:
+        return "Systran/faster-whisper-medium"
+    if "/" in name:
+        return name
+    if name.startswith("faster-whisper-"):
+        return f"Systran/{name}"
+    return f"Systran/faster-whisper-{name}"
 
-    logger.info("[%s] 预加载 faster-whisper: %s (device=%s, compute_type=%s)", engine_cfg.name, model_path, engine_cfg.device, engine_cfg.compute_type)
+
+def preload_whisper(engine_cfg: EngineConfig) -> bool:
+    """预加载 faster-whisper 模型（优先本地 model_path，未指定时按 model_name 自动下载）。"""
+    model_to_load: str
+    if engine_cfg.model_path:
+        resolved = engine_cfg.resolve_path(engine_cfg.model_path)
+        if not resolved or not resolved.exists():
+            repo_id = _infer_whisper_repo_id(engine_cfg.model_name)
+            logger.error(
+                "[%s] [FAIL] 配置的模型路径不存在: %s\n"
+                "  请先下载模型，下载命令示例:\n"
+                "    hf download %s --local-dir %s\n"
+                "  或使用 ModelScope:\n"
+                "    modelscope download --model %s --local_dir %s",
+                engine_cfg.name, engine_cfg.model_path,
+                repo_id, engine_cfg.model_path,
+                repo_id, engine_cfg.model_path,
+            )
+            return False
+        model_to_load = str(resolved)
+    elif engine_cfg.model_name:
+        model_to_load = engine_cfg.model_name
+    else:
+        logger.error("[%s] [FAIL] 未配置 model_path 也未配置 model_name", engine_cfg.name)
+        return False
+
+    logger.info(
+        "[%s] 预加载 faster-whisper: %s (device=%s, compute_type=%s)",
+        engine_cfg.name, model_to_load, engine_cfg.device, engine_cfg.compute_type,
+    )
     try:
         from faster_whisper import WhisperModel
 
         t0 = time.time()
         model = WhisperModel(
-            model_path,
+            model_to_load,
             device=engine_cfg.device,
             compute_type=engine_cfg.compute_type,
-            download_root=download_root,
         )
         elapsed = time.time() - t0
         logger.info("[%s] [OK] faster-whisper 模型加载成功 (耗时 %.2fs)", engine_cfg.name, elapsed)
@@ -70,15 +102,38 @@ def preload_whisper(engine_cfg: EngineConfig) -> bool:
 
 
 def preload_qwen(engine_cfg: EngineConfig) -> bool:
-    """预加载 Qwen3-ASR 及 ForcedAligner 模型（优先本地，缺失自动下载）。"""
-    model_path = engine_cfg.resolve_model_path(engine_cfg.model_name)
-    forced_aligner = engine_cfg.forced_aligner
+    """预加载 Qwen3-ASR 及 ForcedAligner 模型。"""
+    model_to_load: str
+    if engine_cfg.model_path:
+        resolved = engine_cfg.resolve_path(engine_cfg.model_path)
+        if not resolved or not resolved.exists():
+            hint_name = engine_cfg.model_name or "Qwen/Qwen3-ASR-1.7B"
+            logger.error(
+                "[%s] [FAIL] 配置的模型路径不存在: %s\n"
+                "  请先下载模型，下载命令示例:\n"
+                "    hf download %s --local-dir %s\n"
+                "  或使用 ModelScope:\n"
+                "    modelscope download --model %s --local_dir %s",
+                engine_cfg.name, engine_cfg.model_path,
+                hint_name, engine_cfg.model_path,
+                hint_name, engine_cfg.model_path,
+            )
+            return False
+        model_to_load = str(resolved)
+    elif engine_cfg.model_name:
+        model_to_load = engine_cfg.model_name
+    else:
+        logger.error("[%s] [FAIL] 未配置 model_path 也未配置 model_name", engine_cfg.name)
+        return False
+
     config_device = engine_cfg.device
     config_dtype = engine_cfg.dtype
 
-    logger.info("[%s] 预加载 Qwen3-ASR: %s (device=%s, dtype=%s)", engine_cfg.name, model_path, config_device, config_dtype)
+    logger.info("[%s] 预加载 Qwen3-ASR: %s (device=%s, dtype=%s)", engine_cfg.name, model_to_load, config_device, config_dtype)
     try:
         import torch
+        from app.engines.qwen_engine import _apply_transformers_qwen_compat
+        _apply_transformers_qwen_compat()
         from qwen_asr import Qwen3ASRModel
 
         device = config_device
@@ -102,20 +157,34 @@ def preload_qwen(engine_cfg: EngineConfig) -> bool:
             "max_new_tokens": int(engine_cfg.max_new_tokens or 256),
         }
 
-        if engine_cfg.model_dir:
-            kwargs["cache_dir"] = str(engine_cfg.model_dir)
+        # 检查 ForcedAligner
+        aligner_to_load: str = ""
+        if engine_cfg.forced_aligner_path:
+            resolved_fa = engine_cfg.resolve_path(engine_cfg.forced_aligner_path)
+            if not resolved_fa or not resolved_fa.exists():
+                fa_hint = engine_cfg.forced_aligner_name or "Qwen/Qwen3-ForcedAligner-0.6B"
+                logger.error(
+                    "[%s] [FAIL] 配置的 ForcedAligner 路径不存在: %s\n"
+                    "  下载命令示例:\n"
+                    "    hf download %s --local-dir %s",
+                    engine_cfg.name, engine_cfg.forced_aligner_path,
+                    fa_hint, engine_cfg.forced_aligner_path,
+                )
+                return False
+            aligner_to_load = str(resolved_fa)
+        elif engine_cfg.forced_aligner_name:
+            aligner_to_load = engine_cfg.forced_aligner_name
 
-        if forced_aligner:
-            aligner_path = engine_cfg.resolve_model_path(forced_aligner)
-            kwargs["forced_aligner"] = aligner_path
+        if aligner_to_load:
+            kwargs["forced_aligner"] = aligner_to_load
             kwargs["forced_aligner_kwargs"] = {
                 "dtype": dtype,
                 "device_map": device,
             }
-            logger.info("[%s] 包含时间戳对齐模型: %s", engine_cfg.name, aligner_path)
+            logger.info("[%s] 包含时间戳对齐模型: %s", engine_cfg.name, aligner_to_load)
 
         t0 = time.time()
-        model = Qwen3ASRModel.from_pretrained(model_path, **kwargs)
+        model = Qwen3ASRModel.from_pretrained(model_to_load, **kwargs)
         elapsed = time.time() - t0
         logger.info("[%s] [OK] Qwen3-ASR 模型加载成功 (耗时 %.2fs)", engine_cfg.name, elapsed)
         del model
@@ -156,34 +225,48 @@ def preload_firered(engine_cfg: EngineConfig) -> bool:
 
 def preload_xasr(engine_cfg: EngineConfig) -> bool:
     """预加载 X-ASR (sherpa-onnx) 模型。"""
-    tokens_path = engine_cfg.resolve_model_path(engine_cfg.tokens)
-    encoder_path = engine_cfg.resolve_model_path(engine_cfg.encoder)
-    decoder_path = engine_cfg.resolve_model_path(engine_cfg.decoder)
-    joiner_path = engine_cfg.resolve_model_path(engine_cfg.joiner)
+    missing_fields = []
+    if not engine_cfg.tokens_path:
+        missing_fields.append("tokens_path")
+    if not engine_cfg.encoder_path:
+        missing_fields.append("encoder_path")
+    if not engine_cfg.decoder_path:
+        missing_fields.append("decoder_path")
+    if not engine_cfg.joiner_path:
+        missing_fields.append("joiner_path")
 
-    # 若未直接指定，尝试从 model_name 所在目录探测
-    model_dir_path = Path(engine_cfg.resolve_model_path(engine_cfg.model_name))
-    if model_dir_path.is_dir():
-        for f in model_dir_path.iterdir():
-            if f.name == "tokens.txt" and not (tokens_path and Path(tokens_path).exists()):
-                tokens_path = str(f)
-            elif "encoder" in f.name and f.suffix == ".onnx" and not (encoder_path and Path(encoder_path).exists()):
-                encoder_path = str(f)
-            elif "decoder" in f.name and f.suffix == ".onnx" and not (decoder_path and Path(decoder_path).exists()):
-                decoder_path = str(f)
-            elif "joiner" in f.name and f.suffix == ".onnx" and not (joiner_path and Path(joiner_path).exists()):
-                joiner_path = str(f)
+    if missing_fields:
+        logger.error(
+            "[%s] [FAIL] X-ASR 引擎缺少模型路径配置 (%s)。X-ASR 无法自动在线下载，请在 config.yaml 中配置完整路径。",
+            engine_cfg.name, ", ".join(missing_fields),
+        )
+        return False
 
-    logger.info("[%s] 预加载 X-ASR (sherpa-onnx): encoder=%s, tokens=%s", engine_cfg.name, encoder_path, tokens_path)
+    tokens_resolved = engine_cfg.resolve_path(engine_cfg.tokens_path)
+    encoder_resolved = engine_cfg.resolve_path(engine_cfg.encoder_path)
+    decoder_resolved = engine_cfg.resolve_path(engine_cfg.decoder_path)
+    joiner_resolved = engine_cfg.resolve_path(engine_cfg.joiner_path)
+
+    for label, raw_p, res_p in [
+        ("tokens_path", engine_cfg.tokens_path, tokens_resolved),
+        ("encoder_path", engine_cfg.encoder_path, encoder_resolved),
+        ("decoder_path", engine_cfg.decoder_path, decoder_resolved),
+        ("joiner_path", engine_cfg.joiner_path, joiner_resolved),
+    ]:
+        if not res_p or not res_p.exists():
+            logger.error("[%s] [FAIL] X-ASR 模型文件不存在 (%s): %s", engine_cfg.name, label, raw_p)
+            return False
+
+    logger.info("[%s] 预加载 X-ASR (sherpa-onnx): encoder=%s, tokens=%s", engine_cfg.name, encoder_resolved, tokens_resolved)
     try:
         import sherpa_onnx
 
         t0 = time.time()
         recognizer = sherpa_onnx.OnlineRecognizer.from_transducer(
-            tokens=tokens_path,
-            encoder=encoder_path,
-            decoder=decoder_path,
-            joiner=joiner_path,
+            tokens=str(tokens_resolved),
+            encoder=str(encoder_resolved),
+            decoder=str(decoder_resolved),
+            joiner=str(joiner_resolved),
             num_threads=int(engine_cfg.num_threads or 1),
             sample_rate=int(engine_cfg.sample_rate or 16000),
             feature_dim=int(getattr(engine_cfg, "feature_dim", 80) or 80),
@@ -247,8 +330,7 @@ def main():
             enabled = p_conf.enable
             p_type = p_conf.type
             status = "已启用" if enabled else "已禁用"
-            print(f"  • {name:<12} (引擎: {engine:<15} 类型: {p_type:<6} 状态: {status})")
-            print(f"  • {name:<15} (引擎: {engine:<15} 状态: {status})")
+            print(f"  • {name:<15} (引擎: {engine:<15} 类型: {p_type:<6} 状态: {status})")
         print("-" * 60)
         return
 
@@ -278,8 +360,6 @@ def main():
 
     print("=" * 65)
     print(f"开始预加载本地 ASR 模型 (共 {len(targets)} 个 Provider)...")
-    if app_config.model_dir:
-        print(f"统一模型根目录 (model_dir): {app_config.model_dir}")
     print("=" * 65)
 
     results = {}

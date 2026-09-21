@@ -7,22 +7,26 @@
   xasr:
     engine: xasr
     type: local
-    model_name: xasr-zh-en
-    tokens: models/chunk-160ms-model/tokens.txt
-    encoder: models/chunk-160ms-model/encoder-160ms.onnx
-    decoder: models/chunk-160ms-model/decoder-160ms.onnx
-    joiner: models/chunk-160ms-model/joiner-160ms.onnx
-    provider: cpu
-    sample_rate: 16000
-    feature_dim: 80
-    num_threads: 1
-    decoding_method: greedy_search
-    enable_endpoint_detection: false
+    load:
+      model_name: xasr-zh-en
+      tokens_path: models/chunk-160ms-model/tokens.txt
+      encoder_path: models/chunk-160ms-model/encoder-160ms.onnx
+      decoder_path: models/chunk-160ms-model/decoder-160ms.onnx
+      joiner_path: models/chunk-160ms-model/joiner-160ms.onnx
+      provider: cpu
+      sample_rate: 16000
+      feature_dim: 80
+      num_threads: 1
+      decoding_method: greedy_search
+      enable_endpoint_detection: false
+    properties:
+      functions:
+        - RealtimeASR
 """
 
 import logging
-import struct
 from collections.abc import AsyncIterator
+from pathlib import Path
 
 import numpy as np
 
@@ -114,10 +118,10 @@ class XASREngine(ASREngine):
         self.sample_rate: int = int(getattr(config, "sample_rate", 16000))
 
         # 模型路径
-        self._tokens: str = getattr(config, "tokens", "") or ""
-        self._encoder: str = getattr(config, "encoder", "") or ""
-        self._decoder: str = getattr(config, "decoder", "") or ""
-        self._joiner: str = getattr(config, "joiner", "") or ""
+        self._tokens_path: str = getattr(config, "tokens_path", "") or getattr(config, "tokens", "") or ""
+        self._encoder_path: str = getattr(config, "encoder_path", "") or getattr(config, "encoder", "") or ""
+        self._decoder_path: str = getattr(config, "decoder_path", "") or getattr(config, "decoder", "") or ""
+        self._joiner_path: str = getattr(config, "joiner_path", "") or getattr(config, "joiner", "") or ""
         self._provider: str = getattr(config, "provider", "cpu") or "cpu"
         self._num_threads: int = int(getattr(config, "num_threads", 1))
         self._decoding_method: str = getattr(config, "decoding_method", "greedy_search") or "greedy_search"
@@ -131,45 +135,90 @@ class XASREngine(ASREngine):
             self.sample_rate, self._provider, self._decoding_method, self._enable_endpoint_detection,
         )
 
+        # 启动时立即校验路径并加载模型
+        self._ensure_recognizer()
+
     def _ensure_recognizer(self):
         """懒加载 sherpa-onnx OnlineRecognizer。"""
         if self._recognizer is not None:
             return
 
         import sherpa_onnx
-        from pathlib import Path
 
-        tokens_path = self.config.resolve_model_path(self._tokens)
-        encoder_path = self.config.resolve_model_path(self._encoder)
-        decoder_path = self.config.resolve_model_path(self._decoder)
-        joiner_path = self.config.resolve_model_path(self._joiner)
+        # 1. 检查各路径是否已配置（XASR 无自动下载机制，必须配置路径）
+        missing_fields = []
+        if not self._tokens_path:
+            missing_fields.append("tokens_path")
+        if not self._encoder_path:
+            missing_fields.append("encoder_path")
+        if not self._decoder_path:
+            missing_fields.append("decoder_path")
+        if not self._joiner_path:
+            missing_fields.append("joiner_path")
 
-        # 若未指定具体文件路径，尝试从 model_name 目录自动探测
-        model_dir_path = Path(self.config.resolve_model_path(self.config.model_name))
-        if model_dir_path.is_dir():
-            for f in model_dir_path.iterdir():
-                if f.name == "tokens.txt" and not (tokens_path and Path(tokens_path).exists()):
-                    tokens_path = str(f)
-                elif "encoder" in f.name and f.suffix == ".onnx" and not (encoder_path and Path(encoder_path).exists()):
-                    encoder_path = str(f)
-                elif "decoder" in f.name and f.suffix == ".onnx" and not (decoder_path and Path(decoder_path).exists()):
-                    decoder_path = str(f)
-                elif "joiner" in f.name and f.suffix == ".onnx" and not (joiner_path and Path(joiner_path).exists()):
-                    joiner_path = str(f)
+        if missing_fields:
+            err_msg = (
+                f"\n{'='*70}\n"
+                f"[XASR] 未配置完整的模型路径，缺失字段: {', '.join(missing_fields)}\n"
+                f"X-ASR (sherpa-onnx) 引擎不支持在线自动下载，必须在 config.yaml 中配置完整的模型文件路径。\n"
+                f"模型获取与配置示例:\n"
+                f"  1. 下载预训练模型 (例如 sherpa-onnx zipformer):\n"
+                f"     wget https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23.tar.bz2\n"
+                f"  2. 解压到 models 目录:\n"
+                f"     tar xvf sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23.tar.bz2 -C models/\n"
+                f"  3. 在 config.yaml 的 xasr.load 中配置:\n"
+                f"     tokens_path: models/sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23/tokens.txt\n"
+                f"     encoder_path: models/sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23/encoder-epoch-99-avg-1.onnx\n"
+                f"     decoder_path: models/sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23/decoder-epoch-99-avg-1.onnx\n"
+                f"     joiner_path: models/sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23/joiner-epoch-99-avg-1.onnx\n"
+                f"{'='*70}"
+            )
+            logger.error(err_msg)
+            raise RuntimeError(err_msg)
 
-        logger.info("[XASR] 正在加载模型: encoder=%s, tokens=%s", encoder_path, tokens_path)
-        self._recognizer = sherpa_onnx.OnlineRecognizer.from_transducer(
-            tokens=tokens_path,
-            encoder=encoder_path,
-            decoder=decoder_path,
-            joiner=joiner_path,
-            num_threads=self._num_threads,
-            sample_rate=self.sample_rate,
-            provider=self._provider,
-            decoding_method=self._decoding_method,
-            enable_endpoint_detection=self._enable_endpoint_detection,
+        # 2. 检查各路径文件是否存在
+        tokens_resolved = self.config.resolve_path(self._tokens_path)
+        encoder_resolved = self.config.resolve_path(self._encoder_path)
+        decoder_resolved = self.config.resolve_path(self._decoder_path)
+        joiner_resolved = self.config.resolve_path(self._joiner_path)
+
+        for label, p_raw, p_resolved in [
+            ("tokens_path", self._tokens_path, tokens_resolved),
+            ("encoder_path", self._encoder_path, encoder_resolved),
+            ("decoder_path", self._decoder_path, decoder_resolved),
+            ("joiner_path", self._joiner_path, joiner_resolved),
+        ]:
+            if not p_resolved or not p_resolved.exists():
+                err_msg = (
+                    f"\n{'='*70}\n"
+                    f"[XASR] 模型文件不存在 ({label}): {p_raw} (绝对路径: {p_resolved})\n"
+                    f"X-ASR (sherpa-onnx) 引擎不支持在线自动下载，请确保模型文件已放置在对应目录。\n"
+                    f"{'='*70}"
+                )
+                logger.error(err_msg)
+                raise RuntimeError(err_msg)
+
+        logger.info(
+            "[XASR] 正在加载模型: encoder=%s, tokens=%s, decoder=%s, joiner=%s",
+            encoder_resolved, tokens_resolved, decoder_resolved, joiner_resolved,
         )
-        logger.info("[XASR] 模型加载完成")
+        try:
+            self._recognizer = sherpa_onnx.OnlineRecognizer.from_transducer(
+                tokens=str(tokens_resolved),
+                encoder=str(encoder_resolved),
+                decoder=str(decoder_resolved),
+                joiner=str(joiner_resolved),
+                num_threads=self._num_threads,
+                sample_rate=self.sample_rate,
+                provider=self._provider,
+                decoding_method=self._decoding_method,
+                enable_endpoint_detection=self._enable_endpoint_detection,
+            )
+            logger.info("[XASR] 模型加载完成")
+        except Exception as e:
+            err_msg = f"[XASR] 模型初始化失败: {e}"
+            logger.error(err_msg, exc_info=True)
+            raise RuntimeError(err_msg) from e
 
     def create_stream_session(self) -> XASRStreamingSession:
         """创建一个新的流式识别会话。"""

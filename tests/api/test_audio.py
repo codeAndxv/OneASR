@@ -8,11 +8,11 @@ import pytest
 
 
 class TestAudioModelsEndpoint:
-    """测试 /v1/audio/models 端点。"""
+    """测试 /v1/models 端点。"""
 
     def test_list_models(self, client):
         """列出可用模型。"""
-        resp = client.get("/v1/audio/models", headers={"Authorization": "Bearer oneasr-key"})
+        resp = client.get("/v1/models", headers={"Authorization": "Bearer oneasr-key"})
         assert resp.status_code == 200
         data = resp.json()
         assert data["object"] == "list"
@@ -25,23 +25,27 @@ class TestAudioModelsEndpoint:
         assert model["object"] == "model"
 
     def test_list_models_without_api_key(self, client):
-        """没有 API Key 应该返回 401 或 422。"""
-        resp = client.get("/v1/audio/models")
-        assert resp.status_code in [401, 422]
+        """没有 API Key 应该返回 401 authentication_error。"""
+        resp = client.get("/v1/models")
+        assert resp.status_code == 401
+        data = resp.json()
+        assert "error" in data
+        assert data["error"]["type"] == "authentication_error"
 
 
 class TestAudioTranscriptionsEndpoint:
     """测试 /v1/audio/transcriptions 端点。"""
 
     def test_create_transcription_no_params(self, client):
-        """没有 file 和 file_uuid 应该返回 400。"""
+        """没有 file 应该返回 400 参数校验失败。"""
         resp = client.post(
             "/v1/audio/transcriptions",
             headers={"Authorization": "Bearer oneasr-key"},
-            data={"model": "whisper1"},
+            data={"model": "faster-whisper"},
         )
         assert resp.status_code == 400
-        assert "必须提供" in resp.json()["detail"]
+        assert "error" in resp.json()
+        assert resp.json()["error"]["type"] == "invalid_request_error"
 
     def test_create_transcription_with_file(self, client):
         """上传文件进行识别。"""
@@ -58,13 +62,11 @@ class TestAudioTranscriptionsEndpoint:
             "/v1/audio/transcriptions",
             headers={"Authorization": "Bearer oneasr-key"},
             files={"file": ("test.wav", buf, "audio/wav")},
-            data={"model": "whisper1", "response_format": "json"},
+            data={"model": "faster-whisper", "response_format": "json"},
         )
         assert resp.status_code == 200
         data = resp.json()
         assert "text" in data
-        assert "segments" in data
-        assert "engine" in data
 
     def test_create_transcription_with_file_text_format(self, client):
         """上传文件进行识别，返回纯文本格式。"""
@@ -80,53 +82,13 @@ class TestAudioTranscriptionsEndpoint:
             "/v1/audio/transcriptions",
             headers={"Authorization": "Bearer oneasr-key"},
             files={"file": ("test.wav", buf, "audio/wav")},
-            data={"model": "whisper1", "response_format": "text"},
+            data={"model": "faster-whisper", "response_format": "text"},
         )
         assert resp.status_code == 200
         assert resp.headers["content-type"] == "text/plain; charset=utf-8"
 
-    def test_create_transcription_with_file_uuid(self, client):
-        """使用 file_uuid 进行识别（需要先上传文件）。"""
-        # 先上传一个文件
-        test_content = b"fake audio content"
-        files = {"file": ("test_uuid.mp3", io.BytesIO(test_content), "audio/mpeg")}
-        
-        upload_resp = client.post(
-            "/v1/file/upload",
-            files=files,
-            headers={"Authorization": "Bearer oneasr-key"},
-        )
-        assert upload_resp.status_code == 200
-        file_id = upload_resp.json()["file_id"]
-
-        # 使用 file_uuid 进行转录
-        resp = client.post(
-            "/v1/audio/transcriptions",
-            headers={"Authorization": "Bearer oneasr-key"},
-            data={
-                "file_uuid": file_id,
-                "model": "whisper1",
-                "response_format": "json",
-            },
-        )
-        # 注意：实际转录可能失败（因为测试环境没有模型），但接口应该正常响应
-        assert resp.status_code in [200, 500]
-
-    def test_create_transcription_file_uuid_not_found(self, client):
-        """使用不存在的 file_uuid 应该返回 404。"""
-        resp = client.post(
-            "/v1/audio/transcriptions",
-            headers={"Authorization": "Bearer oneasr-key"},
-            data={
-                "file_uuid": "nonexistent-uuid",
-                "model": "whisper1",
-            },
-        )
-        assert resp.status_code == 404
-        assert "文件不存在" in resp.json()["detail"]
-
     def test_create_transcription_file_too_large(self, client):
-        """上传超过 25MB 的文件应该返回 400。"""
+        """上传超过 25MB 的文件应该返回 400 invalid_request_error, param='file', code='file_too_large'。"""
         # 创建一个超过 25MB 的假文件
         large_content = b"\x00" * (25 * 1024 * 1024 + 1)  # 25MB + 1 byte
         files = {"file": ("large.wav", io.BytesIO(large_content), "audio/wav")}
@@ -135,10 +97,13 @@ class TestAudioTranscriptionsEndpoint:
             "/v1/audio/transcriptions",
             headers={"Authorization": "Bearer oneasr-key"},
             files=files,
-            data={"model": "whisper1"},
+            data={"model": "faster-whisper"},
         )
         assert resp.status_code == 400
-        assert "文件大小超过限制" in resp.json()["detail"] or "25MB" in resp.json()["detail"]
+        data = resp.json()
+        assert "error" in data
+        assert data["error"]["code"] == "file_too_large"
+        assert data["error"]["param"] == "file"
 
     def test_create_transcription_stream(self, client):
         """测试流式识别（stream=true）。"""
@@ -154,7 +119,7 @@ class TestAudioTranscriptionsEndpoint:
             "/v1/audio/transcriptions",
             headers={"Authorization": "Bearer oneasr-key"},
             files={"file": ("test.wav", buf, "audio/wav")},
-            data={"model": "whisper1", "stream": "true"},
+            data={"model": "faster-whisper", "stream": "true"},
         )
         assert resp.status_code == 200
         assert "text/event-stream" in resp.headers["content-type"]
@@ -168,34 +133,8 @@ class TestAudioTranscriptionsEndpoint:
                 events.append(json.loads(payload))
 
         assert len(events) >= 1
-        assert events[-1].get("done") is True
+        assert events[-1].get("type") == "transcript.text.done"
 
-    def test_create_transcription_stream_with_file_uuid(self, client):
-        """测试使用 file_uuid 进行流式识别。"""
-        # 先上传一个文件
-        test_content = b"fake audio content"
-        files = {"file": ("test_stream.mp3", io.BytesIO(test_content), "audio/mpeg")}
-        
-        upload_resp = client.post(
-            "/v1/file/upload",
-            files=files,
-            headers={"Authorization": "Bearer oneasr-key"},
-        )
-        assert upload_resp.status_code == 200
-        file_id = upload_resp.json()["file_id"]
-
-        # 使用 file_uuid 进行流式转录
-        resp = client.post(
-            "/v1/audio/transcriptions",
-            headers={"Authorization": "Bearer oneasr-key"},
-            data={
-                "file_uuid": file_id,
-                "model": "whisper1",
-                "stream": "true",
-            },
-        )
-        # 注意：实际转录可能失败（因为测试环境没有模型），但接口应该正常响应
-        assert resp.status_code in [200, 500]
 
     def test_create_transcription_mp4_file(self, client):
         """上传 MP4 文件进行识别（测试自动转换为 WAV）。"""
@@ -208,7 +147,7 @@ class TestAudioTranscriptionsEndpoint:
             "/v1/audio/transcriptions",
             headers={"Authorization": "Bearer oneasr-key"},
             files=files,
-            data={"model": "whisper1", "response_format": "json"},
+            data={"model": "faster-whisper", "response_format": "json"},
         )
         # MP4 应该被接受（422 错误表示格式不被接受）
         # 实际转录可能失败（因为假数据），但不应该返回 422
@@ -225,7 +164,7 @@ class TestAudioTranscriptionsEndpoint:
             "/v1/audio/transcriptions",
             headers={"Authorization": "Bearer oneasr-key"},
             files=files,
-            data={"model": "whisper1", "response_format": "json"},
+            data={"model": "faster-whisper", "response_format": "json"},
         )
         assert resp.status_code != 422, f"M4A 格式不应返回 422: {resp.json()}"
         assert resp.status_code in [200, 400, 500]

@@ -39,7 +39,7 @@ async def realtime_transcription_ext(ws: WebSocket):
 
     if not verify_ws_api_key(ws):
         try:
-            await ws.send_json({"type": "error", "error": {"code": "invalid_api_key", "message": "API Key 无效"}})
+            await ws.send_json({"type": "error", "error": {"code": "invalid_api_key", "message": "Invalid API key"}})
             await ws.close()
         except Exception:
             pass
@@ -82,7 +82,7 @@ async def realtime_transcription_ext(ws: WebSocket):
         try:
             eng = get_engine(engine_name)
         except Exception as e:
-            await _send_error("engine_error", f"引擎加载失败: {e}")
+            await _send_error("engine_error", f"Failed to load engine: {e}")
             return
 
         # ── X-ASR 原生流式模式 ──
@@ -94,7 +94,7 @@ async def realtime_transcription_ext(ws: WebSocket):
         try:
             processor = await asyncio.to_thread(eng.create_audio_processor, language=session.language, pcm_input=True)
         except Exception as e:
-            await _send_error("processor_error", f"创建 AudioProcessor 失败: {e}")
+            await _send_error("processor_error", f"Failed to create AudioProcessor: {e}")
             return
 
         session.state = SessionState.CONFIGURED
@@ -180,7 +180,7 @@ async def realtime_transcription_ext(ws: WebSocket):
             try:
                 event = json.loads(raw)
             except json.JSONDecodeError:
-                await _send_error("invalid_message", "无法解析 JSON 消息")
+                await _send_error("invalid_message", "Failed to parse JSON message")
                 continue
 
             event_type = event.get("type")
@@ -190,7 +190,7 @@ async def realtime_transcription_ext(ws: WebSocket):
 
             elif event_type == "input_audio_buffer.append":
                 if processor is None:
-                    await _send_error("invalid_state", "请先发送 session.update 配置会话")
+                    await _send_error("invalid_state", "Please send session.update to configure session first")
                     continue
 
                 audio_b64 = event.get("audio", "")
@@ -200,7 +200,7 @@ async def realtime_transcription_ext(ws: WebSocket):
                 try:
                     audio_bytes = base64.b64decode(audio_b64)
                 except Exception:
-                    await _send_error("invalid_audio", "无法解码 base64 音频数据")
+                    await _send_error("invalid_audio", "Failed to decode base64 audio data")
                     continue
 
                 if session.state == SessionState.CONFIGURED:
@@ -210,7 +210,7 @@ async def realtime_transcription_ext(ws: WebSocket):
 
             elif event_type == "input_audio_buffer.commit":
                 if processor is None or session.state != SessionState.LISTENING:
-                    await _send_error("invalid_state", "没有活跃的转录会话")
+                    await _send_error("invalid_state", "No active transcription session")
                     continue
 
                 session.state = SessionState.FINALIZING

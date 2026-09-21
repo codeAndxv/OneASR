@@ -17,6 +17,7 @@ from fastapi.responses import PlainTextResponse, StreamingResponse
 
 from app.api.auth import get_api_key
 from app.core.config import app_config
+from app.core.errors import OpenAIAPIException
 from app.engines.registry import get_engine
 from app.models.schemas import OutputFormat
 from app.services.record_service import save_file_transcription_record
@@ -39,9 +40,12 @@ async def _load_audio_data(file: UploadFile, request_id: str) -> tuple[bytes, st
     size_mb = len(data) / (1024 * 1024)
     logger.info("[transcriptions][%s] 收到文件: %s, %.2f MB", request_id, file.filename, size_mb)
     if len(data) > MAX_FILE_SIZE:
-        raise HTTPException(
+        raise OpenAIAPIException(
             status_code=400,
-            detail=f"文件大小超过限制: {size_mb:.1f}MB，OpenAI 兼容接口单次最大支持 25MB。大文件转录请在 DuRT 中选用 OneASR 服务类型（走 /v1/file/transcriptions 任务流，支持最大 2GB）。",
+            message=f"File size exceeds limit: {size_mb:.1f}MB. The OpenAI-compatible endpoint supports up to 25MB. For large files, please use the OneASR service type in DuRT (via /v1/file/transcriptions, supporting up to 2GB).",
+            error_type="invalid_request_error",
+            param="file",
+            code="file_too_large",
         )
     return data, file.filename or "audio.wav"
 
@@ -129,7 +133,17 @@ async def create_transcription(
         data = _ensure_wav(data, filename, rid)
 
         # 3. Get engine
-        eng = get_engine(model)
+        try:
+            eng = get_engine(model)
+        except (KeyError, ValueError) as e:
+            logger.warning("[transcriptions][%s] 模型未找到: %s — %s", rid, model, e)
+            raise OpenAIAPIException(
+                status_code=404,
+                message=f"The model '{model}' does not exist.",
+                error_type="invalid_request_error",
+                param="model",
+                code="model_not_found",
+            )
         logger.info("[transcriptions][%s] 引擎就绪: %s", rid, model)
 
         # 4. Stream / sync
@@ -138,9 +152,9 @@ async def create_transcription(
                                         languages_list, response_format, t_start, ts_granularities)
         else:
             return await _handle_sync(rid, record_id, data, filename, eng, model, language,
-                                      languages_list, response_format, t_start)
+                                        languages_list, response_format, t_start)
 
-    except HTTPException:
+    except (HTTPException, OpenAIAPIException):
         raise
     except Exception as e:
         logger.exception("[transcriptions][%s] 语音识别失败: %s", rid, e)
@@ -149,7 +163,13 @@ async def create_transcription(
             engine_name=model, total_time=time.time() - t_start,
             is_completed=False, error_message=str(e),
         )
-        raise HTTPException(status_code=500, detail=f"识别失败: {e}")
+        raise OpenAIAPIException(
+            status_code=500,
+            message=f"Speech recognition failed: {e}",
+            error_type="api_error",
+            param=None,
+            code="transcription_failed",
+        )
 
 
 # ── 流式 SSE（兼容 OpenAI 格式）────────────────────────────────
@@ -195,7 +215,15 @@ async def _handle_stream(rid, record_id, data, filename, eng, model, language,
             logger.info("[transcriptions][%s] SSE 客户端断开: %s", rid, e)
         except Exception as e:
             logger.exception("[transcriptions][%s] SSE 异常: %s", rid, e)
-            error_event = {"type": "error", "error": str(e)}
+            error_event = {
+                "type": "error",
+                "error": {
+                    "message": str(e),
+                    "type": "api_error",
+                    "param": None,
+                    "code": "transcription_stream_failed",
+                },
+            }
             yield f"data: {json.dumps(error_event, ensure_ascii=False)}\n\n"
             await save_file_transcription_record(
                 record_id=record_id, filename=filename, file_size=len(data),

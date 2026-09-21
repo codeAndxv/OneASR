@@ -182,15 +182,25 @@ data: {"type": "transcript.text.done", "text": "今天天气非常晴朗，我�
 
 ### 1. `POST /v1/file/transcriptions` — 创建转录任务
 
-#### 请求参数（multipart/form-data）
-| 字段 | 类型 | 必填 | 说明 |
-| :--- | :--- | :--- | :--- |
-| `file` | File | 否 | 直接上传音视频文件（优先级 1） |
-| `file_url` | string | 否 | 音视频公网下载链接（优先级 2） |
-| `file_uuid` | string | 否 | 已上传文件的 UUID（优先级 3） |
-| `model` | string | 是 | 引擎名称（如 `whisper1`、`qwen-asr`） |
-| `language` | string | 否 | 语言代码（如 `zh`、`en`） |
-| `response_format`| string | 否 | 默认 `json` |
+#### 请求参数（JSON）
+```json
+{
+  "file_uuid": "550e8400-e29b-41d4-a716-446655440000",
+  "model": "whisper1",
+  "language": "zh",
+  "response_format": "json"
+}
+```
+
+| 字段 | 类型 | 必填 | 默认值 | 说明 |
+| :--- | :--- | :--- | :--- | :--- |
+| `file_uuid` | string | 否* | - | 已上传文件的 UUID（与 `file_url` 二选一） |
+| `file_url` | string | 否* | - | 音视频公网下载链接（与 `file_uuid` 二选一） |
+| `model` | string | 是 | - | 引擎/模型标识（如 `whisper1`、`qwen-asr`） |
+| `language` | string | 否 | - | 语言代码（如 `zh`、`en`、`auto`） |
+| `response_format`| string | 否 | `json` | 输出格式 |
+
+> \* 注：`file_uuid` 与 `file_url` 至少提供其一。
 
 #### 响应示例
 ```json
