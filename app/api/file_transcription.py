@@ -32,7 +32,7 @@ from app.db import async_session
 from app.engines.registry import get_engine
 from app.models.orm_models import TranscriptionTask, TranscriptionSegment
 from app.services.file_service import get_uploaded_file
-from app.utils.audio import convert_to_wav
+from app.utils.audio import convert_to_wav, get_wav_duration
 
 logger = logging.getLogger(__name__)
 
@@ -198,6 +198,10 @@ async def _run_transcription(task_id: str):
         data = _ensure_wav(data, filename, rid)
         logger.info("[tasks][%s] WAV 转换完成", rid)
 
+        # 2.1 获取音频精确总时长
+        total_audio_duration = get_wav_duration(data)
+        logger.info("[tasks][%s] 音频总时长: %.2fs", rid, total_audio_duration)
+
         # 3. Get engine
         eng = get_engine(task.model)
         logger.info("[tasks][%s] 引擎就绪: %s", rid, task.model)
@@ -208,7 +212,8 @@ async def _run_transcription(task_id: str):
             )
             t = result.scalar_one_or_none()
             if t:
-                t.progress = 0.1
+                t.progress = 0.02
+                t.result_duration = total_audio_duration
                 t.updated_at = datetime.now(timezone.utc)
                 await session.commit()
 
@@ -233,31 +238,34 @@ async def _run_transcription(task_id: str):
 
             segment_index += 1
 
-            # Update progress
-            if seg.end > 0:
+            # Update progress based on actual audio duration
+            if seg.end > 0 and total_audio_duration > 0:
+                current_prog = min(0.99, round(seg.end / total_audio_duration, 4))
                 async with async_session() as session:
                     result = await session.execute(
                         select(TranscriptionTask).where(TranscriptionTask.task_id == task_id)
                     )
                     t = result.scalar_one_or_none()
                     if t and t.status == "processing":
-                        t.progress = min(0.9, 0.1 + (seg.end / 3600) * 0.8)
+                        t.progress = current_prog
                         t.updated_at = datetime.now(timezone.utc)
                         await session.commit()
 
         recog_time = time.time() - t_recog
         total_time = time.time() - t_start
 
-        # Get duration from last segment
-        async with async_session() as session:
-            result = await session.execute(
-                select(TranscriptionSegment)
-                .where(TranscriptionSegment.task_id == task_id)
-                .order_by(TranscriptionSegment.segment_index.desc())
-                .limit(1)
-            )
-            last_seg = result.scalar_one_or_none()
-            duration = last_seg.end if last_seg else 0.0
+        # Get duration from last segment or total_audio_duration
+        duration = total_audio_duration if total_audio_duration > 0 else 0.0
+        if duration == 0.0:
+            async with async_session() as session:
+                result = await session.execute(
+                    select(TranscriptionSegment)
+                    .where(TranscriptionSegment.task_id == task_id)
+                    .order_by(TranscriptionSegment.segment_index.desc())
+                    .limit(1)
+                )
+                last_seg = result.scalar_one_or_none()
+                duration = last_seg.end if last_seg else 0.0
 
         logger.info("[tasks][%s] 转录完成: %d 段, %d 字符, %.2fs",
                      rid, segment_index, len(full_text), recog_time)
@@ -446,17 +454,25 @@ async def stream_transcription_result(task_id: str):
             )
             db_segments = result.scalars().all()
 
+        total_dur = task.result_duration or (db_segments[-1].end if db_segments else 1.0)
+
         async def _emit_completed():
             for seg in db_segments:
+                seg_prog = min(1.0, round(seg.end / total_dur, 4)) if total_dur > 0 else 1.0
                 event = {
                     "type": "transcript.text.delta",
                     "delta": seg.text,
                     "start": seg.start,
                     "end": seg.end,
                     "is_endpoint": True,
+                    "progress": seg_prog,
                 }
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
-            done_event = {"type": "transcript.text.done", "text": task.result_text or ""}
+            done_event = {
+                "type": "transcript.text.done",
+                "text": task.result_text or "",
+                "progress": 1.0,
+            }
             yield f"data: {json.dumps(done_event, ensure_ascii=False)}\n\n"
 
         return StreamingResponse(_emit_completed(), media_type="text/event-stream")
@@ -476,6 +492,15 @@ async def stream_transcription_result(task_id: str):
         last_heartbeat = time.time()
 
         while True:
+            # Query task status and duration
+            async with async_session() as session:
+                result = await session.execute(
+                    select(TranscriptionTask).where(TranscriptionTask.task_id == task_id)
+                )
+                current_task = result.scalar_one_or_none()
+
+            total_dur = (current_task.result_duration or 0.0) if current_task else 0.0
+
             # Query new segments
             async with async_session() as session:
                 result = await session.execute(
@@ -487,35 +512,49 @@ async def stream_transcription_result(task_id: str):
                 new_segments = result.scalars().all()
 
             for seg in new_segments:
+                if total_dur > 0:
+                    seg_prog = min(0.99, round(seg.end / total_dur, 4))
+                elif current_task:
+                    seg_prog = current_task.progress
+                else:
+                    seg_prog = 0.0
+
                 event = {
                     "type": "transcript.text.delta",
                     "delta": seg.text,
                     "start": seg.start,
                     "end": seg.end,
                     "is_endpoint": True,
+                    "progress": seg_prog,
                 }
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
                 last_segment_index = seg.segment_index
 
-            # Check task status
-            async with async_session() as session:
-                result = await session.execute(
-                    select(TranscriptionTask).where(TranscriptionTask.task_id == task_id)
-                )
-                current_task = result.scalar_one_or_none()
-
-            if current_task.status == "completed":
-                done_event = {"type": "transcript.text.done", "text": current_task.result_text or ""}
-                yield f"data: {json.dumps(done_event, ensure_ascii=False)}\n\n"
-                break
-            elif current_task.status == "failed":
-                error_event = {"type": "task.failed", "error": current_task.error_message}
-                yield f"data: {json.dumps(error_event, ensure_ascii=False)}\n\n"
-                break
-            elif current_task.status == "cancelled":
-                error_event = {"type": "task.failed", "error": "Task cancelled"}
-                yield f"data: {json.dumps(error_event, ensure_ascii=False)}\n\n"
-                break
+            if current_task is not None:
+                if current_task.status == "completed":
+                    done_event = {
+                        "type": "transcript.text.done",
+                        "text": current_task.result_text or "",
+                        "progress": 1.0,
+                    }
+                    yield f"data: {json.dumps(done_event, ensure_ascii=False)}\n\n"
+                    break
+                elif current_task.status == "failed":
+                    error_event = {
+                        "type": "task.failed",
+                        "error": current_task.error_message,
+                        "progress": current_task.progress,
+                    }
+                    yield f"data: {json.dumps(error_event, ensure_ascii=False)}\n\n"
+                    break
+                elif current_task.status == "cancelled":
+                    error_event = {
+                        "type": "task.failed",
+                        "error": "Task cancelled",
+                        "progress": current_task.progress,
+                    }
+                    yield f"data: {json.dumps(error_event, ensure_ascii=False)}\n\n"
+                    break
 
             # Heartbeat
             if time.time() - last_heartbeat > heartbeat_interval:

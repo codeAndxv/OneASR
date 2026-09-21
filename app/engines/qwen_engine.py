@@ -25,10 +25,12 @@ import logging
 import tempfile
 from collections.abc import AsyncIterator
 from pathlib import Path
+from typing import Any
 
 from app.core.config import EngineConfig
 from app.engines.base import ASREngine
 from app.models.schemas import Segment
+from app.utils.asr_toolkit import ASRToolkit
 
 logger = logging.getLogger(__name__)
 
@@ -190,29 +192,51 @@ class QwenEngine(ASREngine):
             raise RuntimeError(err_msg) from e
 
     async def transcribe_file(self, audio_data: bytes) -> tuple[str, list[Segment]]:
-        """识别音频文件，返回 (全文文本, 时间轴片段列表)。"""
+        """识别音频文件，返回 (全文文本, 时间轴片段列表)。支持任意长音频。"""
         self._ensure_model()
+        return await ASRToolkit.process_long_audio(
+            audio_data=audio_data,
+            transcribe_chunk_fn=self._transcribe_sync,
+            max_chunk_duration=30.0,
+        )
 
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-            tmp.write(audio_data)
-            tmp_path = Path(tmp.name)
+    async def transcribe_file_stream(self, audio_data: bytes) -> AsyncIterator[Segment]:
+        """流式识别长音频：基于 VAD 切片逐段推理，每识别完一个语音切片即实时 yield。"""
+        self._ensure_model()
+        async for seg in ASRToolkit.process_long_audio_stream(
+            audio_data=audio_data,
+            transcribe_chunk_fn=self._transcribe_sync,
+            max_chunk_duration=30.0,
+        ):
+            yield seg
 
-        try:
-            result = await asyncio.to_thread(self._transcribe_sync, str(tmp_path))
-            return result
-        finally:
-            tmp_path.unlink(missing_ok=True)
-
-    def _transcribe_sync(self, audio_path: str) -> tuple[str, list[Segment]]:
-        """在线程池中执行同步转录。"""
+    def _transcribe_sync(self, chunk: Any, prompt: str = "") -> tuple[str, list[Segment]]:
+        """在线程池中执行同步单切片转录，支持 AudioChunk 内存切片及上下文 Prompt。"""
         language = self._language if self._language else None
         use_timestamps = bool(self._forced_aligner_path or self._forced_aligner_name)
 
-        results = self._model.transcribe(
-            audio=audio_path,
-            language=language,
-            return_time_stamps=use_timestamps,
-        )
+        # 处理输入是 AudioChunk 还是普通路径字符串
+        if hasattr(chunk, "as_temp_wav"):
+            with chunk.as_temp_wav() as audio_path:
+                return self._do_transcribe(str(audio_path), language, use_timestamps, prompt)
+        else:
+            return self._do_transcribe(str(chunk), language, use_timestamps, prompt)
+
+    def _do_transcribe(self, audio_path: str, language: str | None, use_timestamps: bool, prompt: str = "") -> tuple[str, list[Segment]]:
+        kwargs: dict[str, Any] = {
+            "audio": audio_path,
+            "language": language,
+            "return_time_stamps": use_timestamps,
+        }
+        if prompt:
+            kwargs["prompt"] = prompt
+
+        try:
+            results = self._model.transcribe(**kwargs)
+        except TypeError:
+            # 如果底层模型接口不支持 prompt 参数，去除后重试
+            kwargs.pop("prompt", None)
+            results = self._model.transcribe(**kwargs)
 
         if not results:
             return "", []

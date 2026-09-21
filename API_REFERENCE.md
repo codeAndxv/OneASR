@@ -285,11 +285,11 @@ data: {"type": "transcript.text.done", "text": "今天天气非常晴朗，我�
 
 #### SSE 事件流格式
 ```http
-data: {"type": "transcript.text.delta", "delta": "今天天气非常晴朗，", "start": 0.0, "end": 1.8, "is_endpoint": true}
+data: {"type": "transcript.text.delta", "delta": "今天天气非常晴朗，", "start": 0.0, "end": 1.8, "is_endpoint": true, "progress": 0.3214}
 
-data: {"type": "transcript.text.delta", "delta": "我们一起去公园散步吧。", "start": 1.9, "end": 4.12, "is_endpoint": true}
+data: {"type": "transcript.text.delta", "delta": "我们一起去公园散步吧。", "start": 1.9, "end": 4.12, "is_endpoint": true, "progress": 0.7357}
 
-data: {"type": "transcript.text.done", "text": "今天天气非常晴朗，我们一起去公园散步吧。"}
+data: {"type": "transcript.text.done", "text": "今天天气非常晴朗，我们一起去公园散步吧。", "progress": 1.0}
 ```
 
 ---

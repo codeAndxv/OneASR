@@ -34,6 +34,26 @@ def convert_to_wav(input_path: str | Path, sample_rate: int = 16000, channels: i
     return output_path
 
 
+def get_wav_duration(audio_data: bytes | str | Path) -> float:
+    """快速获取 WAV 音频的时长（秒）。"""
+    import io
+    import wave
+
+    try:
+        if isinstance(audio_data, (str, Path)):
+            with wave.open(str(audio_data), "rb") as wf:
+                frames = wf.getnframes()
+                rate = wf.getframerate()
+                return round(frames / float(rate), 3) if rate > 0 else 0.0
+        else:
+            with wave.open(io.BytesIO(audio_data), "rb") as wf:
+                frames = wf.getnframes()
+                rate = wf.getframerate()
+                return round(frames / float(rate), 3) if rate > 0 else 0.0
+    except Exception:
+        return 0.0
+
+
 def audio_to_base64(file_path: str | Path) -> str:
     """将音频文件转换为 Base64 编码字符串。
 
@@ -47,3 +67,4 @@ def audio_to_base64(file_path: str | Path) -> str:
     with open(file_path, "rb") as f:
         audio_bytes = f.read()
     return base64.b64encode(audio_bytes).decode("utf-8")
+
