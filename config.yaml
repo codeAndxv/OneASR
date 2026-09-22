@@ -63,8 +63,8 @@ ASR-Providers:
       dtype: float32
       max_new_tokens: 256
       max_inference_batch_size: 32
-      forced_aligner_name: Qwen/Qwen3-ForcedAligner-0.6B
-      forced_aligner_path: models/Qwen3-ForcedAligner-0.6B
+#      forced_aligner_name: Qwen/Qwen3-ForcedAligner-0.6B
+#      forced_aligner_path: models/Qwen3-ForcedAligner-0.6B
 
     # 属性
     properties:

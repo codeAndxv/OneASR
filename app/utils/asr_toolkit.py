@@ -162,17 +162,21 @@ class ASRToolkit:
     def collect_chunks_by_vad(
         cls,
         waveform: np.ndarray,
-        max_chunk_duration: float = 30.0,
-        min_silence_duration_ms: int = 400,
+        max_chunk_duration: float = 12.0,
+        min_pause_duration: float = 0.5,
+        min_sentence_duration: float = 2.0,
+        min_silence_duration_ms: int = 300,
         min_speech_duration_ms: int = 250,
-        padding_ms: int = 100,
+        padding_ms: int = 150,
     ) -> list[AudioChunk]:
-        """借鉴 faster-whisper 的 collect_chunks 算法，在内存中进行防碎片化的智能语音切片。
+        """借鉴 faster-whisper 的 collect_chunks 算法，在内存中进行防碎片化且兼顾自然停顿的智能语音切片。
 
         Args:
             waveform: 16kHz float32 一维音频数组
             max_chunk_duration: 单个切片最大目标时长（秒）
-            min_silence_duration_ms: 最小静音停顿阈值（毫秒），小于此值的停顿不切断
+            min_pause_duration: 触发自然断句的最小静音停顿阈值（秒）
+            min_sentence_duration: 触发停顿断句前切片需达到的最小语义时长（秒）
+            min_silence_duration_ms: Silero VAD 最小静音停顿检测阈值（毫秒）
             min_speech_duration_ms: 最小语音段时长（毫秒）
             padding_ms: 首尾填充时长（毫秒）
 
@@ -181,17 +185,6 @@ class ASRToolkit:
         """
         total_samples = len(waveform)
         total_duration = total_samples / SAMPLE_RATE
-
-        if total_duration <= max_chunk_duration:
-            return [
-                AudioChunk(
-                    index=0,
-                    waveform=waveform,
-                    start_time=0.0,
-                    end_time=total_duration,
-                    duration=total_duration,
-                )
-            ]
 
         # 1. 调用 Silero VAD（内存 Tensor 推理）
         speech_timestamps = []
@@ -223,7 +216,7 @@ class ASRToolkit:
                 ranges.append((cur, end))
                 cur = end
         else:
-            # 3. 智能合并算法 (collect_chunks logic)
+            # 3. 智能合并算法 (Silence Gap & Max Duration Aware)
             padding_sec = padding_ms / 1000.0
             padded_ts = []
             for t in speech_timestamps:
@@ -231,17 +224,39 @@ class ASRToolkit:
                 p_end = min(total_duration, t["end"] + padding_sec)
                 padded_ts.append({"start": p_start, "end": p_end})
 
-            cur_start = padded_ts[0]["start"]
-            cur_end = padded_ts[0]["end"]
-
-            for next_t in padded_ts[1:]:
-                # 检查合并后是否超过最大时长限制
-                if next_t["end"] - cur_start <= max_chunk_duration:
-                    cur_end = next_t["end"]
+            # 先合并重叠的 padded 片段
+            merged_raw: list[dict[str, float]] = []
+            for item in padded_ts:
+                if not merged_raw:
+                    merged_raw.append(item.copy())
                 else:
+                    last = merged_raw[-1]
+                    if item["start"] <= last["end"]:
+                        last["end"] = max(last["end"], item["end"])
+                    else:
+                        merged_raw.append(item.copy())
+
+            cur_start = merged_raw[0]["start"]
+            cur_end = merged_raw[0]["end"]
+
+            for next_t in merged_raw[1:]:
+                silence_gap = max(0.0, next_t["start"] - cur_end)
+                cur_dur = cur_end - cur_start
+
+                # 判定是否在当前停顿处断句：
+                # 条件 1：若并入下一段后总时长将超过 max_chunk_duration
+                # 条件 2：两句之间存在自然静音停顿 (silence_gap >= min_pause_duration) 且当前已有一定语义时长 (cur_dur >= min_sentence_duration)
+                should_split = (
+                    (next_t["end"] - cur_start > max_chunk_duration)
+                    or (silence_gap >= min_pause_duration and cur_dur >= min_sentence_duration)
+                )
+
+                if should_split:
                     ranges.append((cur_start, cur_end))
                     cur_start = next_t["start"]
                     cur_end = next_t["end"]
+                else:
+                    cur_end = max(cur_end, next_t["end"])
 
             if cur_end > cur_start:
                 ranges.append((cur_start, min(cur_end, total_duration)))
@@ -274,7 +289,7 @@ class ASRToolkit:
         cls,
         audio_data: bytes | str | Path,
         transcribe_chunk_fn: Callable[[AudioChunk, str], tuple[str, list[Segment]] | Any],
-        max_chunk_duration: float = 30.0,
+        max_chunk_duration: float = 12.0,
         prompt_history_chars: int = 150,
     ) -> AsyncIterator[Segment]:
         """通用的全内存流水线流式转录：
@@ -383,7 +398,7 @@ class ASRToolkit:
         cls,
         audio_data: bytes | str | Path,
         transcribe_chunk_fn: Callable[[AudioChunk, str], tuple[str, list[Segment]] | Any],
-        max_chunk_duration: float = 30.0,
+        max_chunk_duration: float = 12.0,
         prompt_history_chars: int = 150,
     ) -> tuple[str, list[Segment]]:
         """全量转录长音频（分块处理后合并返回）。"""
