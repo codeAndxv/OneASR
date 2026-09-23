@@ -3,9 +3,10 @@
 路由: WS /v1/realtimeext
 
 扩展特性:
-- language（单语言字符串，而非 languages 数组）
+- 新增 sentence 事件: conversation.item.input_audio_transcription.sentence（携带完整文本、start、end 时间戳及 is_endpoint: true）
+- delta 事件增加 start、end 时间戳及 is_endpoint 标记
+- 支持 language（单语言字符串）与 languages（数组）
 - heartbeat 心跳事件（每 5 秒）
-- buffer delta（未 commit 的中间文本推送）
 - done 事件（commit 完成后通知客户端可关闭）
 """
 
@@ -22,15 +23,198 @@ from app.api.auth import verify_ws_api_key
 from app.api.realtime import SessionState
 from app.engines.registry import get_engine
 from app.services.record_service import save_streaming_record
+from app.utils.audio_converter import AudioConverter
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["realtimeext"])
 
 
+def _parse_time_to_seconds(val) -> float:
+    """将时间字符串（如 '0:00:01.20'）或数字解析为浮点秒数。"""
+    if val is None:
+        return 0.0
+    if isinstance(val, (int, float)):
+        return float(val)
+    if isinstance(val, str):
+        try:
+            parts = val.split(":")
+            if len(parts) == 3:
+                h, m, s = parts
+                return float(h) * 3600 + float(m) * 60 + float(s)
+            elif len(parts) == 2:
+                m, s = parts
+                return float(m) * 60 + float(s)
+            return float(val)
+        except Exception:
+            return 0.0
+    return 0.0
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  X-ASR 原生流式扩展模式（sherpa-onnx）
+# ═══════════════════════════════════════════════════════════════════
+
+async def _xasr_session_ext(
+    ws: WebSocket,
+    eng,
+    session: SessionState,
+    send_event,
+    send_error,
+):
+    """X-ASR 原生流式扩展识别会话。"""
+    stream_session = eng.create_stream_session()
+    session.state = SessionState.CONFIGURED
+
+    sample_rate = getattr(eng, "sample_rate", 16000) or 16000
+    total_samples = 0
+    last_sentence_end_time = 0.0
+
+    await send_event({
+        "type": "session.updated",
+        "session": {
+            "id": session.session_id,
+            "type": "transcription",
+            "audio": {
+                "input": {
+                    "format": {"type": "audio/pcm", "rate": sample_rate},
+                    "transcription": {
+                        "model": session.model or "xasr",
+                        "language": session.language,
+                    },
+                },
+            },
+        },
+    })
+
+    try:
+        while True:
+            raw = await ws.receive_text()
+            try:
+                event = json.loads(raw)
+            except json.JSONDecodeError:
+                await send_error("invalid_message", "Failed to parse JSON message")
+                continue
+
+            event_type = event.get("type")
+
+            if event_type == "input_audio_buffer.append":
+                audio_b64 = event.get("audio", "")
+                if not audio_b64:
+                    continue
+
+                audio_bytes = AudioConverter.base64_to_pcm16(audio_b64)
+                if not audio_bytes:
+                    continue
+
+                total_samples += len(audio_bytes) // 2
+                current_time = total_samples / sample_rate
+
+                if session.state == SessionState.CONFIGURED:
+                    session.state = SessionState.LISTENING
+
+                stream_session.accept_audio(audio_bytes)
+                stream_session.decode()
+
+                # 发送 partial 增量结果
+                partial = stream_session.get_partial_result()
+                if partial:
+                    item_id = session.next_item_id()
+                    await send_event({
+                        "type": "conversation.item.input_audio_transcription.delta",
+                        "item_id": item_id,
+                        "content_index": 0,
+                        "delta": partial,
+                        "start": round(last_sentence_end_time, 2),
+                        "end": round(current_time, 2),
+                        "is_endpoint": False,
+                    })
+
+                # 检测端点
+                if stream_session.is_endpoint():
+                    text = stream_session.get_full_text()
+                    if text:
+                        session.transcript_parts.append(text)
+                        item_id = session.next_item_id()
+                        # 扩展事件：sentence（携带整句完整文本与精准时间戳）
+                        await send_event({
+                            "type": "conversation.item.input_audio_transcription.sentence",
+                            "item_id": item_id,
+                            "content_index": 0,
+                            "text": text,
+                            "transcript": text,
+                            "start": round(last_sentence_end_time, 2),
+                            "end": round(current_time, 2),
+                            "is_endpoint": True,
+                        })
+                        # 兼容事件：completed
+                        await send_event({
+                            "type": "conversation.item.input_audio_transcription.completed",
+                            "item_id": item_id,
+                            "content_index": 0,
+                            "transcript": text,
+                            "start": round(last_sentence_end_time, 2),
+                            "end": round(current_time, 2),
+                            "is_endpoint": True,
+                        })
+                        last_sentence_end_time = current_time
+                    stream_session.reset_endpoint()
+
+            elif event_type == "input_audio_buffer.commit":
+                if session.state != SessionState.LISTENING:
+                    await send_error("invalid_state", "No active transcription session")
+                    continue
+
+                session.state = SessionState.FINALIZING
+                final_text = stream_session.finalize()
+                current_time = total_samples / sample_rate
+                if final_text:
+                    session.transcript_parts.append(final_text)
+                    item_id = session.next_item_id()
+                    await send_event({
+                        "type": "conversation.item.input_audio_transcription.sentence",
+                        "item_id": item_id,
+                        "content_index": 0,
+                        "text": final_text,
+                        "transcript": final_text,
+                        "start": round(last_sentence_end_time, 2),
+                        "end": round(current_time, 2),
+                        "is_endpoint": True,
+                    })
+                    await send_event({
+                        "type": "conversation.item.input_audio_transcription.completed",
+                        "item_id": item_id,
+                        "content_index": 0,
+                        "transcript": final_text,
+                        "start": round(last_sentence_end_time, 2),
+                        "end": round(current_time, 2),
+                        "is_endpoint": True,
+                    })
+
+                await send_event({"type": "done"})
+                await ws.close()
+                return
+
+            elif event_type == "session.update":
+                pass
+
+            else:
+                logger.debug("[realtimeext-xasr] 未知事件类型: %s", event_type)
+
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        logger.error("[realtimeext-xasr] 会话异常: %s", e, exc_info=True)
+        await send_error("session_error", str(e))
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  主扩展端点 (/v1/realtimeext)
+# ═══════════════════════════════════════════════════════════════════
+
 @router.websocket("/v1/realtimeext")
 async def realtime_transcription_ext(ws: WebSocket):
-    """扩展版 WebSocket 实时转录接口。"""
+    """扩展版 WebSocket 实时转录接口，支持 sentence 事件、时间戳及心跳。"""
     try:
         await ws.accept()
     except Exception as e:
@@ -87,8 +271,7 @@ async def realtime_transcription_ext(ws: WebSocket):
 
         # ── X-ASR 原生流式模式 ──
         if hasattr(eng, "create_stream_session"):
-            from app.api.realtime import _xasr_session
-            await _xasr_session(ws, eng, session, _send_event, _send_error)
+            await _xasr_session_ext(ws, eng, session, _send_event, _send_error)
             return
 
         try:
@@ -121,9 +304,11 @@ async def realtime_transcription_ext(ws: WebSocket):
         })
 
     async def _forward_results(_ignored_gen):
-        """从 AudioProcessor 读取转录结果，发送 delta/completed 事件。"""
+        """从 AudioProcessor 读取转录结果，发送带有精准时间戳的 delta/sentence/completed 事件。"""
         sent_texts: set[str] = set()
         last_buffer = ""
+        last_completed_end_time = 0.0
+
         try:
             while True:
                 if processor.is_stopping:
@@ -131,15 +316,16 @@ async def realtime_transcription_ext(ws: WebSocket):
                         break
 
                 processor.tokens_alignment.update()
+                audio_time = processor.total_pcm_samples / processor.sample_rate if processor.sample_rate else 0.0
                 lines, _, _ = processor.tokens_alignment.get_lines(
                     diarization=False,
                     current_silence=processor.current_silence,
-                    audio_time=processor.total_pcm_samples / processor.sample_rate if processor.sample_rate else None,
+                    audio_time=audio_time,
                 )
                 state = await processor.get_current_state()
                 buffer_text = (state.buffer_transcription.text if state.buffer_transcription else "").strip()
 
-                # 已确认的行：发送 delta + completed
+                # 已确认定稿的整句：发送 sentence 与 completed
                 for line in lines:
                     text = (line.text or "").strip()
                     if not text or getattr(line, "speaker", None) == -2:
@@ -147,16 +333,51 @@ async def realtime_transcription_ext(ws: WebSocket):
                     if text in sent_texts:
                         continue
                     sent_texts.add(text)
-                    item_id = session.next_item_id()
-                    await _send_event({"type": "conversation.item.input_audio_transcription.delta", "item_id": item_id, "content_index": 0, "delta": text})
-                    session.transcript_parts.append(text)
-                    await _send_event({"type": "conversation.item.input_audio_transcription.completed", "item_id": item_id, "content_index": 0, "transcript": text})
 
-                # 扩展：发送缓冲文本变化（未 commit 的中间文本）
+                    line_start = _parse_time_to_seconds(getattr(line, "start", None)) or last_completed_end_time
+                    line_end = _parse_time_to_seconds(getattr(line, "end", None)) or audio_time
+                    last_completed_end_time = line_end
+
+                    item_id = session.next_item_id()
+
+                    # 1. 扩展事件：sentence 整句定稿事件（包含完整文本、真实起止时间戳、is_endpoint: true）
+                    await _send_event({
+                        "type": "conversation.item.input_audio_transcription.sentence",
+                        "item_id": item_id,
+                        "content_index": 0,
+                        "text": text,
+                        "transcript": text,
+                        "start": round(line_start, 2),
+                        "end": round(line_end, 2),
+                        "is_endpoint": True,
+                    })
+
+                    session.transcript_parts.append(text)
+
+                    # 2. 兼容事件：completed
+                    await _send_event({
+                        "type": "conversation.item.input_audio_transcription.completed",
+                        "item_id": item_id,
+                        "content_index": 0,
+                        "transcript": text,
+                        "start": round(line_start, 2),
+                        "end": round(line_end, 2),
+                        "is_endpoint": True,
+                    })
+
+                # 实时缓冲文本变化（发送 delta 增量/临时草稿）
                 if buffer_text != last_buffer:
                     if buffer_text:
                         item_id = session.next_item_id()
-                        await _send_event({"type": "conversation.item.input_audio_transcription.delta", "item_id": item_id, "content_index": 0, "delta": buffer_text})
+                        await _send_event({
+                            "type": "conversation.item.input_audio_transcription.delta",
+                            "item_id": item_id,
+                            "content_index": 0,
+                            "delta": buffer_text,
+                            "start": round(last_completed_end_time, 2),
+                            "end": round(audio_time, 2),
+                            "is_endpoint": False,
+                        })
                     last_buffer = buffer_text
 
                 await asyncio.sleep(0.1)
@@ -187,6 +408,9 @@ async def realtime_transcription_ext(ws: WebSocket):
 
             if event_type == "session.update":
                 await _handle_session_update(event)
+                # X-ASR 模式下会话已由 _xasr_session_ext 处理完毕
+                if eng is not None and hasattr(eng, "create_stream_session"):
+                    return
 
             elif event_type == "input_audio_buffer.append":
                 if processor is None:
@@ -197,10 +421,8 @@ async def realtime_transcription_ext(ws: WebSocket):
                 if not audio_b64:
                     continue
 
-                try:
-                    audio_bytes = base64.b64decode(audio_b64)
-                except Exception:
-                    await _send_error("invalid_audio", "Failed to decode base64 audio data")
+                audio_bytes = AudioConverter.base64_to_pcm16(audio_b64)
+                if not audio_bytes:
                     continue
 
                 if session.state == SessionState.CONFIGURED:
@@ -265,3 +487,4 @@ async def realtime_transcription_ext(ws: WebSocket):
             total_time=time.time() - t_start,
             is_completed=session.state == SessionState.FINALIZING,
         )
+
