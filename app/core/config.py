@@ -81,6 +81,40 @@ class EngineConfig:
         return p if p.is_absolute() else PROJECT_ROOT / p
 
 
+class VADConfig:
+    def __init__(self, data: dict | None = None):
+        data = data or {}
+        self.model: str = data.get("model", "silero_vad")
+        self.threshold: float = float(data.get("threshold", 0.5))
+        self.min_speech_duration_ms: int = int(data.get("min_speech_duration_ms", 250))
+        self.min_silence_duration_ms: int = int(data.get("min_silence_duration_ms", 300))
+        self.padding_ms: int = int(data.get("padding_ms", 100))
+
+
+class ChunkingConfig:
+    def __init__(self, data: dict | None = None):
+        data = data or {}
+        self.target_chunk_duration: float = float(data.get("target_chunk_duration", 6.0))
+        self.max_chunk_duration: float = float(data.get("max_chunk_duration", 8.0))
+        self.min_pause_duration: float = float(data.get("min_pause_duration", 0.4))
+        self.min_sentence_duration: float = float(data.get("min_sentence_duration", 2.0))
+
+
+class PostProcessConfig:
+    def __init__(self, data: dict | None = None):
+        data = data or {}
+        self.remove_repeats: bool = bool(data.get("remove_repeats", True))
+        self.normalize_text: bool = bool(data.get("normalize_text", True))
+
+
+class ASRToolkitConfig:
+    def __init__(self, data: dict | None = None):
+        data = data or {}
+        self.vad = VADConfig(data.get("vad", {}))
+        self.chunking = ChunkingConfig(data.get("chunking", {}))
+        self.post_process = PostProcessConfig(data.get("post_process", {}))
+
+
 class AppConfig:
     def __init__(self, config_path: str | Path = None):
         config_path = config_path or PROJECT_ROOT / "config.yaml"
@@ -95,6 +129,10 @@ class AppConfig:
                 self.model_dir = PROJECT_ROOT / self.model_dir
         else:
             self.model_dir = None
+
+        # ASR-Toolkit 配置
+        raw_toolkit = self._data.get("ASR-Toolkit", self._data.get("asr_toolkit", {}))
+        self.asr_toolkit = ASRToolkitConfig(raw_toolkit)
 
         # ASR Providers
         self.providers: dict[str, EngineConfig] = {}

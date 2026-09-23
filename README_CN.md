@@ -101,6 +101,149 @@ clipper.clip(start=0, duration=120, output="clip.mp4")
 clips = clipper.auto_clip(clip_duration=120, output_dir="clips/")
 ```
 
+## 模型下载指南 (Hugging Face / ModelScope)
+
+OneASR 支持多种本地 ASR 引擎（如 Qwen3-ASR、Faster-Whisper、FireRedASR 等）。模型默认存放于 `OneASR/models/` 目录。你可以通过 **Hugging Face CLI** 或 **ModelScope (魔搭社区)** 下载模型权重。
+
+### 1. 安装下载工具
+
+根据你的网络环境选择合适的下载工具：
+
+```bash
+# 方式 A：安装 Hugging Face CLI (提供 hf 命令行工具)
+pip install -U "huggingface_hub[cli]"
+
+# 国内网络加速（可选，配置 Hugging Face 镜像源）
+export HF_ENDPOINT=https://hf-mirror.com
+
+# 方式 B：安装 ModelScope CLI（国内环境推荐）
+pip install -U modelscope
+```
+
+### 2. 常用模型下载命令
+
+> **注意**：请在 `OneASR/` 根目录下执行以下命令，模型文件将直接下载到 `models/` 对应子目录中。
+
+#### ① Qwen3-ASR（语音识别主模型）
+*推荐版本：`Qwen/Qwen3-ASR-1.7B`（高质量）或 `Qwen/Qwen3-ASR-0.6B`（轻量）*
+
+- **Hugging Face (`hf`)**:
+  ```bash
+  hf download Qwen/Qwen3-ASR-1.7B --local-dir models/Qwen3-ASR-1.7B
+  ```
+- **ModelScope CLI**:
+  ```bash
+  modelscope download --model Qwen/Qwen3-ASR-1.7B --local_dir models/Qwen3-ASR-1.7B
+  ```
+
+#### ② Qwen3-ForcedAligner（时间戳对齐模型）
+*用于生成精确字/词级时间戳：`Qwen/Qwen3-ForcedAligner-0.6B`*
+
+- **Hugging Face (`hf`)**:
+  ```bash
+  hf download Qwen/Qwen3-ForcedAligner-0.6B --local-dir models/Qwen3-ForcedAligner-0.6B
+  ```
+- **ModelScope CLI**:
+  ```bash
+  modelscope download --model Qwen/Qwen3-ForcedAligner-0.6B --local_dir models/Qwen3-ForcedAligner-0.6B
+  ```
+
+#### ③ Faster-Whisper（Whisper 系列）
+*常用模型：`Systran/faster-whisper-medium`、`Systran/faster-whisper-large-v3` 等*
+
+- **Hugging Face (`hf`)**:
+  ```bash
+  hf download Systran/faster-whisper-medium --local-dir models/faster-whisper-medium
+  ```
+- **ModelScope CLI**:
+  ```bash
+  modelscope download --model Systran/faster-whisper-medium --local_dir models/faster-whisper-medium
+  ```
+
+#### ④ FireRedASR 系列模型
+*常用模型：`FireRedTeam/FireRedASR-AED-L`、`FireRedTeam/FireRedASR-LLM-L`*
+
+- **Hugging Face (`hf`)**:
+  ```bash
+  hf download FireRedTeam/FireRedASR-AED-L --local-dir models/FireRedASR-AED-L
+  ```
+- **ModelScope CLI**:
+  ```bash
+  modelscope download --model FireRedTeam/FireRedASR-AED-L --local_dir models/FireRedASR-AED-L
+  ```
+
+#### ⑤ X-ASR（流式实时识别模型，基于 sherpa-onnx）
+*模型：[`GilgameshWind/X-ASR-zh-en`](https://huggingface.co/GilgameshWind/X-ASR-zh-en)（中英文流式识别，zipformer2 transducer）*
+
+- **Hugging Face (`hf`)**:
+  ```bash
+  hf download GilgameshWind/X-ASR-zh-en \
+    --include "deployment/models/chunk-160ms-model/*" \
+    --local-dir models
+  mv models/deployment/models/chunk-160ms-model models/chunk-160ms-model
+  ```
+
+- **ModelScope CLI**:
+  ```bash
+  modelscope download --model Gilgamesh-J/X-ASR-zh-en \
+    --include "deployment/models/chunk-160ms-model/*" \
+    --local_dir models
+  mv models/deployment/models/chunk-160ms-model models/chunk-160ms-model
+  ```
+
+### 3. Python 脚本批量下载 (可选)
+
+如果你希望一次性自动下载所需的所有模型，可运行以下 Python 脚本：
+
+```python
+# download_models.py
+from modelscope import snapshot_download
+
+# 定义需要下载的模型映射表: local_dir -> model_id
+MODELS = {
+    "models/Qwen3-ASR-1.7B": "Qwen/Qwen3-ASR-1.7B",
+    "models/Qwen3-ForcedAligner-0.6B": "Qwen/Qwen3-ForcedAligner-0.6B",
+    "models/faster-whisper-medium": "Systran/faster-whisper-medium",
+}
+
+for local_path, model_id in MODELS.items():
+    print(f"正在从 ModelScope 下载 {model_id} 到 {local_path} ...")
+    snapshot_download(model_id, local_dir=local_path)
+print("所有模型下载完成！")
+```
+
+### 4. 在 `config.yaml` 中配置并启用模型
+
+模型下载完成后，编辑 `config.yaml` 确保对应 Provider 的 `model_path` 指向下载目录：
+
+```yaml
+ASR-Providers:
+  # Qwen3-ASR 配置示例
+  qwen:
+    enable: true
+    engine: qwen
+    load:
+      model_name: Qwen/Qwen3-ASR-1.7B
+      model_path: models/Qwen3-ASR-1.7B
+      device: cpu  # 支持 cpu / cuda:0 / mps
+      dtype: float32
+      max_new_tokens: 256
+      max_inference_batch_size: 32
+      # 可选启用 Forced Aligner 精确时间戳
+      # forced_aligner_name: Qwen/Qwen3-ForcedAligner-0.6B
+      # forced_aligner_path: models/Qwen3-ForcedAligner-0.6B
+
+  # Faster-Whisper 配置示例
+  faster-whisper:
+    enable: false
+    engine: faster-whisper
+    load:
+      model_name: medium
+      model_path: models/faster-whisper-medium
+      device: cpu
+      compute_type: int8
+```
+
 ## 认证
 
 所有 API 接口（`/health` 除外）需要通过请求头 `X-API-Key` 传递 API Key。

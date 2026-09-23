@@ -33,6 +33,7 @@ import numpy as np
 from app.core.config import EngineConfig
 from app.engines.base import ASREngine
 from app.models.schemas import Segment
+from app.utils.audio_converter import AudioConverter
 
 logger = logging.getLogger(__name__)
 
@@ -48,20 +49,18 @@ class XASRStreamingSession:
         self._last_partial = ""
 
     def accept_audio(self, pcm_bytes: bytes):
-        """接收音频数据（float32 PCM 字节），送入识别器。
-
-        客户端发送的是 base64 编码的 float32 PCM，
-        解码后为原始字节，转为 numpy float32 数组。
-        """
-        count = len(pcm_bytes) // 4
-        if count == 0:
+        """接收音频数据，通过 AudioConverter 转为 float32 格式送入识别器。"""
+        if not pcm_bytes:
             return
-        samples = np.frombuffer(pcm_bytes, dtype=np.float32, count=count)
-        self._stream.accept_waveform(self._sample_rate, samples.tolist())
+
+        samples = AudioConverter.pcm16_to_float32(pcm_bytes)
+        if len(samples) > 0:
+            self._stream.accept_waveform(self._sample_rate, samples)
 
     def decode(self):
-        """运行一轮解码。"""
-        self._recognizer.decode_stream(self._stream)
+        """运行解码。必须在 is_ready 为真时才调用 decode_stream，避免底层 C++ 崩溃。"""
+        while self._recognizer.is_ready(self._stream):
+            self._recognizer.decode_stream(self._stream)
 
     def get_partial_result(self) -> str:
         """获取当前部分识别结果的增量文本。
@@ -95,10 +94,17 @@ class XASRStreamingSession:
         """检测是否到达语句端点（静音检测）。"""
         return self._recognizer.is_endpoint(self._stream)
 
+    def reset_endpoint(self):
+        """端点重置。"""
+        self._recognizer.reset(self._stream)
+        self._final_text = ""
+        self._last_partial = ""
+
     def finalize(self) -> str:
-        """结束输入，返回最终识别文本。"""
+        """结束输入，清空剩余帧并返回最终识别文本。"""
         self._stream.input_finished()
-        self._recognizer.decode_stream(self._stream)
+        while self._recognizer.is_ready(self._stream):
+            self._recognizer.decode_stream(self._stream)
         full_text = self._recognizer.get_result(self._stream).strip()
         # 计算本次新增的文本
         if self._final_text and full_text.startswith(self._final_text):

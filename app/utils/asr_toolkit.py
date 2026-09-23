@@ -27,7 +27,9 @@ from typing import Any
 import numpy as np
 import torch
 
+from app.core.config import app_config
 from app.models.schemas import Segment
+from app.utils.audio_converter import AudioConverter
 
 logger = logging.getLogger(__name__)
 
@@ -45,14 +47,7 @@ class AudioChunk:
 
     def to_wav_bytes(self) -> bytes:
         """在内存中将 float32 numpy 数组编码为 16kHz 单声道 PCM 16-bit WAV 二进制流。"""
-        pcm_16 = (np.clip(self.waveform, -1.0, 1.0) * 32767.0).astype(np.int16)
-        with io.BytesIO() as bio:
-            with wave.open(bio, "wb") as wf:
-                wf.setnchannels(1)
-                wf.setsampwidth(2)
-                wf.setframerate(SAMPLE_RATE)
-                wf.writeframes(pcm_16.tobytes())
-            return bio.getvalue()
+        return AudioConverter.float32_to_wav_bytes(self.waveform, sample_rate=SAMPLE_RATE)
 
     @contextmanager
     def as_temp_wav(self):
@@ -115,76 +110,55 @@ class ASRToolkit:
         
         全程在内存中完成，零磁盘写入。
         """
-        ffmpeg_cmd = [
-            "ffmpeg",
-            "-hide_banner",
-            "-loglevel", "error",
-        ]
-
-        if isinstance(audio_input, (str, Path)):
-            ffmpeg_cmd.extend(["-i", str(audio_input)])
-            input_bytes = None
-        else:
-            ffmpeg_cmd.extend(["-i", "pipe:0"])
-            input_bytes = audio_input
-
-        ffmpeg_cmd.extend([
-            "-f", "f32le",
-            "-acodec", "pcm_f32le",
-            "-ac", "1",
-            "-ar", str(SAMPLE_RATE),
-            "pipe:1",
-        ])
-
-        try:
-            process = subprocess.Popen(
-                ffmpeg_cmd,
-                stdin=subprocess.PIPE if input_bytes is not None else None,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            )
-            stdout_data, stderr_data = process.communicate(input=input_bytes)
-            if process.returncode != 0:
-                err_msg = stderr_data.decode("utf-8", errors="ignore")
-                raise RuntimeError(f"FFmpeg 解码失败 (code {process.returncode}): {err_msg}")
-
-            audio_np = np.frombuffer(stdout_data, dtype=np.float32).copy()
-            if audio_np.size == 0:
-                logger.warning("[ASRToolkit] 解码出的音频为空")
-                return np.zeros(0, dtype=np.float32)
-
-            return audio_np
-        except Exception as e:
-            logger.error("[ASRToolkit] 音频内存解码异常: %s", e)
-            raise
+        return AudioConverter.decode_to_pcm_float32(audio_input, sample_rate=SAMPLE_RATE)
 
     @classmethod
     def collect_chunks_by_vad(
         cls,
         waveform: np.ndarray,
-        max_chunk_duration: float = 12.0,
-        min_pause_duration: float = 0.5,
-        min_sentence_duration: float = 2.0,
-        min_silence_duration_ms: int = 300,
-        min_speech_duration_ms: int = 250,
-        padding_ms: int = 150,
+        target_chunk_duration: float | None = None,
+        max_chunk_duration: float | None = None,
+        min_pause_duration: float | None = None,
+        min_sentence_duration: float | None = None,
+        min_silence_duration_ms: int | None = None,
+        min_speech_duration_ms: int | None = None,
+        padding_ms: int | None = None,
+        vad_threshold: float | None = None,
     ) -> list[AudioChunk]:
-        """借鉴 faster-whisper 的 collect_chunks 算法，在内存中进行防碎片化且兼顾自然停顿的智能语音切片。
+        """两阶段切片算法：自然静音探测 + 强制数学等分二次切分（Subsegmentation）。
+        
+        参数默认读取自 config.yaml 的 ASR-Toolkit 配置，亦支持调用方按需覆盖。
 
         Args:
             waveform: 16kHz float32 一维音频数组
-            max_chunk_duration: 单个切片最大目标时长（秒）
+            target_chunk_duration: 目标切片理想时长（秒）
+            max_chunk_duration: 单个切片最大硬上限时长（秒，超过则强制等分二次切分）
             min_pause_duration: 触发自然断句的最小静音停顿阈值（秒）
             min_sentence_duration: 触发停顿断句前切片需达到的最小语义时长（秒）
             min_silence_duration_ms: Silero VAD 最小静音停顿检测阈值（毫秒）
             min_speech_duration_ms: 最小语音段时长（毫秒）
             padding_ms: 首尾填充时长（毫秒）
+            vad_threshold: VAD 语音概率置信度阈值 (0.0~1.0)
 
         Returns:
             list[AudioChunk] 零拷贝 NumPy 数组切片列表
         """
+        # 从全局 config.yaml (ASR-Toolkit) 读取默认配置
+        cfg = app_config.asr_toolkit
+        target_chunk_duration = target_chunk_duration if target_chunk_duration is not None else cfg.chunking.target_chunk_duration
+        max_chunk_duration = max_chunk_duration if max_chunk_duration is not None else cfg.chunking.max_chunk_duration
+        min_pause_duration = min_pause_duration if min_pause_duration is not None else cfg.chunking.min_pause_duration
+        min_sentence_duration = min_sentence_duration if min_sentence_duration is not None else cfg.chunking.min_sentence_duration
+        min_silence_duration_ms = min_silence_duration_ms if min_silence_duration_ms is not None else cfg.vad.min_silence_duration_ms
+        min_speech_duration_ms = min_speech_duration_ms if min_speech_duration_ms is not None else cfg.vad.min_speech_duration_ms
+        padding_ms = padding_ms if padding_ms is not None else cfg.vad.padding_ms
+        vad_threshold = vad_threshold if vad_threshold is not None else cfg.vad.threshold
+
         total_samples = len(waveform)
         total_duration = total_samples / SAMPLE_RATE
+
+        if total_samples == 0 or total_duration <= 0:
+            return []
 
         # 1. 调用 Silero VAD（内存 Tensor 推理）
         speech_timestamps = []
@@ -195,7 +169,7 @@ class ASRToolkit:
             raw_ts = _get_timestamps(
                 tensor_waveform,
                 model,
-                threshold=0.5,
+                threshold=vad_threshold,
                 sampling_rate=SAMPLE_RATE,
                 min_speech_duration_ms=min_speech_duration_ms,
                 min_silence_duration_ms=min_silence_duration_ms,
@@ -205,63 +179,75 @@ class ASRToolkit:
                 for t in raw_ts
             ]
         except Exception as e:
-            logger.warning("[ASRToolkit] Silero VAD 内存检测异常，回退为均匀切片: %s", e)
+            logger.warning("[ASRToolkit] Silero VAD 内存检测异常: %s", e)
 
-        # 2. 如果无语音区间检测，按 max_chunk_duration 进行固定切片
         ranges: list[tuple[float, float]] = []
+
+        # 若未检测到任何有效语音区间（纯静音或全无声），直接返回空列表，0 次 Engine 推理！
         if not speech_timestamps:
-            cur = 0.0
-            while cur < total_duration:
-                end = min(cur + max_chunk_duration, total_duration)
-                ranges.append((cur, end))
-                cur = end
-        else:
-            # 3. 智能合并算法 (Silence Gap & Max Duration Aware)
-            padding_sec = padding_ms / 1000.0
-            padded_ts = []
-            for t in speech_timestamps:
-                p_start = max(0.0, t["start"] - padding_sec)
-                p_end = min(total_duration, t["end"] + padding_sec)
-                padded_ts.append({"start": p_start, "end": p_end})
+            logger.info("[ASRToolkit] 未检测到任何有效语音区间（纯静音），跳过切片与推理 (0 次 Engine 调用)")
+            return []
 
-            # 先合并重叠的 padded 片段
-            merged_raw: list[dict[str, float]] = []
-            for item in padded_ts:
-                if not merged_raw:
-                    merged_raw.append(item.copy())
+        # 2. 对所有有效语音段应用 padding（防吞音），并合并因 padding 产生的重叠
+        padding_sec = padding_ms / 1000.0
+        padded_segments: list[dict[str, float]] = []
+        for t in speech_timestamps:
+            p_start = max(0.0, t["start"] - padding_sec)
+            p_end = min(total_duration, t["end"] + padding_sec)
+            padded_segments.append({"start": p_start, "end": p_end})
+
+        # 合并因 padding 重叠的片段
+        merged_padded: list[dict[str, float]] = []
+        for item in padded_segments:
+            if not merged_padded:
+                merged_padded.append(item.copy())
+            else:
+                last = merged_padded[-1]
+                if item["start"] <= last["end"]:
+                    last["end"] = max(last["end"], item["end"])
                 else:
-                    last = merged_raw[-1]
-                    if item["start"] <= last["end"]:
-                        last["end"] = max(last["end"], item["end"])
-                    else:
-                        merged_raw.append(item.copy())
+                    merged_padded.append(item.copy())
 
-            cur_start = merged_raw[0]["start"]
-            cur_end = merged_raw[0]["end"]
+        # 3. 邻近有效语音段智能合并（短停顿合并避免碎词；纯静音区间自然被剔除跳过）
+        speech_blocks: list[tuple[float, float]] = []
+        cur_start = merged_padded[0]["start"]
+        cur_end = merged_padded[0]["end"]
 
-            for next_t in merged_raw[1:]:
-                silence_gap = max(0.0, next_t["start"] - cur_end)
-                cur_dur = cur_end - cur_start
+        for next_item in merged_padded[1:]:
+            silence_gap = max(0.0, next_item["start"] - cur_end)
+            potential_duration = next_item["end"] - cur_start
 
-                # 判定是否在当前停顿处断句：
-                # 条件 1：若并入下一段后总时长将超过 max_chunk_duration
-                # 条件 2：两句之间存在自然静音停顿 (silence_gap >= min_pause_duration) 且当前已有一定语义时长 (cur_dur >= min_sentence_duration)
-                should_split = (
-                    (next_t["end"] - cur_start > max_chunk_duration)
-                    or (silence_gap >= min_pause_duration and cur_dur >= min_sentence_duration)
-                )
+            # 若停顿间隔小于 min_pause_duration 且合并后总长在 target_chunk_duration 以内，则合并
+            if silence_gap < min_pause_duration and potential_duration <= target_chunk_duration:
+                cur_end = max(cur_end, next_item["end"])
+            else:
+                speech_blocks.append((cur_start, cur_end))
+                cur_start = next_item["start"]
+                cur_end = next_item["end"]
 
-                if should_split:
-                    ranges.append((cur_start, cur_end))
-                    cur_start = next_t["start"]
-                    cur_end = next_t["end"]
-                else:
-                    cur_end = max(cur_end, next_t["end"])
+        if cur_end > cur_start:
+            speech_blocks.append((cur_start, cur_end))
 
-            if cur_end > cur_start:
-                ranges.append((cur_start, min(cur_end, total_duration)))
+        # 4. 超长有效语音段等分切分（Subsegmentation）—— 确保单段在 3~8s 以内
+        for block_start, block_end in speech_blocks:
+            block_len = block_end - block_start
+            if block_len < 0.2:
+                # 过滤极短瞬态杂音
+                continue
 
-        # 4. 生成零拷贝 NumPy 内存切片
+            if block_len <= max_chunk_duration:
+                ranges.append((block_start, block_end))
+            else:
+                # 超过 max_chunk_duration 时，强制进行数学等分切分
+                num_subsegments = int(np.ceil(block_len / max_chunk_duration))
+                subsegment_length = block_len / num_subsegments
+
+                for j in range(num_subsegments):
+                    s_sub = block_start + j * subsegment_length
+                    e_sub = block_start + (j + 1) * subsegment_length if j < num_subsegments - 1 else block_end
+                    ranges.append((round(s_sub, 3), round(e_sub, 3)))
+
+        # 5. 生成零拷贝 NumPy 内存切片
         chunks: list[AudioChunk] = []
         for i, (s_time, e_time) in enumerate(ranges):
             s_idx = max(0, int(s_time * SAMPLE_RATE))
@@ -272,15 +258,15 @@ class ASRToolkit:
                 AudioChunk(
                     index=i,
                     waveform=chunk_wave,
-                    start_time=s_time,
-                    end_time=e_time,
-                    duration=e_time - s_time,
+                    start_time=round(s_time, 3),
+                    end_time=round(e_time, 3),
+                    duration=round(e_time - s_time, 3),
                 )
             )
 
         logger.info(
-            "[ASRToolkit] 全内存切片完成: 总时长 %.1fs, 共 %d 个切片 (目标上限 %.1fs/段, 零磁盘写入)",
-            total_duration, len(chunks), max_chunk_duration,
+            "[ASRToolkit] 全内存切片完成: 总时长 %.1fs, 提取出 %d 个有效语音切片 (纯静音已自动剔除, 目标: %.1fs, 硬上限: %.1fs)",
+            total_duration, len(chunks), target_chunk_duration, max_chunk_duration,
         )
         return chunks
 
@@ -289,11 +275,12 @@ class ASRToolkit:
         cls,
         audio_data: bytes | str | Path,
         transcribe_chunk_fn: Callable[[AudioChunk, str], tuple[str, list[Segment]] | Any],
-        max_chunk_duration: float = 12.0,
+        target_chunk_duration: float | None = None,
+        max_chunk_duration: float | None = None,
         prompt_history_chars: int = 150,
     ) -> AsyncIterator[Segment]:
         """通用的全内存流水线流式转录：
-        1. 内存解码与零拷贝切片
+        1. 内存解码与零拷贝切片（配置化两阶段切分）
         2. 异步生产者-消费者队列（流水线并行）
         3. 跨切片上下文 Prompt 动态传递
         4. 全局时间戳精准累加与去幻觉后处理
@@ -303,9 +290,10 @@ class ASRToolkit:
         if len(waveform) == 0:
             return
 
-        # 2. 内存智能切片
+        # 2. 内存智能切片（采用 config.yaml 中的 ASR-Toolkit 配置）
         chunks = cls.collect_chunks_by_vad(
             waveform=waveform,
+            target_chunk_duration=target_chunk_duration,
             max_chunk_duration=max_chunk_duration,
         )
 
@@ -398,7 +386,8 @@ class ASRToolkit:
         cls,
         audio_data: bytes | str | Path,
         transcribe_chunk_fn: Callable[[AudioChunk, str], tuple[str, list[Segment]] | Any],
-        max_chunk_duration: float = 12.0,
+        target_chunk_duration: float | None = None,
+        max_chunk_duration: float | None = None,
         prompt_history_chars: int = 150,
     ) -> tuple[str, list[Segment]]:
         """全量转录长音频（分块处理后合并返回）。"""
@@ -408,6 +397,7 @@ class ASRToolkit:
         async for seg in cls.process_long_audio_stream(
             audio_data=audio_data,
             transcribe_chunk_fn=transcribe_chunk_fn,
+            target_chunk_duration=target_chunk_duration,
             max_chunk_duration=max_chunk_duration,
             prompt_history_chars=prompt_history_chars,
         ):

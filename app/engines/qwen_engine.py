@@ -197,7 +197,6 @@ class QwenEngine(ASREngine):
         return await ASRToolkit.process_long_audio(
             audio_data=audio_data,
             transcribe_chunk_fn=self._transcribe_sync,
-            max_chunk_duration=12.0,
         )
 
     async def transcribe_file_stream(self, audio_data: bytes) -> AsyncIterator[Segment]:
@@ -206,7 +205,6 @@ class QwenEngine(ASREngine):
         async for seg in ASRToolkit.process_long_audio_stream(
             audio_data=audio_data,
             transcribe_chunk_fn=self._transcribe_sync,
-            max_chunk_duration=12.0,
         ):
             yield seg
 

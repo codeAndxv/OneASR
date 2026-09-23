@@ -3,12 +3,31 @@
 # API Key（所有接口必须携带此 key）
 api_key: oneasr-key
 
+# ASR Toolkit 全局切片与 VAD 配置（长音频切片、分句与字幕分段参数）
+ASR-Toolkit:
+  vad:
+    model: "silero_vad"          # VAD 模型类型: silero_vad
+    threshold: 0.5               # VAD 语音概率置信度阈值 (0.0~1.0)
+    min_speech_duration_ms: 250  # 最小语音段时长 (ms)
+    min_silence_duration_ms: 300 # 判定为静音的最小停顿时长 (ms)
+    padding_ms: 100              # 语音段前后填充缓冲时长 (ms)
+
+  chunking:
+    target_chunk_duration: 6.0   # 目标切片/字幕理想时长 (秒，推荐 5.0~6.0s)
+    max_chunk_duration: 8.0      # 最大切片时长硬上限 (秒，超过此值强制数学等分，杜绝长字幕)
+    min_pause_duration: 0.4      # 触发自然断句的最小静音停顿阈值 (秒)
+    min_sentence_duration: 2.0   # 触发停顿断句前切片需达到的最小语义时长 (秒)
+
+  post_process:
+    remove_repeats: true         # 是否过滤 ASR 连续重复复读幻觉
+    normalize_text: true         # 是否规范化空格与标点
+
 # ASR Provider 配置
 ASR-Providers:
 
   # X-ASR 流式识别（基于 sherpa-onnx，zipformer2 transducer）
   xasr:
-    enable: false
+    enable: true
     engine: xasr
 
     # 加载配置
@@ -52,7 +71,7 @@ ASR-Providers:
 
   # Qwen3-ASR 文件转录（基于 qwen_asr，支持 CPU / GPU）
   qwen:
-    enable: true
+    enable: false
     engine: qwen
 
     # 加载配置

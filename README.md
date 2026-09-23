@@ -107,6 +107,144 @@ clipper.clip(start=0, duration=120, output="clip.mp4")
 clips = clipper.auto_clip(clip_duration=120, output_dir="clips/")
 ```
 
+## Model Download Guide (Hugging Face / ModelScope)
+
+OneASR supports various local ASR engines (Qwen3-ASR, Faster-Whisper, FireRedASR, etc.). Models are stored by default under the `models/` directory in `OneASR/`. You can download models using either **Hugging Face CLI** or **ModelScope**.
+
+### 1. Install Download Tools
+
+```bash
+# Option A: Hugging Face CLI (provides `hf` command)
+pip install -U "huggingface_hub[cli]"
+
+# Optional: China mirror acceleration
+export HF_ENDPOINT=https://hf-mirror.com
+
+# Option B: ModelScope CLI (recommended for users in China)
+pip install -U modelscope
+```
+
+### 2. Model Download Commands
+
+> **Note**: Run these commands from the `OneASR/` directory to save models directly to `models/{model_dir}`.
+
+#### ① Qwen3-ASR (Main ASR Model)
+*Recommended: `Qwen/Qwen3-ASR-1.7B` (High quality) or `Qwen/Qwen3-ASR-0.6B` (Lightweight)*
+
+- **Hugging Face (`hf`)**:
+  ```bash
+  hf download Qwen/Qwen3-ASR-1.7B --local-dir models/Qwen3-ASR-1.7B
+  ```
+- **ModelScope CLI**:
+  ```bash
+  modelscope download --model Qwen/Qwen3-ASR-1.7B --local_dir models/Qwen3-ASR-1.7B
+  ```
+
+#### ② Qwen3-ForcedAligner (Timestamp Forced Alignment Model)
+*Used for word/character-level timestamps: `Qwen/Qwen3-ForcedAligner-0.6B`*
+
+- **Hugging Face (`hf`)**:
+  ```bash
+  hf download Qwen/Qwen3-ForcedAligner-0.6B --local-dir models/Qwen3-ForcedAligner-0.6B
+  ```
+- **ModelScope CLI**:
+  ```bash
+  modelscope download --model Qwen/Qwen3-ForcedAligner-0.6B --local_dir models/Qwen3-ForcedAligner-0.6B
+  ```
+
+#### ③ Faster-Whisper
+*Supported: `Systran/faster-whisper-medium`, `large-v3`, `small`, etc.*
+
+- **Hugging Face (`hf`)**:
+  ```bash
+  hf download Systran/faster-whisper-medium --local-dir models/faster-whisper-medium
+  ```
+- **ModelScope CLI**:
+  ```bash
+  modelscope download --model Systran/faster-whisper-medium --local_dir models/faster-whisper-medium
+  ```
+
+#### ④ FireRedASR Models
+*Supported: `FireRedTeam/FireRedASR-AED-L`, `FireRedTeam/FireRedASR-LLM-L`*
+
+- **Hugging Face (`hf`)**:
+  ```bash
+  hf download FireRedTeam/FireRedASR-AED-L --local-dir models/FireRedASR-AED-L
+  ```
+- **ModelScope CLI**:
+  ```bash
+  modelscope download --model FireRedTeam/FireRedASR-AED-L --local_dir models/FireRedASR-AED-L
+  ```
+
+#### ⑤ X-ASR (Real-time Streaming Model, sherpa-onnx based)
+*Model: [`GilgameshWind/X-ASR-zh-en`](https://huggingface.co/GilgameshWind/X-ASR-zh-en) — Chinese/English streaming recognition using zipformer2 transducer*
+
+- **Hugging Face (`hf`)**:
+  ```bash
+  hf download GilgameshWind/X-ASR-zh-en \
+    --include "deployment/models/chunk-160ms-model/*" \
+    --local-dir models
+  mv models/deployment/models/chunk-160ms-model models/chunk-160ms-model
+  ```
+
+- **ModelScope CLI**:
+  ```bash
+  modelscope download --model Gilgamesh-J/X-ASR-zh-en \
+    --include "deployment/models/chunk-160ms-model/*" \
+    --local_dir models
+  mv models/deployment/models/chunk-160ms-model models/chunk-160ms-model
+  ```
+
+### 3. Batch Download via Python Script (Optional)
+
+```python
+# download_models.py
+from modelscope import snapshot_download
+
+MODELS = {
+    "models/Qwen3-ASR-1.7B": "Qwen/Qwen3-ASR-1.7B",
+    "models/Qwen3-ForcedAligner-0.6B": "Qwen/Qwen3-ForcedAligner-0.6B",
+    "models/faster-whisper-medium": "Systran/faster-whisper-medium",
+}
+
+for local_path, model_id in MODELS.items():
+    print(f"Downloading {model_id} to {local_path} via ModelScope...")
+    snapshot_download(model_id, local_dir=local_path)
+print("All models downloaded successfully!")
+```
+
+### 4. Enable Models in `config.yaml`
+
+After downloading, configure the corresponding provider in `OneASR/config.yaml`:
+
+```yaml
+ASR-Providers:
+  # Qwen3-ASR Configuration
+  qwen:
+    enable: true
+    engine: qwen
+    load:
+      model_name: Qwen/Qwen3-ASR-1.7B
+      model_path: models/Qwen3-ASR-1.7B
+      device: cpu  # or cuda:0 / mps
+      dtype: float32
+      max_new_tokens: 256
+      max_inference_batch_size: 32
+      # Optional: forced aligner
+      # forced_aligner_name: Qwen/Qwen3-ForcedAligner-0.6B
+      # forced_aligner_path: models/Qwen3-ForcedAligner-0.6B
+
+  # Faster-Whisper Configuration
+  faster-whisper:
+    enable: false
+    engine: faster-whisper
+    load:
+      model_name: medium
+      model_path: models/faster-whisper-medium
+      device: cpu
+      compute_type: int8
+```
+
 ## Authentication
 
 All API endpoints (except `/health`) require an API Key via the `X-API-Key` request header.

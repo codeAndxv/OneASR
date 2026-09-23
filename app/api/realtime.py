@@ -17,6 +17,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from app.api.auth import verify_ws_api_key
 from app.engines.registry import get_engine
 from app.services.record_service import save_streaming_record
+from app.utils.audio_converter import AudioConverter
 
 logger = logging.getLogger(__name__)
 
@@ -97,10 +98,8 @@ async def _xasr_session(
                 if not audio_b64:
                     continue
 
-                try:
-                    audio_bytes = base64.b64decode(audio_b64)
-                except Exception:
-                    await send_error("invalid_audio", "Failed to decode base64 audio data")
+                audio_bytes = AudioConverter.base64_to_pcm16(audio_b64)
+                if not audio_bytes:
                     continue
 
                 if session.state == SessionState.CONFIGURED:
@@ -123,7 +122,17 @@ async def _xasr_session(
 
                 # 检测端点（如果启用了 endpoint detection）
                 if stream_session.is_endpoint():
-                    session.transcript_parts.append(stream_session.get_full_text())
+                    text = stream_session.get_full_text()
+                    if text:
+                        session.transcript_parts.append(text)
+                        item_id = session.next_item_id()
+                        await send_event({
+                            "type": "conversation.item.input_audio_transcription.completed",
+                            "item_id": item_id,
+                            "content_index": 0,
+                            "transcript": text,
+                        })
+                    stream_session.reset_endpoint()
 
             elif event_type == "input_audio_buffer.commit":
                 if session.state != SessionState.LISTENING:
@@ -323,8 +332,9 @@ async def realtime_transcription(ws: WebSocket):
 
             if event_type == "session.update":
                 await _handle_session_update(event)
-                # X-ASR 模式下 _handle_session_update 不会返回
-                # 因为它进入了 _xasr_session 的主循环
+                # X-ASR 模式下 _handle_session_update 已经处理完整个会话周期，直接退出
+                if eng is not None and hasattr(eng, "create_stream_session"):
+                    return
 
             elif event_type == "input_audio_buffer.append":
                 if processor is None:
@@ -335,10 +345,8 @@ async def realtime_transcription(ws: WebSocket):
                 if not audio_b64:
                     continue
 
-                try:
-                    audio_bytes = base64.b64decode(audio_b64)
-                except Exception:
-                    await _send_error("invalid_audio", "Failed to decode base64 audio data")
+                audio_bytes = AudioConverter.base64_to_pcm16(audio_b64)
+                if not audio_bytes:
                     continue
 
                 if session.state == SessionState.CONFIGURED:

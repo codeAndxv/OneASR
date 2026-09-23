@@ -17,6 +17,8 @@ from collections.abc import AsyncGenerator
 
 logger = logging.getLogger(__name__)
 
+from app.utils.audio_converter import AudioConverter
+
 # 音频参数
 SAMPLE_RATE = 16000
 CHANNELS = 1
@@ -24,60 +26,18 @@ BYTES_PER_SAMPLE = 2  # s16le
 
 
 def convert_to_pcm(input_path: str | Path, sample_rate: int = SAMPLE_RATE) -> bytes:
-    """将音视频文件转换为 PCM s16le 原始音频数据。
-
-    Args:
-        input_path: 输入文件路径（支持任意音视频格式）
-        sample_rate: 目标采样率，默认 16000
-
-    Returns:
-        PCM s16le 16kHz mono 的原始字节数据
-    """
-    input_path = Path(input_path)
-    if not input_path.exists():
-        raise FileNotFoundError(f"文件不存在: {input_path}")
-
-    result = subprocess.run(
-        [
-            "ffmpeg", "-y", "-i", str(input_path),
-            "-f", "s16le",
-            "-acodec", "pcm_s16le",
-            "-ar", str(sample_rate),
-            "-ac", str(CHANNELS),
-            "-loglevel", "error",
-            "pipe:1",
-        ],
-        capture_output=True,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(f"ffmpeg 转换失败: {result.stderr.decode().strip()}")
-
-    return result.stdout
+    """将音视频文件转换为 PCM s16le 原始音频数据。"""
+    return AudioConverter.decode_to_pcm16_bytes(input_path, sample_rate=sample_rate)
 
 
 def pcm_to_wav(pcm_data: bytes, sample_rate: int = SAMPLE_RATE, channels: int = CHANNELS) -> bytes:
-    """将 PCM s16le 数据包装为 WAV 格式。
-
-    Args:
-        pcm_data: PCM s16le 原始数据
-        sample_rate: 采样率
-        channels: 声道数
-
-    Returns:
-        完整的 WAV 文件字节数据
-    """
-    buf = io.BytesIO()
-    with wave.open(buf, "wb") as wf:
-        wf.setnchannels(channels)
-        wf.setsampwidth(BYTES_PER_SAMPLE)
-        wf.setframerate(sample_rate)
-        wf.writeframes(pcm_data)
-    return buf.getvalue()
+    """将 PCM s16le 数据包装为 WAV 格式。"""
+    return AudioConverter.pcm16_to_wav_bytes(pcm_data, sample_rate=sample_rate, channels=channels)
 
 
 def get_audio_duration(pcm_data: bytes, sample_rate: int = SAMPLE_RATE) -> float:
     """计算 PCM 数据的时长（秒）。"""
-    return len(pcm_data) / (sample_rate * BYTES_PER_SAMPLE)
+    return AudioConverter.get_audio_duration(pcm_data, sample_rate=sample_rate, sample_width=BYTES_PER_SAMPLE)
 
 
 async def stream_pcm_chunks(

@@ -1,70 +1,23 @@
-"""音频转换工具函数。"""
+"""音频转换工具函数（向后兼容层，底层委托给 AudioConverter）。"""
 
-import base64
-import subprocess
 from pathlib import Path
+
+from app.utils.audio_converter import AudioConverter
 
 
 def convert_to_wav(input_path: str | Path, sample_rate: int = 16000, channels: int = 1) -> Path:
-    """将音视频文件转换为 WAV 格式。
-
-    Args:
-        input_path: 输入文件路径
-        sample_rate: 采样率，默认 16000
-        channels: 声道数，默认 1（单声道）
-
-    Returns:
-        转换后的 WAV 文件路径
-    """
-    input_path = Path(input_path)
-    output_path = input_path.with_suffix(".wav")
-
-    subprocess.run(
-        [
-            "ffmpeg", "-y", "-i", str(input_path),
-            "-ar", str(sample_rate),
-            "-ac", str(channels),
-            "-f", "wav",
-            str(output_path),
-        ],
-        capture_output=True,
-        check=True,
-    )
-
-    return output_path
+    """将音视频文件转换为 WAV 格式。"""
+    return AudioConverter.convert_file_to_wav(input_path, sample_rate=sample_rate, channels=channels)
 
 
 def get_wav_duration(audio_data: bytes | str | Path) -> float:
     """快速获取 WAV 音频的时长（秒）。"""
-    import io
-    import wave
-
-    try:
-        if isinstance(audio_data, (str, Path)):
-            with wave.open(str(audio_data), "rb") as wf:
-                frames = wf.getnframes()
-                rate = wf.getframerate()
-                return round(frames / float(rate), 3) if rate > 0 else 0.0
-        else:
-            with wave.open(io.BytesIO(audio_data), "rb") as wf:
-                frames = wf.getnframes()
-                rate = wf.getframerate()
-                return round(frames / float(rate), 3) if rate > 0 else 0.0
-    except Exception:
-        return 0.0
+    return AudioConverter.get_audio_duration(audio_data)
 
 
 def audio_to_base64(file_path: str | Path) -> str:
-    """将音频文件转换为 Base64 编码字符串。
-
-    Args:
-        file_path: 音频文件路径
-
-    Returns:
-        Base64 编码的字符串
-    """
+    """将音频文件转换为 Base64 编码字符串。"""
     file_path = Path(file_path)
     with open(file_path, "rb") as f:
         audio_bytes = f.read()
-    return base64.b64encode(audio_bytes).decode("utf-8")
-
+    return AudioConverter.pcm16_to_base64(audio_bytes)
