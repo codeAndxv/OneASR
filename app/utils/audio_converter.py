@@ -68,25 +68,35 @@ class AudioConverter:
         return samples_i16.tobytes()
 
     @staticmethod
-    def pcm_bytes_to_float32(pcm_bytes: bytes, sample_width: int = 2) -> np.ndarray:
-        """通用 PCM 字节转 Float32（支持 16-bit 整数或 32-bit 浮点）。
+    def resample_float32(audio_np: np.ndarray, orig_sr: int, target_sr: int) -> np.ndarray:
+        """对 1D Float32 音频数据进行内存重采样。
 
-        Args:
-            pcm_bytes: PCM 字节流
-            sample_width: 采样字节深度，2 为 Int16，4 为 Float32
+        使用 numpy.interp 进行线性插值重采样，零依赖且速度极快。
         """
-        if not pcm_bytes:
+        if orig_sr == target_sr or audio_np is None or len(audio_np) == 0:
+            return audio_np
+        if orig_sr <= 0 or target_sr <= 0:
+            return audio_np
+
+        num_target_samples = int(round(len(audio_np) * float(target_sr) / float(orig_sr)))
+        if num_target_samples == 0:
             return np.empty(0, dtype=np.float32)
 
-        if sample_width == 2:
-            return AudioConverter.pcm16_to_float32(pcm_bytes)
-        elif sample_width == 4:
-            valid_len = (len(pcm_bytes) // 4) * 4
-            if valid_len == 0:
-                return np.empty(0, dtype=np.float32)
-            return np.frombuffer(pcm_bytes[:valid_len], dtype=np.float32).copy()
-        else:
-            raise ValueError(f"不支持的 sample_width: {sample_width}，仅支持 2 (int16) 或 4 (float32)")
+        x_orig = np.linspace(0, 1, len(audio_np), endpoint=False)
+        x_target = np.linspace(0, 1, num_target_samples, endpoint=False)
+        return np.interp(x_target, x_orig, audio_np).astype(np.float32)
+
+    @staticmethod
+    def resample_pcm16(pcm_bytes: bytes, orig_sr: int, target_sr: int) -> bytes:
+        """对 S16LE PCM 字节流进行重采样。"""
+        if orig_sr == target_sr or not pcm_bytes:
+            return pcm_bytes
+        if orig_sr <= 0 or target_sr <= 0:
+            return pcm_bytes
+
+        float_samples = AudioConverter.pcm16_to_float32(pcm_bytes)
+        resampled_float = AudioConverter.resample_float32(float_samples, orig_sr, target_sr)
+        return AudioConverter.float32_to_pcm16(resampled_float)
 
     # ═══════════════════════════════════════════════════════════════
     # 2. Base64 编码与解码 (Base64 Utilities)

@@ -367,7 +367,7 @@ while True:
 
 严格遵循 OpenAI Realtime Transcription API 协议。客户端可无缝切换到 OpenAI 云端服务。
 
-#### 连接
+#### 连接与会话创建
 
 ```
 ws://<host>/v1/realtime?api_key=<key>
@@ -378,9 +378,29 @@ ws://<host>/v1/realtime?api_key=<key>
 Authorization: Bearer <api_key>
 ```
 
+握手认证成功后，服务端会立即下发 `session.created` 事件：
+
+```jsonc
+{
+  "type": "session.created",
+  "session": {
+    "id": "session_abc123",
+    "type": "transcription",
+    "audio": {
+      "input": {
+        "format": { "type": "audio/pcm", "rate": 24000 },
+        "transcription": {
+          "model": "gpt-live-transcribe"
+        }
+      }
+    }
+  }
+}
+```
+
 #### 会话配置
 
-发送 `session.update` 创建转录会话：
+发送 `session.update` 自定义转录会话：
 
 ```jsonc
 {
@@ -615,6 +635,138 @@ Authorization: Bearer <api_key>
   │  ◄── {"type": "done"} ────────  │  扩展：结束通知
   │                                   │  关闭连接
 ```
+
+---
+
+## 实时流式切句与端点控制设计：标点与语义动态软断句
+
+在实时流式语音识别（Realtime ASR，如 X-ASR / sherpa-onnx Zipformer）中，如何将持续输入的音频流合理切分为适宜字幕阅读与 LLM 处理的独立句子，是实时系统的核心体验分水岭。
+
+### 1. 传统纯声学静音检测（Endpointing Rules）的痛点
+
+底层 ASR 引擎（如 sherpa-onnx）通常仅提供基于物理音频能量的静音规则（`rule1` 未出字静音、`rule2` 尾部静音、`rule3` 最大句长）：
+
+* **Rule 2（尾部静音超时）与人类说话习惯脱节**：
+  * 日常说话、播客、演讲中，短句之间的呼吸/微停顿通常仅有 **200ms ~ 400ms**。
+  * 若将 `rule2` 设为 0.8s ~ 1.2s，连续语流中永远无法触发静音断句，导致单句累积长达 20~30 秒（长达 50~80 字），字幕排版和阅读体验崩溃。
+  * 若将 `rule2` 激进缩短至 0.3s，发爆破音、轻微换气时会被频繁误切，导致词组腰斩（如 `我今天` | `去了` | `超市`）。
+* **Rule 3（强制句长截断）无视语义与标点**：
+  * 当累积到设定时长（如 20s）时，底层在音频物理帧盲目截断，造成**词汇腰斩**（如 `设立了一个新的` ✂️ `目标`）和**标点悬挂在下一句句首**（如 `？ 他给我印象...`、`。我为什么...`）。
+
+---
+
+### 2. 方案 A：标点感知与语义动态软断句 (Semantic / Punctuation-Aware Soft Endpointing)
+
+OneASR 采用**声学静音 + 模型内生标点 + 句长动态协同**的软断句策略，在 `/v1/realtimeext` 与 `/v1/realtime` 中全面生效：
+
+```
+                              音频帧输入 (input_audio_buffer.append)
+                                               │
+                                       Transducer 解码
+                                               │
+                                      生成增量 Delta 文本
+                                               │
+                                 ┌─────────────┴─────────────┐
+                                 ▼                           ▼
+                        草稿推送 (Delta Event)       软断句评估 (evaluate_soft_endpoint)
+                                                             │
+                  ┌──────────────────────────────────────────┼──────────────────────────────────────────┐
+                  ▼                                          ▼                                          ▼
+     1. 物理声学静音端点                       2. 句末强标点 (。？！.?!)                 3. 分句弱标点 (，；、,;)
+(sherpa is_endpoint == True)             (duration >= 1.5s 且末尾为句末标点)      (duration >= 4.0s 且末尾为停顿标点)
+                  │                                          │                                          │
+                  └──────────────────────────────────────────┼──────────────────────────────────────────┘
+                                                             │ 满足任一条件
+                                                             ▼
+                                                触发 Soft Endpoint
+                                                             │
+                                              ① 净化句首残留悬挂标点
+                                              ② 推送 sentence / completed 事件
+                                              ③ 更新时间戳 (start, end)
+                                              ④ 重置 stream 状态进入新句
+```
+
+#### 判定规则矩阵
+
+| 触发条件 | 判据逻辑 | 业务意义 | 典型输出示例 |
+| :--- | :--- | :--- | :--- |
+| **强标点即刻断句** | `duration >= 1.5s` 且末尾字符为 `。`、`？`、`！`、`.`、`?`、`!` | 说话人完成了一个完整的问句、感叹句或陈述句 | `那就是大学毕业他要怎么办？` [9.8s - 13.3s] |
+| **弱标点黄金段落断句** | `duration >= 4.0s`（或字数 $\ge 16$）且末尾字符为 `，`、`；`、`、`、`,`、`;` | 说话人长陈述中出现了停顿分句，顺势按逗号断句，杜绝巨型段落 | `那个时候我们上了北大以后都都很轻松终于熬过了高考，` [0.0s - 4.5s] |
+| **超长保护安全网** | `duration >= 8.0s` | 说话人连珠炮且无任何标点时的安全兜底，防止单句无限膨胀 | 达到 8.0s 触发保护断句 |
+| **物理声学静音** | sherpa `is_endpoint() == True` | 说话人完全停顿（常规停顿或发言结束） | 静音断句 |
+
+---
+
+### 3. 句首悬挂标点清洗机制 (Dangling Punctuation Sanitization)
+
+当上一句由于时间或标点触发截断时，由于声学滑动窗口的重叠，解码器在开启新句的起始帧时往往会吐出属于前一句尾部的标点（如 `？`、`。`、`，`）。
+
+OneASR 引入了自动句首标点净化器：
+```python
+DANGLING_PUNCTUATIONS = " \t\n\r，,。、；;：:？！?!…—"
+
+def clean_dangling_punct(text: str) -> str:
+    """去除句子开头误带出的上一句残留标点和空白。"""
+    return text.lstrip(DANGLING_PUNCTUATIONS)
+```
+* 在推送首个 `delta` 增量、发送 `sentence` 定稿以及 `commit` 最终尾句时，自动剥离前缀悬挂标点。
+* 彻底消除 `？ 他给我印象最深的是...`、`。我为什么形容他是家庭呢？` 等标点错位伪影。
+
+---
+
+## 实时传输协议选型分析：WebSocket vs WebRTC
+
+在实时语音识别（Realtime ASR）的传输协议选型上，存在 **WebSocket** 与 **WebRTC** 两种主流技术路线。本节系统对比两者的核心差异，并给出 OneASR 的选型决策与技术依据。
+
+### 1. 核心技术指标对比
+
+| 维度 | WebSocket | WebRTC |
+| :--- | :--- | :--- |
+| **底层传输协议** | **TCP**（面向连接、强可靠传输、严格保序） | **UDP**（基于 SRTP/SCTP，无连接、弱可靠、时效优先） |
+| **建连与网络穿透** | **极简**：标准 HTTP Upgrade 握手，单端口（80/443），天然穿透代理与防火墙 | **复杂**：需 SDP 协商，依赖 ICE/STUN/TURN 服务器辅助 NAT 打洞与 DTLS 加密 |
+| **网络传输延迟** | 正常网络下 **50ms ~ 200ms** | 极致低延迟 **20ms ~ 100ms**（专为音视频双向通话设计） |
+| **弱网与丢包策略** | **无损保序**：丢包时触发 TCP 拥塞控制与重传，保证数据 100% 完整到达 | **主动丢包**：优先保实时性，网络拥塞时主动丢弃过期音频帧并做插值补齐 |
+| **音频编解码支持** | 传输层中立，支持任意格式（PCM16、Opus、WAV 等）以纯二进制或 Base64 传输 | 原生内置媒体引擎（默认 **Opus** 编解码），内置 Jitter Buffer、AEC、AGC |
+| **工程实现与依赖** | **轻量极简**：FastAPI、浏览器、iOS/macOS 原生 `URLSession` 零第三方 C++ 依赖 | **庞大复杂**：服务端需引入 `aiortc` 或部署 SFU 媒体服务器；客户端需集成数十 MB 的 `libwebrtc` 库 |
+
+---
+
+### 2. 行业实践与 OpenAI 设计动机
+
+* **OpenAI 的双协议策略**：
+  * **WebSocket API** (`wss://api.openai.com/v1/realtime`)：采用统一的 JSON 事件（`input_audio_buffer.append` 携带 Base64 音频）。作为标准基线，统一了文本、音频、Tool Call、会话状态的多模态协议，降低跨语言开发者接入成本。
+  * **WebRTC API**：专为 **Voice-to-Voice 实时语音全双工对话（Advanced Voice Mode）** 设计。人机交互通话要求端到端延迟控制在 300ms 以内，为了拟真对话体验，宁可损失极少量丢包音频，也要避免 TCP 重传阻塞，且原生态支持打断（Barge-in）与回声消除。
+* **主流 ASR 工业界实践**：
+  * 包括 **Azure Speech SDK、阿里通义听悟 / 达摩院 ASR、腾讯云实时 ASR、百度 ASR** 等主流云厂商的实时转录服务，**均将 WebSocket 作为标准核心流式协议**。
+
+---
+
+### 3. OneASR 是否有必要实现 WebRTC？
+
+**决策结论：当前阶段完全没有必要，且在纯 ASR 场景下 WebSocket 是更优解。**
+
+#### 决策依据：
+
+1. **ASR 识别的核心诉求是「高精度无损」，忌讳音频丢包**：
+   * 语音识别依赖声音特征的连续性。WebRTC 在网络抖动时丢弃的几百毫秒音频，会导致模型**漏字、吞字或触发错词幻觉**。
+   * WebSocket（基于 TCP）确保送入 ASR 引擎的音频帧 **100% 完整且保序**，这是保证字幕转录准确率的前提。
+
+2. **识别延迟的瓶颈在「模型推理与 Chunk 窗口」，而非「网络层」**：
+   * 流式 ASR 引擎（如 sherpa-onnx、WhisperLiveKit、Paraformer）本身需按 **100ms ~ 300ms** 的音频 Chunk 提取声学特征并进行 Beam Search 解码。
+   * 在局域网或常规宽带下，WebSocket 的网络往返时延（10ms ~ 40ms）远小于模型本身的滑动窗口，改用 WebRTC **无法实质性加快字幕上屏速度**。
+
+3. **架构与运维成本控制**：
+   * **服务端**：Python 原生运行 WebRTC 需要 `aiortc`（绑定复杂的 C 依赖如 `av`, `cryptography`, `pylibsrtp`），在 Docker 跨平台分发和生产高并发场景下维护成本高，且通常需要额外维护 STUN/TURN 服务器集群。
+   * **客户端（DuRT）**：macOS 客户端使用系统原生 `URLSessionWebSocketTask` 仅几十行代码即可保证极高稳定性；引入 WebRTC 则需额外引入体积庞大的框架。
+
+---
+
+### 4. 推荐演进路线
+
+* **基线方案**：全面保持与完善基于 **WebSocket** 的 `/v1/realtime`（OpenAI 标准协议）与 `/v1/realtimeext`（OneASR 扩展协议）。
+* **高性能优化（替代 WebRTC 的轻量解法）**：
+  * 在 WebSocket 连接中支持 **直接接收二进制数据帧（Binary Frame）**。
+  * 客户端直接推流 16-bit PCM 二进制包，绕过 Base64 编码，兼顾与 WebRTC 相当的传输性能，同时保留 TCP 传输的 100% 可靠性与零额外库依赖。
 
 ---
 

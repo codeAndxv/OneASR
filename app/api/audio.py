@@ -246,9 +246,9 @@ async def _handle_sync(rid, record_id, data, filename, eng, model, language,
     t_recog = time.time()
     text, segments = await eng.transcribe_file(data)
     recog_time = time.time() - t_recog
-    total_time = time.time() - t_start
-    logger.info("[transcriptions][%s] 转录完成: %d 段, %d 字符, %.2fs",
-                rid, len(segments), len(text), recog_time)
+    preview = (text[:60] + "...") if len(text) > 60 else text
+    logger.info("[transcriptions][%s] 转录完成: %d 段, %d 字符, 耗时=%.2fs (识别=%.2fs), 文本='%s'",
+                rid, len(segments), len(text), total_time, recog_time, preview)
 
     duration = segments[-1].end if segments else 0.0
 

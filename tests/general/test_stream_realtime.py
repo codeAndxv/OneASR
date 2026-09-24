@@ -53,6 +53,11 @@ class TestRealtimeEndpoint:
             mock_get_engine.return_value = mock_engine
 
             with client.websocket_connect("/v1/realtime?api_key=oneasr-key") as ws:
+                # 握手成功首先收到 session.created
+                created_msg = ws.receive_json()
+                assert created_msg["type"] == "session.created"
+                assert created_msg["session"]["id"] is not None
+
                 # 发送 session.update
                 ws.send_json({
                     "type": "session.update",
@@ -97,6 +102,9 @@ class TestRealtimeEndpoint:
             mock_get_engine.return_value = mock_engine
 
             with client.websocket_connect("/v1/realtime?api_key=oneasr-key") as ws:
+                # 接收 session.created
+                ws.receive_json()
+
                 # 直接发送音频（未配置 session）
                 ws.send_json({
                     "type": "input_audio_buffer.append",
@@ -126,6 +134,9 @@ class TestRealtimeEndpoint:
             mock_get_engine.return_value = mock_engine
 
             with client.websocket_connect("/v1/realtime?api_key=oneasr-key") as ws:
+                # 接收 session.created
+                ws.receive_json()
+
                 # 配置 session
                 ws.send_json({
                     "type": "session.update",
@@ -173,6 +184,9 @@ class TestRealtimeEndpoint:
             mock_get_engine.return_value = mock_engine
 
             with client.websocket_connect("/v1/realtime?api_key=oneasr-key") as ws:
+                # 接收 session.created
+                ws.receive_json()
+
                 # 配置 session
                 ws.send_json({
                     "type": "session.update",
@@ -214,6 +228,9 @@ class TestRealtimeEndpoint:
             mock_get_engine.return_value = mock_engine
 
             with client.websocket_connect("/v1/realtime?api_key=oneasr-key") as ws:
+                # 接收 session.created
+                ws.receive_json()
+
                 # 配置 session
                 ws.send_json({
                     "type": "session.update",
@@ -242,12 +259,11 @@ class TestRealtimeProtocol:
     def test_session_update_requires_session_field(self, client):
         """session.update 必须包含 session 字段。"""
         with client.websocket_connect("/v1/realtime?api_key=oneasr-key") as ws:
+            # 接收 session.created
+            ws.receive_json()
+
             # 发送无效的 session.update（缺少 session 字段）
             ws.send_json({"type": "session.update"})
-
-            # 服务端可能返回错误或忽略
-            # 由于 session 为 None，get_engine 会被调用但可能失败
-            # 关键是不应该崩溃
 
 
 if __name__ == "__main__":

@@ -32,9 +32,11 @@ async def list_providers():
             "languages": base_config.languages if base_config else [],
         })
 
+    prov_names = [p["id"] for p in providers]
     logger.info(
-        "[providers] 查询已加载 Provider: 共 %d 个",
+        "[providers] 查询已加载 Provider: 共 %d 个 (%s)",
         len(providers),
+        ", ".join(prov_names) if prov_names else "无",
     )
 
     return {

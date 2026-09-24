@@ -391,7 +391,7 @@ async def create_transcription_task(
         _running_tasks.pop(_tid, None)
     asyncio.create_task(_cleanup())
 
-    logger.info("[tasks][%s] 任务已创建: model=%s lang=%s file=%s", rid, req.model, req.language, filename)
+    logger.info("[tasks][%s] 任务已创建: model=%s lang=%s source=%s file=%s", rid, req.model, req.language, source_type, filename)
 
     return TaskCreateResponse(
         task_id=task_id,
@@ -412,6 +412,7 @@ async def get_transcription_task(task_id: str):
         task = result.scalar_one_or_none()
 
     if task is None:
+        logger.warning("[tasks][%s] 任务不存在", task_id[:8])
         raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
 
     # Load segments
@@ -427,6 +428,8 @@ async def get_transcription_task(task_id: str):
             for s in db_segments
         ]
 
+    logger.info("[tasks][%s] 查询任务状态: status=%s, progress=%.1f%%, segments=%d",
+                task_id[:8], task.status, task.progress * 100, len(segments))
     return _task_to_status(task, segments)
 
 
@@ -601,6 +604,7 @@ async def cancel_transcription_task(task_id: str):
             t.updated_at = datetime.now(timezone.utc)
             await session.commit()
 
+    logger.info("[tasks][%s] 任务已取消: filename=%s", task_id[:8], task.filename)
     return TaskCancelResponse(message="Task cancelled", task_id=task_id)
 
 
@@ -630,6 +634,8 @@ async def list_transcription_tasks(
         result = await session.execute(stmt)
         tasks = result.scalars().all()
 
+    logger.info("[tasks] 查询任务列表: status_filter=%s, total=%d, offset=%d, limit=%d, returned=%d",
+                status, total, offset, limit, len(tasks))
     return TaskListResponse(
         tasks=[_task_to_status(t) for t in tasks],
         total=total,

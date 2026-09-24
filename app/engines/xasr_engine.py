@@ -41,19 +41,24 @@ logger = logging.getLogger(__name__)
 class XASRStreamingSession:
     """X-ASR 流式识别会话，封装 sherpa-onnx OnlineStream。"""
 
-    def __init__(self, recognizer, sample_rate: int):
+    def __init__(self, recognizer, sample_rate: int, input_sample_rate: int | None = None):
         self._recognizer = recognizer
         self._sample_rate = sample_rate
+        self._input_sample_rate = input_sample_rate or sample_rate
         self._stream = recognizer.create_stream()
         self._final_text = ""
         self._last_partial = ""
 
-    def accept_audio(self, pcm_bytes: bytes):
-        """接收音频数据，通过 AudioConverter 转为 float32 格式送入识别器。"""
+    def accept_audio(self, pcm_bytes: bytes, input_sample_rate: int | None = None):
+        """接收音频数据，自动进行采样率对齐，并通过 AudioConverter 转为 float32 格式送入识别器。"""
         if not pcm_bytes:
             return
 
+        in_rate = input_sample_rate or self._input_sample_rate or self._sample_rate
         samples = AudioConverter.pcm16_to_float32(pcm_bytes)
+        if in_rate != self._sample_rate and len(samples) > 0:
+            samples = AudioConverter.resample_float32(samples, in_rate, self._sample_rate)
+
         if len(samples) > 0:
             self._stream.accept_waveform(self._sample_rate, samples)
 
@@ -131,14 +136,18 @@ class XASREngine(ASREngine):
         self._provider: str = getattr(config, "provider", "cpu") or "cpu"
         self._num_threads: int = int(getattr(config, "num_threads", 1))
         self._decoding_method: str = getattr(config, "decoding_method", "greedy_search") or "greedy_search"
-        self._enable_endpoint_detection: bool = bool(getattr(config, "enable_endpoint_detection", False))
+        self._enable_endpoint_detection: bool = bool(getattr(config, "enable_endpoint_detection", True))
+        self._rule1_min_trailing_silence: float = float(getattr(config, "rule1_min_trailing_silence", 2.4))
+        self._rule2_min_trailing_silence: float = float(getattr(config, "rule2_min_trailing_silence", 1.2))
+        self._rule3_min_utterance_length: float = float(getattr(config, "rule3_min_utterance_length", 20.0))
 
         # 懒加载识别器
         self._recognizer = None
 
         logger.info(
-            "[XASR] 引擎配置: sample_rate=%d, provider=%s, decoding=%s, endpoint=%s",
+            "[XASR] 引擎配置: sample_rate=%d, provider=%s, decoding=%s, endpoint=%s, rule1=%.2fs, rule2=%.2fs, rule3=%.2fs",
             self.sample_rate, self._provider, self._decoding_method, self._enable_endpoint_detection,
+            self._rule1_min_trailing_silence, self._rule2_min_trailing_silence, self._rule3_min_utterance_length,
         )
 
         # 启动时立即校验路径并加载模型
@@ -219,6 +228,9 @@ class XASREngine(ASREngine):
                 provider=self._provider,
                 decoding_method=self._decoding_method,
                 enable_endpoint_detection=self._enable_endpoint_detection,
+                rule1_min_trailing_silence=self._rule1_min_trailing_silence,
+                rule2_min_trailing_silence=self._rule2_min_trailing_silence,
+                rule3_min_utterance_length=self._rule3_min_utterance_length,
             )
             logger.info("[XASR] 模型加载完成")
         except Exception as e:
@@ -226,10 +238,10 @@ class XASREngine(ASREngine):
             logger.error(err_msg, exc_info=True)
             raise RuntimeError(err_msg) from e
 
-    def create_stream_session(self) -> XASRStreamingSession:
+    def create_stream_session(self, input_sample_rate: int | None = None) -> XASRStreamingSession:
         """创建一个新的流式识别会话。"""
         self._ensure_recognizer()
-        return XASRStreamingSession(self._recognizer, self.sample_rate)
+        return XASRStreamingSession(self._recognizer, self.sample_rate, input_sample_rate=input_sample_rate)
 
     # ── ASREngine 接口（文件转录不支持）──
 

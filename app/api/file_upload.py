@@ -220,6 +220,7 @@ async def list_files():
         )
         for r in records
     ]
+    logger.info("[upload] 查询文件列表: 共 %d 个文件", len(file_list))
     return FileListResponse(files=file_list, total=len(file_list))
 
 
@@ -233,8 +234,10 @@ async def get_file_info(file_id: str):
         record = result.scalar_one_or_none()
 
     if not record:
+        logger.warning("[upload] 文件不存在: file_id=%s", file_id)
         raise HTTPException(status_code=404, detail="File not found")
 
+    logger.info("[upload] 查询单个文件: file_id=%s, filename=%s, size=%d", file_id, record.filename, record.file_size)
     return FileInfo(
         file_id=record.file_id,
         filename=record.filename,

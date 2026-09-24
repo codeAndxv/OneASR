@@ -107,6 +107,7 @@ async def parse_media(req: ParseRequest):
 
     platform = media_service.detect_platform(req.url)
     task_id = await media_service.create_parse_task(req.url, fmt)
+    logger.info("[media] 收到媒体解析任务: url=%s, platform=%s, format=%s -> task_id=%s", req.url, platform, fmt, task_id)
 
     return ParseResponse(task_id=task_id, status="pending", platform=platform)
 
@@ -118,6 +119,7 @@ async def list_parse_tasks(
 ):
     """列出所有下载任务（按创建时间倒序）。"""
     records = await media_service.list_tasks(limit=limit, offset=offset)
+    logger.info("[media] 查询任务列表: total=%d, offset=%d, limit=%d", len(records), offset, limit)
     return TaskListResponse(
         tasks=[_record_to_info(r) for r in records],
         total=len(records),
@@ -129,7 +131,10 @@ async def get_parse_task(task_id: str):
     """查询单个任务的最新状态与进度。"""
     record = await media_service.get_task(task_id)
     if not record:
+        logger.warning("[media] 任务不存在: task_id=%s", task_id)
         raise HTTPException(status_code=404, detail="Task not found")
+    logger.info("[media] 查询任务状态: task_id=%s, status=%s, progress=%.1f%%",
+                task_id, record.status, (record.progress or 0.0) * 100)
     return _record_to_info(record)
 
 
@@ -141,7 +146,9 @@ async def delete_parse_task(task_id: str):
     """
     success, msg = await media_service.delete_task(task_id)
     if not success:
+        logger.warning("[media] 删除任务失败: task_id=%s, msg=%s", task_id, msg)
         raise HTTPException(status_code=404, detail=msg)
+    logger.info("[media] 删除任务成功: task_id=%s, msg=%s", task_id, msg)
     return TaskDeleteResponse(message=msg, task_id=task_id)
 
 
@@ -167,6 +174,7 @@ async def download_parse_file(task_id: str):
     ext = disk_path.suffix
     download_name = f"{record.platform or 'media'}_{safe_title}{ext}"
 
+    logger.info("[media] 下载解析媒体文件: task_id=%s, file=%s", task_id, download_name)
     return FileResponse(
         path=str(disk_path),
         filename=download_name,

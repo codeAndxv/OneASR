@@ -40,9 +40,11 @@ ASR-Providers:
       provider: cpu
       sample_rate: 16000
       feature_dim: 80
-      num_threads: 1
       decoding_method: greedy_search
-      enable_endpoint_detection: false
+      enable_endpoint_detection: true
+      rule1_min_trailing_silence: 2.4
+      rule2_min_trailing_silence: 1.2
+      rule3_min_utterance_length: 20.0
 
     # 属性
     properties:

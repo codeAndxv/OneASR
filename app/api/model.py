@@ -26,7 +26,8 @@ async def list_models():
             "shutdown_date": None,
         })
 
-    logger.info("[models] 查询可用模型: 共 %d 个", len(providers))
+    model_names = [p["id"] for p in providers]
+    logger.info("[models] 查询可用模型: 共 %d 个 (%s)", len(providers), ", ".join(model_names) if model_names else "无")
 
     return {
         "object": "list",
@@ -40,6 +41,7 @@ async def retrieve_model(model_id: str):
     from app.core.errors import OpenAIAPIException
 
     if model_id not in app_config.providers:
+        logger.warning("[models] 模型不存在: model_id=%s", model_id)
         raise OpenAIAPIException(
             status_code=404,
             message=f"The model '{model_id}' does not exist.",
@@ -47,6 +49,7 @@ async def retrieve_model(model_id: str):
             param="model",
             code="model_not_found",
         )
+    logger.info("[models] 查询单个模型详情: model_id=%s", model_id)
     cfg = app_config.providers[model_id]
     return {
         "id": model_id,
