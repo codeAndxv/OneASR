@@ -17,7 +17,8 @@ from pathlib import Path
 from sqlalchemy import select, update
 
 from app.db import async_session
-from app.models.orm_models import MediaParseRecord
+import hashlib
+from app.models.orm_models import MediaParseRecord, UploadedFile
 from app.utils.video_url import (
     DOWNLOAD_DIR,
     download_video,
@@ -98,17 +99,45 @@ async def _run_download(task_id: str, url: str, video_format: bool) -> None:
         )
         await _update_video_info(task_id, video_info)
 
-        # 3) 写完成态
+        # 3) 注册为 UploadedFile 资产
+        disk_file = Path(file_path)
+        content_bytes = disk_file.read_bytes() if disk_file.exists() else b""
+        actual_md5 = hashlib.md5(content_bytes).hexdigest() if content_bytes else ""
+        
+        file_id = str(uuid.uuid4())
+        upload_dir = Path("./uploads")
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        saved_path = upload_dir / f"{file_id}{disk_file.suffix}"
+        
+        # 写入 uploads
+        import shutil
+        if disk_file.exists():
+            shutil.copy2(disk_file, saved_path)
+            
+        async with async_session() as session:
+            record = UploadedFile(
+                file_id=file_id,
+                filename=disk_file.name,
+                file_size=file_size,
+                file_md5=actual_md5,
+                storage_path=str(saved_path),
+                content_type="audio/m4a" if not video_format else "video/mp4",
+            )
+            session.add(record)
+            await session.commit()
+
+        # 4) 写完成态
         await _update(
             task_id,
             status="succeeded",
             progress=1.0,
             file_path=file_path,
             file_size=file_size,
+            file_id=file_id,
             completed_at=_utcnow(),
         )
-        logger.info("[media] 下载成功: task_id=%s path=%s size=%d",
-                    task_id, file_path, file_size)
+        logger.info("[media] 下载成功并已注册为文件资产: task_id=%s file_id=%s path=%s size=%d",
+                    task_id, file_id, file_path, file_size)
 
     except Exception as e:
         logger.warning("[media] 下载失败: task_id=%s error=%s", task_id, e)

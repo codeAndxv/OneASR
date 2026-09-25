@@ -1,7 +1,7 @@
 # OneASR 模型配置文件
 
 # API Key（所有接口必须携带此 key）
-api_key: oneasr-key
+api_key: sk-oneasr-v1-p_L3kXm9QZ8sT2vA4wE7rY1u
 
 # ASR Toolkit 全局切片与 VAD 配置（长音频切片、分句与字幕分段参数）
 ASR-Toolkit:

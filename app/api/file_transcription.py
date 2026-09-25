@@ -46,8 +46,7 @@ NATIVE_AUDIO_FORMATS = {".wav"}
 # ── Pydantic response models ─────────────────────────────────────
 
 class TaskCreateRequest(BaseModel):
-    file_uuid: Optional[str] = Field(None, description="Uploaded file UUID")
-    file_url: Optional[str] = Field(None, description="Audio file URL")
+    file_uuid: str = Field(..., description="Uploaded file UUID")
     model: str = Field(..., description="Model identifier (engine_name/model_name)")
     language: Optional[str] = Field(None, description="Language code (ISO-639-1)")
     response_format: Optional[str] = Field("json", description="Output format")
@@ -338,28 +337,14 @@ async def create_transcription_task(
     now = datetime.now(timezone.utc)
 
     # Determine source and filename
-    source_type = ""
-    filename = "unknown"
-    file_size: int | None = None
-    saved_file_uuid: str | None = None
-
-    if req.file_url:
-        source_type = "file_url"
-        filename = Path(req.file_url.split("?")[0]).name or "audio.wav"
-        logger.info("[tasks][%s] URL source: %s", rid, req.file_url)
-
-    elif req.file_uuid:
-        source_type = "file_uuid"
-        info = await get_uploaded_file(req.file_uuid)
-        if info is None:
-            raise HTTPException(status_code=404, detail=f"File not found: {req.file_uuid}")
-        filename = info.filename
-        file_size = info.file_size if hasattr(info, "file_size") else None
-        saved_file_uuid = req.file_uuid
-        logger.info("[tasks][%s] UUID source: %s (%s)", rid, req.file_uuid, filename)
-
-    else:
-        raise HTTPException(status_code=400, detail="Must provide either file_uuid or file_url parameter")
+    source_type = "file_uuid"
+    info = await get_uploaded_file(req.file_uuid)
+    if info is None:
+        raise HTTPException(status_code=404, detail=f"File not found: {req.file_uuid}")
+    filename = info.filename
+    file_size = info.file_size if hasattr(info, "file_size") else None
+    saved_file_uuid = req.file_uuid
+    logger.info("[tasks][%s] UUID source: %s (%s)", rid, req.file_uuid, filename)
 
     # Create DB record
     async with async_session() as session:
@@ -370,7 +355,6 @@ async def create_transcription_task(
             source_type=source_type,
             filename=filename,
             file_size=file_size,
-            file_url=req.file_url if source_type == "file_url" else None,
             file_uuid=saved_file_uuid,
             model=req.model,
             language=req.language,

@@ -56,6 +56,35 @@ class FileDeleteResponse(BaseModel):
     file_id: str = Field(..., description="删除的文件UUID")
 
 
+class FetchURLRequest(BaseModel):
+    """从网络 URL 异步拉取并导入为文件资产"""
+    url: str = Field(..., description="音视频媒体 URL (YouTube/B站/抖音等)")
+    format: str = Field("audio", description="提取格式：audio 或 video")
+
+
+class FetchURLResponse(BaseModel):
+    """URL 拉取任务创建响应"""
+    task_id: str = Field(..., description="任务 ID，用于后续轮询状态")
+    status: str = Field("pending", description="初始状态")
+
+
+class FetchURLTaskInfo(BaseModel):
+    """URL 拉取任务状态响应"""
+    task_id: str
+    url: str
+    status: str = Field(..., description="pending / running / succeeded / failed")
+    progress: float = 0.0
+    file_id: Optional[str] = Field(None, description="下载完成并注册后的文件 UUID")
+    filename: Optional[str] = None
+    file_size: Optional[int] = None
+    title: Optional[str] = None
+    duration_seconds: Optional[int] = None
+    uploader: Optional[str] = None
+    error_message: Optional[str] = None
+    created_at: str
+    completed_at: Optional[str] = None
+
+
 # ── 常量 ────────────────────────────────────────────────────────────
 
 SUPPORTED_FORMATS = {
@@ -272,3 +301,46 @@ async def delete_file(file_id: str):
 
     logger.info("[delete] 文件已删除: %s (ID: %s)", record.filename, file_id)
     return FileDeleteResponse(message="File deleted successfully", file_id=file_id)
+
+
+# ── URL 异步抓取并导入为文件资产 ────────────────────────────────────
+
+@router.post("/fetch-url", response_model=FetchURLResponse)
+async def fetch_file_from_url(req: FetchURLRequest):
+    """
+    提交音视频 URL，异步下载并注册为 UploadedFile 资产。
+    返回 task_id，客户端通过 GET /v1/file/fetch-url/{task_id} 轮询。
+    任务完成后会返回标准 file_id，可直接传给 /v1/file/transcriptions。
+    """
+    from app.services import media_service
+    task_id = await media_service.create_parse_task(req.url, req.format)
+    return FetchURLResponse(task_id=task_id, status="pending")
+
+
+@router.get("/fetch-url/{task_id}", response_model=FetchURLTaskInfo)
+async def get_fetch_url_status(task_id: str):
+    """
+    查询 URL 抓取并导入任务的状态与进度。
+    当 status 为 "succeeded" 时，可通过 file_id 获取已注册的文件资产 UUID。
+    """
+    from app.services import media_service
+    record = await media_service.get_task(task_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    return FetchURLTaskInfo(
+        task_id=record.id,
+        url=record.url,
+        status=record.status,
+        progress=record.progress or 0.0,
+        file_id=record.file_id,
+        filename=record.title or (Path(record.file_path).name if record.file_path else None),
+        file_size=record.file_size,
+        title=record.title,
+        duration_seconds=record.duration_seconds,
+        uploader=record.uploader,
+        error_message=record.error_message,
+        created_at=record.created_at.isoformat() if record.created_at else "",
+        completed_at=record.completed_at.isoformat() if record.completed_at else None,
+    )
+

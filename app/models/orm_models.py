@@ -69,6 +69,7 @@ class MediaParseRecord(Base):
 
     file_path = Column(String(1024), nullable=True, comment="成功后的本地相对路径")
     file_size = Column(Integer, nullable=True, comment="文件大小（字节）")
+    file_id = Column(String(36), nullable=True, index=True, comment="注册到 uploaded_files 后的 UUID")
     error_message = Column(Text, nullable=True, comment="失败信息")
 
     created_at = Column(DateTime(timezone=True), default=_utcnow, comment="提交时间")
