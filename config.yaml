@@ -48,7 +48,7 @@ ASR-Providers:
 
     # 属性
     properties:
-      functions:
+      categories:
         - RealtimeASR
       languages: zh, en
 
@@ -67,7 +67,7 @@ ASR-Providers:
 
     # 属性
     properties:
-      functions:
+      categories:
         - FileASR
       languages: zh, en, ja, ko, fr, de, es, it, ru, pt, nl, pl, ar, cs, da, fi, el, he, hu, id, ms, no, ro, sk, sv, th, tr, uk, vi, hi
 
@@ -89,6 +89,6 @@ ASR-Providers:
 
     # 属性
     properties:
-      functions:
+      categories:
         - FileASR
       languages: zh, en, ja, ko, fr, de, es, it, ru, pt, nl, pl, ar, cs, da, fi, el, he, hu, id, ms, no, ro, sk, sv, th, tr, uk, vi, hi

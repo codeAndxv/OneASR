@@ -56,8 +56,9 @@ class EngineConfig:
         self.decoding_method = _get_val("decoding_method", "greedy_search")
         self.enable_endpoint_detection = _get_val("enable_endpoint_detection", False)
 
-        # 功能支持
-        self.functions: list[str] = _get_val("functions", [])
+        # 服务类别支持 (RealtimeASR / FileASR 等)
+        self.categories: list[str] = _get_val("categories", _get_val("functions", []))
+        self.functions: list[str] = self.categories  # 兼容旧代码引用
 
         # 支持的语言列表（逗号分隔字符串 → list）
         raw = _get_val("languages", "")
