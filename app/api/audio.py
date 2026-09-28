@@ -19,7 +19,7 @@ from app.api.auth import get_api_key
 from app.core.config import app_config
 from app.core.errors import OpenAIAPIException
 from app.engines.registry import get_engine
-from app.models.schemas import OutputFormat
+from app.schemas.audio import OutputFormat
 from app.services.record_service import save_file_transcription_record
 from app.utils.audio import convert_to_wav
 from app.utils.format import format_output

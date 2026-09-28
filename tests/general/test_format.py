@@ -1,6 +1,6 @@
 """测试输出格式转换功能。"""
 
-from app.models.schemas import Segment
+from app.schemas.audio import Segment
 from app.utils.format import (
     OutputFormat,
     format_output,

@@ -8,7 +8,7 @@ import torch
 
 from app.core.config import EngineConfig
 from app.engines.base import ASREngine
-from app.models.schemas import Segment
+from app.schemas.audio import Segment
 from app.utils.asr_toolkit import ASRToolkit
 
 # 允许加载包含 argparse.Namespace 的模型

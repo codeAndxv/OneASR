@@ -9,7 +9,7 @@ from faster_whisper import WhisperModel
 
 from app.core.config import EngineConfig
 from app.engines.base import ASREngine
-from app.models.schemas import Segment
+from app.schemas.audio import Segment
 
 logger = logging.getLogger(__name__)
 

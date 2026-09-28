@@ -2,7 +2,7 @@
 
 from enum import Enum
 
-from app.models.schemas import Segment
+from app.schemas.audio import Segment
 
 
 class OutputFormat(str, Enum):

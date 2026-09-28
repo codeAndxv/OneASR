@@ -8,7 +8,7 @@ from openai import OpenAI
 
 from app.core.config import EngineConfig
 from app.engines.base import ASREngine
-from app.models.schemas import Segment
+from app.schemas.audio import Segment
 
 
 class OpenAIEngine(ASREngine):

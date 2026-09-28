@@ -35,6 +35,15 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+# ── 内存实时进度缓存（纳秒级原子读写，彻底解耦后台工作线程与数据库 I/O）─────────
+_TASK_PROGRESS: dict[str, float] = {}
+
+
+def get_realtime_progress(task_id: str, default: float = 0.0) -> float:
+    """获取任务当前的实时进度（优先读内存，降级读 DB）。"""
+    return _TASK_PROGRESS.get(task_id, default or 0.0)
+
+
 # ── 任务创建与后台执行 ────────────────────────────────────────────
 
 async def create_parse_task(url: str, fmt: str) -> str:
@@ -72,17 +81,18 @@ async def _run_download(task_id: str, url: str, video_format: bool) -> None:
     所有失败都捕获并写入 error_message，任务最终 status 一定收敛到 succeeded/failed。
     """
     try:
+        _TASK_PROGRESS[task_id] = 0.0
         await _update(task_id, status="running", progress=0.0)
 
         def _hook(d: dict) -> None:
-            # 同步回调在 to_thread 的工作线程里跑，DB 是异步的 —— 用 ensure_future 投递
+            # 同步回调在 to_thread 工作线程里跑，直接赋值内存字典，零跨线程/DB 开销
             if d.get("status") == "downloading":
                 total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
                 downloaded = d.get("downloaded_bytes", 0)
-                pct = (downloaded / total) if total else 0.0
-                asyncio.ensure_future(_update(task_id, progress=pct))
+                if total > 0:
+                    _TASK_PROGRESS[task_id] = min(round(downloaded / total, 4), 0.99)
             elif d.get("status") == "finished":
-                asyncio.ensure_future(_update(task_id, progress=1.0))
+                _TASK_PROGRESS[task_id] = 1.0
 
         if is_direct_media_url(url):
             logger.info("[media] 检测到直接音视频直链 URL，使用流式直链下载: %s", url)
@@ -107,26 +117,15 @@ async def _run_download(task_id: str, url: str, video_format: bool) -> None:
                     duration_seconds=info.duration_seconds,
                     uploader=info.uploader,
                 )
-
-                # 2) 实际下载（audio 或 video），progress_hook 实时回写进度
-                video_info, file_path, file_size = await download_video(
-                    url,
-                    audio_only=not video_format,
-                    progress_hook=_hook,
-                )
             except Exception as e:
-                logger.warning("[media] yt-dlp 解析/下载遇到异常，尝试降级为直链流式下载: %s, err=%s", url, e)
-                video_info, file_path, file_size = await download_direct_media(
-                    url,
-                    audio_only=not video_format,
-                    progress_hook=_hook,
-                )
-                await _update(
-                    task_id,
-                    title=video_info.title or None,
-                    duration_seconds=video_info.duration_seconds,
-                    uploader=video_info.uploader,
-                )
+                logger.warning("[media] yt-dlp 预解析元数据略过: %s, err=%s", url, e)
+
+            # 2) 实际下载（audio 或 video），progress_hook 实时回写内存进度
+            video_info, file_path, file_size = await download_video(
+                url,
+                audio_only=not video_format,
+                progress_hook=_hook,
+            )
 
         await _update_video_info(task_id, video_info)
 
@@ -158,6 +157,7 @@ async def _run_download(task_id: str, url: str, video_format: bool) -> None:
             await session.commit()
 
         # 4) 写完成态
+        _TASK_PROGRESS[task_id] = 1.0
         await _update(
             task_id,
             status="succeeded",
@@ -167,10 +167,12 @@ async def _run_download(task_id: str, url: str, video_format: bool) -> None:
             file_id=file_id,
             completed_at=_utcnow(),
         )
+        _TASK_PROGRESS.pop(task_id, None)
         logger.info("[media] 下载成功并已注册为文件资产: task_id=%s file_id=%s path=%s size=%d",
                     task_id, file_id, file_path, file_size)
 
     except Exception as e:
+        _TASK_PROGRESS.pop(task_id, None)
         logger.warning("[media] 下载失败: task_id=%s error=%s", task_id, e)
         await _update(
             task_id,

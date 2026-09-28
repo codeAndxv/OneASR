@@ -1,5 +1,9 @@
 # OneASR
 
+<p align="center">
+  <img src="./docs/assets/OneASR_icon.svg" width="128" alt="OneASR Logo">
+</p>
+
 整合多种 ASR 引擎，对外提供统一的语音识别 API。
 
 ## 功能
@@ -419,63 +423,93 @@ providers:
     pcm_input: true
 ```
 
+## 文档导航
+
+详细设计与使用指南请查阅 `docs/` 目录：
+
+- **API 设计与参考**
+  - [API 设计方案](docs/api/API_DESIGN.md) — 统一接口架构、分片与流式设计
+  - [API 完整参考手册](docs/api/API_REFERENCE.md) — 端点请求参数、状态码与示例
+- **架构与技术设计**
+  - [项目架构设计](docs/architecture/project_design.md) — 系统分层、状态机与异步调度
+  - [ASR 工具包设计](docs/architecture/ASR_TOOLKIT_DESIGN.md) — VAD、重采样与音频流分块
+- **指南与规范**
+  - [模型配置与部署指南](docs/guides/MODEL_GUIDE.md) — FireRedASR、SenseVoice、Whisper 等模型接入
+  - [uv 包管理器指南](docs/guides/UV_GUIDE.md) — 高性能依赖安装与环境管理
+  - [开发辅助规范](docs/guides/CLAUDE.md) — 开发与测试规范
+- **第三方参考**
+  - [yt-dlp 完整参考](docs/references/yt-dlp-README.md) — 网络媒体解析参考
+
+---
+
 ## 项目结构
 
 ```
 OneASR/
-├── app/                          # 后端应用
-│   ├── main.py                   # FastAPI 入口
-│   ├── api/
-│   │   ├── auth.py               # API Key 验证
-│   │   ├── audio.py              # 兼容 OpenAI 格式的音频 API
-│   │   ├── models.py             # 引擎/模型信息 API
-│   │   ├── upload.py             # 文件上传与管理（MD5 秒传）
-│   │   └── stream.py             # WebSocket 流式识别（WhisperLiveKit）
-│   ├── core/
+├── docs/                         # 项目设计与开发文档中心
+│   ├── api/                      # API 设计与参考手册
+│   ├── architecture/             # 架构与底层工具设计
+│   ├── guides/                   # 模型部署与工具链指南
+│   ├── references/               # 第三方参考资料
+│   └── assets/                   # 图标与静态资源
+├── app/                          # 后端应用核心
+│   ├── main.py                   # FastAPI 入口与生命周期管理
+│   ├── api/                      # 路由层（控制器）
+│   │   ├── auth.py               # API Key 鉴权依赖
+│   │   ├── audio.py              # OpenAI 兼容同步音频接口
+│   │   ├── file_upload.py        # 文件上传/秒传与 URL 导入
+│   │   ├── file_transcription.py # 大文件异步转录与 SSE 流式推送
+│   │   ├── media.py              # 独立媒体解析与下载接口
+│   │   ├── model.py              # 模型信息接口
+│   │   ├── provider.py           # 服务提供商接口
+│   │   ├── realtime.py           # WebSocket 实时听写
+│   │   └── realtime_ext.py       # WebSocket 扩展听写
+│   ├── core/                     # 核心配置、存储与错误定义
 │   │   ├── config.py             # YAML 配置管理
+│   │   ├── errors.py             # 统一异常定义
 │   │   └── file_storage.py       # 文件存储工具
-│   ├── db/
+│   ├── db/                       # 数据库连接与会话
 │   │   ├── base.py               # SQLAlchemy 声明基类
 │   │   └── session.py            # 数据库引擎、会话工厂、初始化
-│   ├── engines/
+│   ├── engines/                  # 各 ASR 引擎适配实现
 │   │   ├── base.py               # 引擎抽象基类
 │   │   ├── whisper_engine.py     # faster-whisper 实现
 │   │   ├── firered_engine.py     # FireRedASR 实现
-│   │   ├── whisperlivekit_engine.py  # WhisperLiveKit（流式+文件）
-│   │   ├── openai_engine.py      # OpenAI Whisper API
+│   │   ├── qwen_engine.py        # Qwen ASR 实现
+│   │   ├── xasr_engine.py        # Sherpa / SenseVoice 实现
+│   │   ├── openai_engine.py      # OpenAI 兼容 API
 │   │   ├── mimo_engine.py        # 小米 MiMo API
-│   │   └── registry.py           # 引擎注册中心（单例模式）
-│   ├── models/
-│   │   ├── schemas.py            # Pydantic 数据模型
-│   │   └── orm_models.py         # SQLAlchemy ORM 模型
-│   └── utils/
-│       ├── audio.py              # 音频格式转换
+│   │   └── registry.py           # 引擎注册中心与工厂
+│   ├── models/                   # SQLAlchemy ORM 数据模型
+│   │   └── orm_models.py         # 数据库实体表映射
+│   ├── schemas/                  # Pydantic 请求/响应数据校验模式 (DTO)
+│   │   ├── audio.py              # 转录音频相关 Schema
+│   │   ├── file.py               # 文件上传与资产管理 Schema
+│   │   ├── media.py              # 媒体解析与任务 Schema
+│   │   └── transcription.py      # 异步转录任务 Schema
+│   ├── services/                 # 业务逻辑服务层
+│   │   ├── file_service.py       # 文件转录任务业务
+│   │   ├── media_service.py      # 媒体异步下载与状态机
+│   │   └── record_service.py     # 转录历史记录
+│   └── utils/                    # 音视频工具库
+│       ├── audio.py              # 音频格式转换与时长探测
+│       ├── asr_toolkit.py        # VAD 切分与流式分块
+│       ├── audio_converter.py    # 重采样与声道转换
 │       ├── download.py           # URL 下载工具
 │       ├── format.py             # 输出格式转换（SRT/VTT/JSON/TSV）
-│       ├── stream.py             # PCM 流式工具
-│       └── vad.py                # VAD 音频切分
-├── cli/                          # 命令行工具
+│       ├── stream.py             # PCM 流式处理工具
+│       ├── vad.py                # Silero VAD 封装
+│       └── video_url.py          # yt-dlp 与直链解析
+├── cli/                          # 命令行与测试工具
 │   ├── clip.py                   # 媒体截取工具
 │   ├── converter.py              # 音频转换器
-│   └── whisperlivekit_client.py     # WhisperLiveKit WebSocket 客户端
-├── web/                          # Vue.js 前端
-│   ├── src/
-│   │   ├── api/index.js          # API 服务层（SSE 流式）
-│   │   ├── router/index.js       # Vue Router 配置
-│   │   ├── views/
-│   │   │   ├── Layout.vue        # 主布局（侧边栏+设置）
-│   │   │   └── Transcribe.vue    # 语音识别页面
-│   │   └── assets/main.css       # 全局样式
-│   ├── index.html
-│   ├── vite.config.js            # Vite 配置（含 API 代理）
-│   └── package.json
-├── tests/                        # 测试套件
-│   ├── conftest.py               # 共享 fixtures
-│   ├── api/                      # API 接口测试
-│   └── general/                  # 单元测试 & 集成测试
-├── models/                       # 模型存放目录
+│   └── stream_simulation_client.py # 流式客户端模拟测试
+├── web/                          # Vue 3 前端管理后台
+├── tests/                        # 自动化测试套件
+├── models/                       # 本地模型权重存放目录
 ├── data/                         # SQLite 数据库（自动创建）
-├── uploads/                      # 上传文件存储
-├── config.yaml                   # API Key 和引擎配置
-└── requirements.txt
+├── uploads/                      # 上传文件存储目录
+├── download/                     # 媒体下载临时目录
+├── config.yaml                   # 核心配置文件
+└── requirements.txt              # 依赖清单
 ```

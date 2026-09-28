@@ -57,7 +57,7 @@ def detect_platform(url: str) -> str:
 class VideoInfo:
     """extract_info 解析出的元数据。"""
     title: str
-    duration_seconds: int | None
+    duration_seconds: float | None
     uploader: str | None
     # yt-dlp 内部 extractor 名（如 'Douyin', 'Youtube', 'BiliBili'），便于调优
     extractor: str | None
@@ -169,13 +169,13 @@ async def download_video(
     return video_info, str(path), path.stat().st_size if path.exists() else 0
 
 
-def _try_get_duration(file_path: str) -> int | None:
+def _try_get_duration(file_path: str) -> float | None:
     """尝试获取音频/视频文件时长（秒）。"""
     try:
         import torchaudio
         info = torchaudio.info(file_path)
         if info.sample_rate and info.num_frames:
-            return int(info.num_frames / info.sample_rate)
+            return round(info.num_frames / info.sample_rate, 3)
     except Exception:
         pass
     return None

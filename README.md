@@ -1,7 +1,7 @@
 # OneASR
 
 <p align="center">
-  <img src="OneASR_icon.svg" width="128" alt="OneASR Logo">
+  <img src="./docs/assets/OneASR_icon.svg" width="128" alt="OneASR Logo">
 </p>
 
 A unified speech recognition API that integrates multiple ASR engines.
@@ -446,68 +446,96 @@ providers:
     pcm_input: true
 ```
 
+## Documentation Navigation
+
+Detailed designs and guides are located in the `docs/` directory:
+
+- **API Design & Reference**
+  - [API Design](docs/api/API_DESIGN.md) — Architecture, audio chunking, and streaming design
+  - [API Reference](docs/api/API_REFERENCE.md) — Endpoint specifications, parameters, and examples
+- **Architecture & Toolkits**
+  - [Project Design](docs/architecture/project_design.md) — System layering, state machine, and scheduling
+  - [ASR Toolkit Design](docs/architecture/ASR_TOOLKIT_DESIGN.md) — VAD, resampling, and audio chunking
+- **Guides & Best Practices**
+  - [Model Guide](docs/guides/MODEL_GUIDE.md) — FireRedASR, SenseVoice, Whisper, and cloud engines
+  - [uv Guide](docs/guides/UV_GUIDE.md) — Fast dependency and environment management
+  - [Development Guide](docs/guides/CLAUDE.md) — Code style and testing conventions
+- **References**
+  - [yt-dlp Reference](docs/references/yt-dlp-README.md) — Media extraction reference
+
+---
+
 ## Project Structure
 
 ```
 OneASR/
-├── app/                          # Backend application
-│   ├── main.py                   # FastAPI entry point
-│   ├── api/
+├── docs/                         # Documentation center
+│   ├── api/                      # API design and reference
+│   ├── architecture/             # Architectural specifications
+│   ├── guides/                   # Model and environment guides
+│   ├── references/               # Upstream third-party references
+│   └── assets/                   # Icons and visual assets
+├── app/                          # Core backend application
+│   ├── main.py                   # FastAPI entry point & lifespan
+│   ├── api/                      # Routing layer (controllers)
 │   │   ├── auth.py               # API Key authentication
 │   │   ├── audio.py              # OpenAI-compatible audio API
-│   │   ├── models.py             # Engine/model info API
-│   │   ├── upload.py             # File upload & management (MD5 dedup)
-│   │   └── stream.py             # WebSocket streaming (WhisperLiveKit)
-│   ├── core/
-│   │   ├── config.py             # YAML configuration management
+│   │   ├── file_upload.py        # File upload, MD5 dedup, & URL import
+│   │   ├── file_transcription.py # Async file transcription & SSE stream
+│   │   ├── media.py              # Media download & parse API
+│   │   ├── model.py              # Models listing API
+│   │   ├── provider.py           # Providers listing API
+│   │   ├── realtime.py           # Realtime WebSocket transcription
+│   │   └── realtime_ext.py       # Extended realtime WebSocket API
+│   ├── core/                     # Core configs, errors, & storage
+│   │   ├── config.py             # YAML config management
+│   │   ├── errors.py             # Unified exceptions
 │   │   └── file_storage.py       # File storage utilities
-│   ├── db/
+│   ├── db/                       # Database session & engine
 │   │   ├── base.py               # SQLAlchemy declarative base
-│   │   └── session.py            # DB engine, session factory, init
-│   ├── engines/
-│   │   ├── base.py               # Engine abstract base class
-│   │   ├── whisper_engine.py     # faster-whisper implementation
-│   │   ├── firered_engine.py     # FireRedASR implementation
-│   │   ├── whisperlivekit_engine.py  # WhisperLiveKit (streaming + file)
-│   │   ├── openai_engine.py      # OpenAI Whisper API
-│   │   ├── mimo_engine.py        # Xiaomi MiMo API
-│   │   └── registry.py           # Engine registry (singleton)
-│   ├── models/
-│   │   ├── schemas.py            # Pydantic data models
-│   │   └── orm_models.py         # SQLAlchemy ORM models
-│   └── utils/
-│       ├── audio.py              # Audio format conversion
+│   │   └── session.py            # Async engine & sessionmaker
+│   ├── engines/                  # ASR engine adapters
+│   │   ├── base.py               # Abstract engine base class
+│   │   ├── whisper_engine.py     # faster-whisper adapter
+│   │   ├── firered_engine.py     # FireRedASR adapter
+│   │   ├── qwen_engine.py        # Qwen ASR adapter
+│   │   ├── xasr_engine.py        # Sherpa / SenseVoice adapter
+│   │   ├── openai_engine.py      # OpenAI-compatible engine
+│   │   ├── mimo_engine.py        # Xiaomi MiMo adapter
+│   │   └── registry.py           # Engine registry & factory
+│   ├── models/                   # SQLAlchemy ORM models
+│   │   └── orm_models.py         # Database entity tables
+│   ├── schemas/                  # Pydantic request/response schemas (DTOs)
+│   │   ├── audio.py              # Audio transcription schemas
+│   │   ├── file.py               # File asset & URL import schemas
+│   │   ├── media.py              # Media parse & task schemas
+│   │   └── transcription.py      # Async transcription task schemas
+│   ├── services/                 # Business logic service layer
+│   │   ├── file_service.py       # File transcription task service
+│   │   ├── media_service.py      # Media download & state machine
+│   │   └── record_service.py     # Transcription records service
+│   └── utils/                    # Audio & processing utilities
+│       ├── audio.py              # Format conversion & duration probe
+│       ├── asr_toolkit.py        # VAD segmentation & streaming chunks
+│       ├── audio_converter.py    # Resampling & channel conversion
 │       ├── download.py           # URL download utility
-│       ├── format.py             # Output format conversion (SRT/VTT/JSON/TSV)
+│       ├── format.py             # Output formatting (SRT/VTT/JSON/TSV)
 │       ├── stream.py             # PCM streaming utilities
-│       └── vad.py                # VAD-based audio segmentation
-├── cli/                          # CLI tools
+│       ├── vad.py                # Silero VAD integration
+│       └── video_url.py          # yt-dlp & direct URL extractor
+├── cli/                          # CLI & client test tools
 │   ├── clip.py                   # Media clipping tool
 │   ├── converter.py              # Audio converter
-│   ├── stream_simulation_client.py  # Stream simulation client (OpenAI protocol)
-│   └── whisperlivekit_client.py     # WhisperLiveKit WebSocket client
-├── web/                          # Vue.js frontend
-│   ├── src/
-│   │   ├── api/index.js          # API service layer (SSE streaming)
-│   │   ├── router/index.js       # Vue Router configuration
-│   │   ├── views/
-│   │   │   ├── Layout.vue        # Main layout (sidebar + settings)
-│   │   │   └── Transcribe.vue    # Speech recognition page
-│   │   └── assets/main.css       # Global styles
-│   ├── index.html
-│   ├── vite.config.js            # Vite config (with API proxy)
-│   └── package.json
-├── tests/                        # Test suite
-│   ├── conftest.py               # Shared fixtures
-│   ├── api/                      # API endpoint tests
-│   └── general/                  # Unit & integration tests
+│   └── stream_simulation_client.py # Simulation client
+├── web/                          # Vue 3 frontend web UI
+├── tests/                        # Automated test suites
 ├── models/                       # Model storage directory
-├── data/                         # SQLite database (auto-created)
+├── data/                         # SQLite database directory
 ├── uploads/                      # Uploaded files storage
-├── config.yaml                   # API Key and engine configuration
-├── pyproject.toml                # Project metadata and dependencies (uv)
-├── requirements.txt              # Pinned dependencies
-└── .python-version               # Python version (3.12)
+├── download/                     # Media download temporary directory
+├── config.yaml                   # Engine & server configuration
+├── pyproject.toml                # Project metadata & dependencies
+└── requirements.txt              # Pinned requirements
 ```
 
 ## License

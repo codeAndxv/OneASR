@@ -54,7 +54,7 @@ ASR-Providers:
 
   # Faster-Whisper 文件转录
   faster-whisper:
-    enable: false
+    enable: true
     engine: faster-whisper
 
     # 加载配置

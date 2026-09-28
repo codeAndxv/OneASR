@@ -32,7 +32,7 @@ import numpy as np
 
 from app.core.config import EngineConfig
 from app.engines.base import ASREngine
-from app.models.schemas import Segment
+from app.schemas.audio import Segment
 from app.utils.audio_converter import AudioConverter
 
 logger = logging.getLogger(__name__)

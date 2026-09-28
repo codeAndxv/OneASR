@@ -28,7 +28,7 @@ import numpy as np
 import torch
 
 from app.core.config import app_config
-from app.models.schemas import Segment
+from app.schemas.audio import Segment
 from app.utils.audio_converter import AudioConverter
 
 logger = logging.getLogger(__name__)

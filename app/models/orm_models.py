@@ -64,7 +64,7 @@ class MediaParseRecord(Base):
     progress = Column(Float, nullable=False, default=0.0, comment="下载进度 0.0~1.0")
 
     title = Column(String(512), nullable=True, comment="媒体标题")
-    duration_seconds = Column(Integer, nullable=True, comment="媒体时长（秒）")
+    duration_seconds = Column(Float, nullable=True, comment="媒体时长（秒）")
     uploader = Column(String(256), nullable=True, comment="上传者/作者")
 
     file_path = Column(String(1024), nullable=True, comment="成功后的本地相对路径")

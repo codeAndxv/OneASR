@@ -29,7 +29,7 @@ from typing import Any
 
 from app.core.config import EngineConfig
 from app.engines.base import ASREngine
-from app.models.schemas import Segment
+from app.schemas.audio import Segment
 from app.utils.asr_toolkit import ASRToolkit
 
 logger = logging.getLogger(__name__)

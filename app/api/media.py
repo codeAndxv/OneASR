@@ -27,45 +27,13 @@ router = APIRouter(
 )
 
 
-# ── Pydantic schemas ────────────────────────────────────────────────
-
-class ParseRequest(BaseModel):
-    url: str = Field(..., description="视频 URL（抖音/TikTok/B站/YouTube）")
-    format: str = Field("audio", description="下载格式：audio 或 video")
-
-
-class ParseResponse(BaseModel):
-    task_id: str = Field(..., description="任务 ID，用于后续查询")
-    status: str = Field("pending", description="初始状态")
-    platform: str = Field(..., description="检测到的平台")
-
-
-class TaskInfo(BaseModel):
-    task_id: str
-    url: str
-    platform: str | None
-    format: str
-    status: str
-    progress: float
-    title: str | None
-    duration_seconds: int | None
-    uploader: str | None
-    file_path: str | None
-    file_size: int | None
-    error_message: str | None
-    created_at: str
-    updated_at: str | None
-    completed_at: str | None
-
-
-class TaskListResponse(BaseModel):
-    tasks: list[TaskInfo]
-    total: int
-
-
-class TaskDeleteResponse(BaseModel):
-    message: str
-    task_id: str
+from app.schemas.media import (
+    ParseRequest,
+    ParseResponse,
+    TaskInfo,
+    TaskListResponse,
+    TaskDeleteResponse,
+)
 
 
 # ── 工具 ────────────────────────────────────────────────────────────
@@ -77,7 +45,7 @@ def _record_to_info(r) -> TaskInfo:
         platform=r.platform,
         format=r.format,
         status=r.status,
-        progress=r.progress or 0.0,
+        progress=media_service.get_realtime_progress(r.id, r.progress or 0.0),
         title=r.title,
         duration_seconds=r.duration_seconds,
         uploader=r.uploader,

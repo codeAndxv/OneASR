@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 
-from app.models.schemas import Segment
+from app.schemas.audio import Segment
 
 
 class ASREngine(ABC):
