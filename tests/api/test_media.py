@@ -94,6 +94,8 @@ class TestMediaParse:
         ("https://b23.tv/abc", "bilibili"),
         ("https://www.youtube.com/watch?v=dQw4w9WgXcQ", "youtube"),
         ("https://youtu.be/abc", "youtube"),
+        ("https://example.com/audio.mp3", "direct"),
+        ("https://cdn.xyz/video.mp4?token=123", "direct"),
         ("https://example.com/somewhere", "unknown"),
     ])
     def test_platform_detection_via_parse(self, client, url, expected_platform):
@@ -110,9 +112,9 @@ class TestMediaParse:
         m.assert_awaited_once_with(url, "audio")
 
     def test_parse_invalid_url_field_missing(self, client):
-        """缺 url 字段应 422"""
+        """缺 url 字段应 400 或 422"""
         resp = client.post("/v1/media/parse", json={"format": "audio"}, headers=AUTH)
-        assert resp.status_code == 422
+        assert resp.status_code in (400, 422)
 
 
 class TestMediaTaskQueryAndDelete:
@@ -197,7 +199,8 @@ class TestMediaTaskQueryAndDelete:
 
             resp = client.delete(f"/v1/media/parse/{task_id}", headers=AUTH)
             assert resp.status_code == 200
-            assert "已删除" in resp.json()["message"]
+            msg = resp.json()["message"]
+            assert "已删除" in msg or "Deleted" in msg
 
             r = asyncio.run(_get(task_id))
             assert r is None

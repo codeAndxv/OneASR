@@ -4,9 +4,12 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 
+from app.core.config import app_config
 from app.db import async_session
 from app.db.session import init_db
 from app.main import app
+
+app_config.api_key = "oneasr-key"
 
 
 @pytest.fixture

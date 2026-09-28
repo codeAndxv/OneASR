@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import audio, file_transcription, file_upload, model, provider, realtime, realtime_ext
+from app.api import audio, file_transcription, file_upload, media, model, provider, realtime, realtime_ext
 from app.core.config import settings
 
 # 配置日志级别
@@ -78,6 +78,9 @@ app.include_router(realtime_ext.router)
 
 # 文件转录 API（异步任务，大文件 ≤2GB，长时间转录）
 app.include_router(file_transcription.router)
+
+# 媒体 URL 解析与下载 API
+app.include_router(media.router)
 
 
 # ── 全局错误处理（兼容 FastAPI detail 与 OpenAI error.message）──────

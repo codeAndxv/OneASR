@@ -34,11 +34,22 @@ def ensure_download_dir() -> Path:
     return DOWNLOAD_DIR
 
 
+def is_direct_media_url(url: str) -> bool:
+    """判断是否为直接的音视频文件 URL。"""
+    clean_url = url.split("?")[0].split("#")[0].lower()
+    return any(clean_url.endswith(ext) for ext in [
+        ".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".opus", ".wma",
+        ".mp4", ".mov", ".mkv", ".webm", ".avi", ".flv", ".ts"
+    ])
+
+
 def detect_platform(url: str) -> str:
-    """根据 URL 推断平台，未知返回 'unknown'。"""
+    """根据 URL 推断平台，直链返回 'direct'，未知返回 'unknown'。"""
     for name, pat in _PATTERNS:
         if re.search(pat, url, re.I):
             return name
+    if is_direct_media_url(url):
+        return "direct"
     return "unknown"
 
 
@@ -156,3 +167,72 @@ async def download_video(
         extractor=info.get("extractor_key") or info.get("extractor"),
     )
     return video_info, str(path), path.stat().st_size if path.exists() else 0
+
+
+def _try_get_duration(file_path: str) -> int | None:
+    """尝试获取音频/视频文件时长（秒）。"""
+    try:
+        import torchaudio
+        info = torchaudio.info(file_path)
+        if info.sample_rate and info.num_frames:
+            return int(info.num_frames / info.sample_rate)
+    except Exception:
+        pass
+    return None
+
+
+async def download_direct_media(
+    url: str,
+    *,
+    audio_only: bool = True,
+    progress_hook: Callable[[dict], None] | None = None,
+    max_filesize_bytes: int | None = None,
+) -> tuple[VideoInfo, str, int]:
+    """下载音视频直链，返回 (VideoInfo, 本地文件路径, 文件大小字节)。"""
+    import uuid
+    import httpx
+
+    download_dir = ensure_download_dir()
+
+    async with httpx.AsyncClient(timeout=300, follow_redirects=True) as client:
+        async with client.stream("GET", url) as resp:
+            resp.raise_for_status()
+
+            # 解析文件名
+            cd = resp.headers.get("content-disposition", "")
+            filename = ""
+            if "filename=" in cd:
+                filename = cd.split("filename=")[-1].strip('"\' ')
+            if not filename:
+                raw_name = Path(url.split("?")[0].split("#")[0]).name
+                filename = raw_name or f"{uuid.uuid4().hex[:12]}.mp3"
+
+            file_path = download_dir / f"{uuid.uuid4().hex[:8]}_{filename}"
+            total_bytes = int(resp.headers.get("content-length") or 0)
+
+            downloaded = 0
+            with open(file_path, "wb") as f:
+                async for chunk in resp.aiter_bytes(chunk_size=65536):
+                    downloaded += len(chunk)
+                    if max_filesize_bytes and downloaded > max_filesize_bytes:
+                        file_path.unlink(missing_ok=True)
+                        raise ValueError(f"文件大小超出限制: {max_filesize_bytes} bytes")
+                    f.write(chunk)
+                    if progress_hook:
+                        progress_hook({
+                            "status": "downloading",
+                            "downloaded_bytes": downloaded,
+                            "total_bytes": total_bytes or None,
+                        })
+
+            if progress_hook:
+                progress_hook({"status": "finished"})
+
+    duration = _try_get_duration(str(file_path))
+    video_info = VideoInfo(
+        title=Path(filename).stem,
+        duration_seconds=duration,
+        uploader=None,
+        extractor="DirectURL",
+    )
+    return video_info, str(file_path), downloaded

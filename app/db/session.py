@@ -21,10 +21,16 @@ async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit
 
 
 async def init_db():
-    """创建所有表。"""
+    """创建所有表并安全补充缺失字段。"""
     DATABASE_DIR.mkdir(parents=True, exist_ok=True)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # 兼容性迁移：检查并添加 media_parse_records.file_id 字段
+        try:
+            from sqlalchemy import text
+            await conn.execute(text("ALTER TABLE media_parse_records ADD COLUMN file_id VARCHAR(64)"))
+        except Exception:
+            pass  # 字段已存在
     logger.info("数据库初始化完成: %s", DATABASE_URL)
 
 

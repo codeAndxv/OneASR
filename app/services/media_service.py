@@ -22,8 +22,10 @@ from app.models.orm_models import MediaParseRecord, UploadedFile
 from app.utils.video_url import (
     DOWNLOAD_DIR,
     download_video,
+    download_direct_media,
     extract_info,
     detect_platform,
+    is_direct_media_url,
 )
 
 logger = logging.getLogger(__name__)
@@ -65,23 +67,13 @@ async def create_parse_task(url: str, fmt: str) -> str:
 
 
 async def _run_download(task_id: str, url: str, video_format: bool) -> None:
-    """后台下载协程：先 extract_info 预解析写元数据，再实际下载。
+    """后台下载协程：支持平台视频解析与直接音视频直链下载。
 
     所有失败都捕获并写入 error_message，任务最终 status 一定收敛到 succeeded/failed。
     """
     try:
         await _update(task_id, status="running", progress=0.0)
 
-        # 1) 预解析元数据（廉价，不下载本体）
-        info = await extract_info(url)
-        await _update(
-            task_id,
-            title=info.title or None,
-            duration_seconds=info.duration_seconds,
-            uploader=info.uploader,
-        )
-
-        # 2) 实际下载（audio 或 video），progress_hook 实时回写进度
         def _hook(d: dict) -> None:
             # 同步回调在 to_thread 的工作线程里跑，DB 是异步的 —— 用 ensure_future 投递
             if d.get("status") == "downloading":
@@ -92,11 +84,50 @@ async def _run_download(task_id: str, url: str, video_format: bool) -> None:
             elif d.get("status") == "finished":
                 asyncio.ensure_future(_update(task_id, progress=1.0))
 
-        video_info, file_path, file_size = await download_video(
-            url,
-            audio_only=not video_format,
-            progress_hook=_hook,
-        )
+        if is_direct_media_url(url):
+            logger.info("[media] 检测到直接音视频直链 URL，使用流式直链下载: %s", url)
+            video_info, file_path, file_size = await download_direct_media(
+                url,
+                audio_only=not video_format,
+                progress_hook=_hook,
+            )
+            await _update(
+                task_id,
+                title=video_info.title or None,
+                duration_seconds=video_info.duration_seconds,
+                uploader=video_info.uploader,
+            )
+        else:
+            try:
+                # 1) 预解析元数据（廉价，不下载本体）
+                info = await extract_info(url)
+                await _update(
+                    task_id,
+                    title=info.title or None,
+                    duration_seconds=info.duration_seconds,
+                    uploader=info.uploader,
+                )
+
+                # 2) 实际下载（audio 或 video），progress_hook 实时回写进度
+                video_info, file_path, file_size = await download_video(
+                    url,
+                    audio_only=not video_format,
+                    progress_hook=_hook,
+                )
+            except Exception as e:
+                logger.warning("[media] yt-dlp 解析/下载遇到异常，尝试降级为直链流式下载: %s, err=%s", url, e)
+                video_info, file_path, file_size = await download_direct_media(
+                    url,
+                    audio_only=not video_format,
+                    progress_hook=_hook,
+                )
+                await _update(
+                    task_id,
+                    title=video_info.title or None,
+                    duration_seconds=video_info.duration_seconds,
+                    uploader=video_info.uploader,
+                )
+
         await _update_video_info(task_id, video_info)
 
         # 3) 注册为 UploadedFile 资产
