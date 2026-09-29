@@ -92,3 +92,33 @@ ASR-Providers:
       categories:
         - FileASR
       languages: zh, en, ja, ko, fr, de, es, it, ru, pt, nl, pl, ar, cs, da, fi, el, he, hu, id, ms, no, ro, sk, sv, th, tr, uk, vi, hi
+
+# ─────────────────────────────────────────────────────────────
+# yt-dlp 视频/音频 URL 解析与下载配置
+# ─────────────────────────────────────────────────────────────
+yt-dlp:
+  enable: true                      # 是否启用 URL 媒体解析与下载功能
+  download_dir: "download"          # 媒体落盘与临时下载目录（支持相对/绝对路径）
+
+  # 代理配置（支持智能分流）
+  proxy:
+    url: ""                         # 代理服务地址，例如: http://127.0.0.1:7890 或 socks5://127.0.0.1:1080 (留空则直连)
+    # 仅针对以下平台启用代理（未列出的平台如 bilibili/douyin 自动直连，避免被国内平台拦截或限速）
+    platforms:
+      - youtube
+      - tiktok
+
+  # 身份凭证与 Cookie（解决 B站高画质/高码率限制 & YouTube 机器人验证拦截）
+  cookie_file: ""                   # cookies.txt 路径（例如: "cookies.txt"，留空则不使用）
+
+  # 网络超时与分片控制
+  socket_timeout: 60                # 网络连接超时时长（秒）
+  retries: 5                        # 下载失败重试次数
+  concurrent_fragments: 3           # 单任务并发分片下载数
+
+  # 资源与安全限制
+  max_filesize_mb: 500              # 最大允许下载的文件大小 (MB，留空/null 为无限制)
+
+  # 外部依赖路径（可选）
+  ffmpeg_location: null             # 自定义 ffmpeg 所在路径（留空则自动从系统 PATH 查找）
+

@@ -25,13 +25,17 @@ _PATTERNS: list[tuple[str, str]] = [
     ("youtube", r"(youtube\.com|youtu\.be)"),
 ]
 
-# 下载根目录（相对项目根，main.py 启动目录）
+# 下载根目录默认路径（具体以 config.yaml 为准）
 DOWNLOAD_DIR = Path("download")
 
 
 def ensure_download_dir() -> Path:
-    DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    return DOWNLOAD_DIR
+    from app.core.config import PROJECT_ROOT, app_config
+    dir_str = app_config.ytdlp.download_dir or "download"
+    p = Path(dir_str)
+    target = p if p.is_absolute() else PROJECT_ROOT / p
+    target.mkdir(parents=True, exist_ok=True)
+    return target
 
 
 def is_direct_media_url(url: str) -> bool:
@@ -65,11 +69,17 @@ class VideoInfo:
 
 def _build_ydl_opts(
     *,
+    url: str = "",
     audio_only: bool,
     progress_hook: Callable[[dict], None] | None = None,
     max_filesize_bytes: int | None = None,
 ) -> dict:
     """组装 yt-dlp 选项 dict，避免拼命令行字符串。"""
+    from app.core.config import PROJECT_ROOT, app_config
+
+    cfg = app_config.ytdlp
+    platform = detect_platform(url) if url else ""
+
     opts: dict = {
         "quiet": True,
         "no_warnings": True,
@@ -82,12 +92,36 @@ def _build_ydl_opts(
         # 视频合并为 mp4（需 ffmpeg）
         "merge_output_format": "mp4",
         # 限制并发下载分片，避免对源站压力
-        "concurrent_fragment_downloads": 3,
-        "retries": 5,
-        "socket_timeout": 60,
+        "concurrent_fragment_downloads": cfg.concurrent_fragments,
+        "retries": cfg.retries,
+        "socket_timeout": cfg.socket_timeout,
     }
+
+    # 智能分流代理（如仅 YouTube / TikTok 走代理，B站/抖音 直连）
+    if url:
+        proxy_url = cfg.get_proxy_for_url(url, platform)
+        if proxy_url:
+            opts["proxy"] = proxy_url
+
+    # Cookie 凭证支持
+    if cfg.cookie_file and cfg.cookie_file.strip():
+        cp = Path(cfg.cookie_file.strip())
+        cookie_path = cp if cp.is_absolute() else PROJECT_ROOT / cp
+        if cookie_path.exists():
+            opts["cookiefile"] = str(cookie_path)
+        else:
+            logger.warning("配置的 cookie_file 不存在: %s", cookie_path)
+
+    # 自定义 FFmpeg 路径
+    if cfg.ffmpeg_location and cfg.ffmpeg_location.strip():
+        opts["ffmpeg_location"] = cfg.ffmpeg_location.strip()
+
+    # 最大文件大小限制
     if max_filesize_bytes is not None:
         opts["max_filesize"] = max_filesize_bytes
+    elif cfg.max_filesize_mb is not None:
+        opts["max_filesize"] = cfg.max_filesize_mb * 1024 * 1024
+
     if progress_hook is not None:
         opts["progress_hooks"] = [progress_hook]
     return opts
@@ -124,7 +158,7 @@ import asyncio  # noqa: E402 (放在文件末以保持同步工具区可读)
 
 async def extract_info(url: str) -> VideoInfo:
     """异步解析元信息（不下载），用于提交任务时获取 title/duration/uploader。"""
-    opts = _build_ydl_opts(audio_only=True)
+    opts = _build_ydl_opts(url=url, audio_only=True)
     try:
         data = await asyncio.to_thread(_extract_info_sync, url, opts)
     except yt_dlp.utils.DownloadError as e:
@@ -150,6 +184,7 @@ async def download_video(
       hook 内 dict 含 'downloaded_bytes'、'total_bytes'/'total_bytes_estimate'、'_percent_str'
     """
     opts = _build_ydl_opts(
+        url=url,
         audio_only=audio_only,
         progress_hook=progress_hook,
         max_filesize_bytes=max_filesize_bytes,
@@ -191,10 +226,15 @@ async def download_direct_media(
     """下载音视频直链，返回 (VideoInfo, 本地文件路径, 文件大小字节)。"""
     import uuid
     import httpx
+    from app.core.config import app_config
 
     download_dir = ensure_download_dir()
+    proxy = app_config.ytdlp.get_proxy_for_url(url, "direct")
+    effective_max_bytes = max_filesize_bytes
+    if effective_max_bytes is None and app_config.ytdlp.max_filesize_mb:
+        effective_max_bytes = app_config.ytdlp.max_filesize_mb * 1024 * 1024
 
-    async with httpx.AsyncClient(timeout=300, follow_redirects=True) as client:
+    async with httpx.AsyncClient(timeout=app_config.ytdlp.socket_timeout, proxy=proxy, follow_redirects=True) as client:
         async with client.stream("GET", url) as resp:
             resp.raise_for_status()
 
@@ -214,9 +254,9 @@ async def download_direct_media(
             with open(file_path, "wb") as f:
                 async for chunk in resp.aiter_bytes(chunk_size=65536):
                     downloaded += len(chunk)
-                    if max_filesize_bytes and downloaded > max_filesize_bytes:
+                    if effective_max_bytes and downloaded > effective_max_bytes:
                         file_path.unlink(missing_ok=True)
-                        raise ValueError(f"文件大小超出限制: {max_filesize_bytes} bytes")
+                        raise ValueError(f"文件大小超出限制: {effective_max_bytes} bytes")
                     f.write(chunk)
                     if progress_hook:
                         progress_hook({

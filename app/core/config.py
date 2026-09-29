@@ -116,6 +116,59 @@ class ASRToolkitConfig:
         self.post_process = PostProcessConfig(data.get("post_process", {}))
 
 
+class YtDlpProxyConfig:
+    def __init__(self, data: dict | None = None):
+        data = data or {}
+        self.url: str = data.get("url", "")
+        raw_platforms = data.get("platforms", ["youtube", "tiktok"])
+        if isinstance(raw_platforms, str):
+            self.platforms = [p.strip().lower() for p in raw_platforms.split(",") if p.strip()]
+        elif isinstance(raw_platforms, list):
+            self.platforms = [str(p).strip().lower() for p in raw_platforms if p]
+        else:
+            self.platforms = []
+
+
+class YtDlpConfig:
+    def __init__(self, data: dict | None = None):
+        data = data or {}
+        self.enable: bool = bool(data.get("enable", True))
+        self.download_dir: str = data.get("download_dir", "download")
+        self.proxy = YtDlpProxyConfig(data.get("proxy", {}))
+        self.cookie_file: str = data.get("cookie_file", "")
+        self.socket_timeout: int = int(data.get("socket_timeout", 60))
+        self.retries: int = int(data.get("retries", 5))
+        self.concurrent_fragments: int = int(data.get("concurrent_fragments", 3))
+        raw_max_size = data.get("max_filesize_mb")
+        self.max_filesize_mb: int | None = int(raw_max_size) if raw_max_size is not None else None
+        self.ffmpeg_location: str | None = data.get("ffmpeg_location") or None
+
+    def get_proxy_for_url(self, url: str, platform: str = "") -> str | None:
+        """根据 URL 及识别的平台，判断是否需要走代理。"""
+        if not self.proxy.url or not self.proxy.url.strip():
+            return None
+        # 如果未指定特定平台，或包含 'all'，则全部走代理
+        if not self.proxy.platforms or "all" in self.proxy.platforms:
+            return self.proxy.url.strip()
+
+        # 若未指定平台名称，则自动从 URL 推断
+        if not platform and url:
+            from app.utils.video_url import detect_platform
+            platform = detect_platform(url)
+
+        # 平台匹配（例如 platform == "youtube" 在 platforms 中）
+        if platform and platform.lower() in self.proxy.platforms:
+            return self.proxy.url.strip()
+
+        # 域名包含匹配
+        url_lower = url.lower()
+        for p in self.proxy.platforms:
+            if p in url_lower:
+                return self.proxy.url.strip()
+
+        return None
+
+
 class AppConfig:
     def __init__(self, config_path: str | Path = None):
         config_path = config_path or PROJECT_ROOT / "config.yaml"
@@ -134,6 +187,15 @@ class AppConfig:
         # ASR-Toolkit 配置
         raw_toolkit = self._data.get("ASR-Toolkit", self._data.get("asr_toolkit", {}))
         self.asr_toolkit = ASRToolkitConfig(raw_toolkit)
+
+        # yt-dlp 配置（支持 yt-dlp, YT-DLP, ytdlp）
+        raw_ytdlp = (
+            self._data.get("yt-dlp")
+            or self._data.get("YT-DLP")
+            or self._data.get("ytdlp")
+            or {}
+        )
+        self.ytdlp = YtDlpConfig(raw_ytdlp)
 
         # ASR Providers
         self.providers: dict[str, EngineConfig] = {}
