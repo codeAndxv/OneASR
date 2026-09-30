@@ -1,7 +1,7 @@
 # OneASR
 
 <p align="center">
-  <img src="./docs/assets/OneASR_icon.svg" width="128" alt="OneASR Logo">
+  <img src="./docs/assets/OneASR.svg" width="128" alt="OneASR Logo">
 </p>
 
 A unified speech recognition API that integrates multiple ASR engines.

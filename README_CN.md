@@ -1,7 +1,7 @@
 # OneASR
 
 <p align="center">
-  <img src="./docs/assets/OneASR_icon.svg" width="128" alt="OneASR Logo">
+  <img src="./docs/assets/OneASR.svg" width="128" alt="OneASR Logo">
 </p>
 
 整合多种 ASR 引擎，对外提供统一的语音识别 API。
