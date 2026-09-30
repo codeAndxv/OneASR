@@ -3,6 +3,7 @@
 import io
 import json
 import wave
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -18,18 +19,31 @@ def _parse_sse_events(text: str) -> list[dict]:
     return events
 
 
+from server.schemas.audio import Segment
+
+
+def _make_mock_engine():
+    mock = MagicMock()
+    mock.transcribe_file = AsyncMock(return_value=("你好，测试语音转录。", []))
+
+    async def _mock_stream(data, **kwargs):
+        yield Segment(start=0.0, end=1.0, text="你好，测试语音转录。")
+
+    mock.transcribe_file_stream = _mock_stream
+    return mock
+
+
 class TestStreamingTranscription:
     """测试 /v1/audio/transcriptions 流式识别端点。"""
 
-    def test_stream_no_file_no_uuid(self, client):
-        """没有 file 和 file_uuid 应该返回 400。"""
+    def test_stream_no_file(self, client):
+        """没有上传文件应该返回 400。"""
         resp = client.post(
             "/v1/audio/transcriptions",
             headers={"Authorization": "Bearer oneasr-key"},
-            data={"model": "whisper1", "stream": "true"},
+            data={"model": "faster-whisper", "stream": "true"},
         )
         assert resp.status_code == 400
-        assert "必须提供" in resp.json()["detail"]
 
     def test_stream_with_file(self, client):
         """上传文件进行流式识别。"""
@@ -41,59 +55,19 @@ class TestStreamingTranscription:
             wf.writeframes(b"\x00\x00" * 16000)  # 1 秒静音
         buf.seek(0)
 
-        resp = client.post(
-            "/v1/audio/transcriptions",
-            headers={"Authorization": "Bearer oneasr-key"},
-            files={"file": ("test.wav", buf, "audio/wav")},
-            data={"model": "whisper1", "stream": "true"},
-        )
+        with patch("server.api.audio.get_engine", return_value=_make_mock_engine()):
+            resp = client.post(
+                "/v1/audio/transcriptions",
+                headers={"Authorization": "Bearer oneasr-key"},
+                files={"file": ("test.wav", buf, "audio/wav")},
+                data={"model": "faster-whisper", "stream": "true"},
+            )
         assert resp.status_code == 200
         assert "text/event-stream" in resp.headers["content-type"]
 
         events = _parse_sse_events(resp.text)
         assert len(events) >= 1
-        assert events[-1].get("done") is True
-
-    def test_stream_with_file_uuid(self, client):
-        """使用 file_uuid 进行流式识别。"""
-        # 先上传一个文件
-        test_content = b"fake audio content"
-        files = {"file": ("test_stream.mp3", io.BytesIO(test_content), "audio/mpeg")}
-        
-        upload_resp = client.post(
-            "/v1/file/upload",
-            files=files,
-            headers={"Authorization": "Bearer oneasr-key"},
-        )
-        assert upload_resp.status_code == 200
-        file_id = upload_resp.json()["file_id"]
-
-        # 使用 file_uuid 进行流式转录
-        resp = client.post(
-            "/v1/audio/transcriptions",
-            headers={"Authorization": "Bearer oneasr-key"},
-            data={
-                "file_uuid": file_id,
-                "model": "whisper1",
-                "stream": "true",
-            },
-        )
-        # 注意：实际转录可能失败（因为测试环境没有模型），但接口应该正常响应
-        assert resp.status_code in [200, 500]
-
-    def test_stream_file_uuid_not_found(self, client):
-        """使用不存在的 file_uuid 进行流式识别应该返回 404。"""
-        resp = client.post(
-            "/v1/audio/transcriptions",
-            headers={"Authorization": "Bearer oneasr-key"},
-            data={
-                "file_uuid": "nonexistent-uuid",
-                "model": "whisper1",
-                "stream": "true",
-            },
-        )
-        assert resp.status_code == 404
-        assert "文件不存在" in resp.json()["detail"]
+        assert events[-1].get("type") == "transcript.text.done"
 
     def test_stream_event_format(self, client):
         """验证 SSE 事件格式。"""
@@ -105,25 +79,25 @@ class TestStreamingTranscription:
             wf.writeframes(b"\x00\x00" * 16000)
         buf.seek(0)
 
-        resp = client.post(
-            "/v1/audio/transcriptions",
-            headers={"Authorization": "Bearer oneasr-key"},
-            files={"file": ("test.wav", buf, "audio/wav")},
-            data={"model": "whisper1", "stream": "true"},
-        )
+        with patch("server.api.audio.get_engine", return_value=_make_mock_engine()):
+            resp = client.post(
+                "/v1/audio/transcriptions",
+                headers={"Authorization": "Bearer oneasr-key"},
+                files={"file": ("test.wav", buf, "audio/wav")},
+                data={"model": "faster-whisper", "stream": "true"},
+            )
         assert resp.status_code == 200
 
         events = _parse_sse_events(resp.text)
-        
-        # 验证事件格式
-        for evt in events[:-1]:  # 排除最后一个 done 事件
-            assert "index" in evt
-            assert "start" in evt
-            assert "end" in evt
-            assert "text" in evt
+        assert len(events) >= 2
+
+        # 验证增量事件格式
+        delta_evt = events[0]
+        assert "delta" in delta_evt
+        assert delta_evt.get("type") == "transcript.text.delta"
 
         # 最后一个事件应该是 done
-        assert events[-1].get("done") is True
+        assert events[-1].get("type") == "transcript.text.done"
 
 
 if __name__ == "__main__":

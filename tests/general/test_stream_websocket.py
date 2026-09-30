@@ -25,9 +25,12 @@ os.environ.pop("HTTP_PROXY", None)
 os.environ.pop("HTTPS_PROXY", None)
 os.environ.pop("ALL_PROXY", None)
 
+import pytest
 import websockets
 
-from app.utils.stream import convert_to_pcm, get_audio_duration
+from server.utils.stream import convert_to_pcm, get_audio_duration
+
+pytestmark = pytest.mark.integration
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -35,7 +38,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_VIDEO = "/Users/dudu/Files/Video/37047240970-1-192.mp4"
 
 
-async def test_stream(
+async def run_stream_test(
     file_path: str,
     host: str = "localhost",
     port: int = 8020,
@@ -70,7 +73,7 @@ async def test_stream(
     logger.info("音频时长: %.1f 秒, 数据大小: %.2f MB", duration, len(pcm_data) / 1024 / 1024)
 
     # 2. 连接 WebSocket
-    uri = f"ws://{host}:{port}/ws/transcribe/stream?engine=whisper1&language={language}"
+    uri = f"ws://{host}:{port}/ws/transcribe/stream?engine=faster-whisper&language={language}"
     logger.info("连接: %s", uri)
 
     all_lines = []
@@ -210,7 +213,7 @@ def main():
     parser.add_argument("--chunk", type=float, default=1.0, help="每块音频时长（秒）")
     args = parser.parse_args()
 
-    asyncio.run(test_stream(
+    asyncio.run(run_stream_test(
         file_path=args.file,
         host=args.host,
         port=args.port,

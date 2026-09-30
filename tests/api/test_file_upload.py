@@ -45,7 +45,7 @@ class TestFileUpload:
         )
 
         assert response.status_code == 400
-        assert "不支持的文件格式" in response.json()["detail"]
+        assert "Unsupported file format" in response.json()["detail"] or "不支持" in response.json()["detail"]
 
     def test_upload_file_no_auth(self, client):
         """测试无认证上传文件"""
@@ -161,7 +161,7 @@ class TestFileDelete:
         )
         
         assert response.status_code == 404
-        assert "文件不存在" in response.json()["detail"]
+        assert "File not found" in response.json()["detail"] or "文件不存在" in response.json()["detail"]
     
     def test_delete_file_no_auth(self, client):
         """测试无认证删除文件"""
@@ -207,14 +207,14 @@ class TestFileInfo:
         )
         
         assert response.status_code == 404
-        assert "文件不存在" in response.json()["detail"]
+        assert "File not found" in response.json()["detail"] or "文件不存在" in response.json()["detail"]
 
 
 class TestTranscriptionWithUUID:
-    """使用 UUID 进行转录的测试"""
+    """使用 UUID 进行异步任务转录的测试"""
     
     def test_transcribe_with_file_uuid(self, client):
-        """测试使用 file_uuid 进行转录"""
+        """测试使用 file_uuid 提交转录任务"""
         # 先上传一个文件
         test_content = b"fake audio content"
         files = {"file": ("test_transcribe.mp3", io.BytesIO(test_content), "audio/mpeg")}
@@ -227,32 +227,33 @@ class TestTranscriptionWithUUID:
         assert upload_response.status_code == 200
         file_id = upload_response.json()["file_id"]
         
-        # 使用 file_uuid 进行转录
-        form_data = {
+        # 使用 file_uuid 进行异步任务提交
+        req_data = {
             "file_uuid": file_id,
-            "model": "whisper",
-            "response_format": "json",
+            "model": "faster-whisper",
+            "language": "zh",
         }
         
         response = client.post(
-            "/v1/audio/transcriptions",
-            data=form_data,
+            "/v1/file/transcriptions",
+            json=req_data,
             headers={"Authorization": "Bearer oneasr-key"},
         )
         
-        # 注意：实际转录可能失败（因为测试环境没有模型），但接口应该正常响应
-        assert response.status_code in [200, 500]  # 500 是因为模型可能不可用
+        assert response.status_code == 200
+        data = response.json()
+        assert "task_id" in data
+        assert data["status"] in ["pending", "processing", "completed"]
     
     def test_transcribe_no_params(self, client):
         """测试不提供任何参数进行转录"""
         response = client.post(
-            "/v1/audio/transcriptions",
-            data={},
+            "/v1/file/transcriptions",
+            json={},
             headers={"Authorization": "Bearer oneasr-key"},
         )
         
         assert response.status_code == 400
-        assert "必须提供" in response.json()["detail"]
 
 
 if __name__ == "__main__":

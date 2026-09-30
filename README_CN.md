@@ -34,7 +34,7 @@ source .venv/bin/activate  # macOS/Linux
 pip install -r requirements.txt
 
 # 3. 启动服务
-uvicorn app.main:app --host 0.0.0.0 --port 8020
+uvicorn server.main:app --host 0.0.0.0 --port 8020
 ```
 
 服务运行在 `http://localhost:8020`，访问 `http://localhost:8020/docs` 查看交互式 API 文档。
@@ -60,7 +60,7 @@ npm run dev
 ```bash
 cd OneASR
 source .venv/bin/activate
-uvicorn app.main:app --host 0.0.0.0 --port 8020
+uvicorn server.main:app --host 0.0.0.0 --port 8020
 ```
 
 **终端 2 - 前端：**
@@ -513,3 +513,7 @@ OneASR/
 ├── config.yaml                   # 核心配置文件
 └── requirements.txt              # 依赖清单
 ```
+
+## 开源协议
+
+本项目采用 [Apache 2.0](LICENSE) 开源协议。

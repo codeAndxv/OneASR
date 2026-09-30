@@ -33,10 +33,10 @@ ASR-Providers:
     # 加载配置
     load:
       model_name: xasr-zh-en
-      tokens_path: models/chunk-160ms-model/tokens.txt
-      encoder_path: models/chunk-160ms-model/encoder-160ms.onnx
-      decoder_path: models/chunk-160ms-model/decoder-160ms.onnx
-      joiner_path: models/chunk-160ms-model/joiner-160ms.onnx
+      tokens_path: data/models/chunk-160ms-model/tokens.txt
+      encoder_path: data/models/chunk-160ms-model/encoder-160ms.onnx
+      decoder_path: data/models/chunk-160ms-model/decoder-160ms.onnx
+      joiner_path: data/models/chunk-160ms-model/joiner-160ms.onnx
       provider: cpu
       sample_rate: 16000
       feature_dim: 80
@@ -60,7 +60,7 @@ ASR-Providers:
     # 加载配置
     load:
       model_name: medium
-      model_path: models/faster-whisper-medium
+      model_path: data/models/faster-whisper-medium
       device: cpu
       compute_type: int8
       max_duration: null
@@ -79,13 +79,13 @@ ASR-Providers:
     # 加载配置
     load:
       model_name: Qwen/Qwen3-ASR-1.7B
-      model_path: models/Qwen3-ASR-1.7B
+      model_path: data/models/Qwen3-ASR-1.7B
       device: cpu
       dtype: float32
       max_new_tokens: 256
       max_inference_batch_size: 32
 #      forced_aligner_name: Qwen/Qwen3-ForcedAligner-0.6B
-#      forced_aligner_path: models/Qwen3-ForcedAligner-0.6B
+#      forced_aligner_path: data/models/Qwen3-ForcedAligner-0.6B
 
     # 属性
     properties:
@@ -98,7 +98,27 @@ ASR-Providers:
 # ─────────────────────────────────────────────────────────────
 yt-dlp:
   enable: true                      # 是否启用 URL 媒体解析与下载功能
-  download_dir: "download"          # 媒体落盘与临时下载目录（支持相对/绝对路径）
+  download_dir: "data/downloads"    # 媒体落盘与临时下载目录（支持相对/绝对路径）
+
+  # 媒体格式与分辨率配置
+  media:
+    # 默认下载类型: "audio" (纯音频，极速省流，ASR推荐) | "video" (音视频合并)
+    default_type: "audio"
+
+    # 视频下载配置（当 type="video" 或请求指定 video 时生效）
+    video:
+      # 目标分辨率上限: "best" | "1080p" | "720p" | "480p" | "360p"
+      # 推荐 "720p" 或 "1080p"，兼顾画质与下载速度，避免拉取 4K/8K 撑爆磁盘与带宽
+      max_resolution: "720p"
+      # 输出视频封装格式: "mp4" (默认，通用性好) | "mkv" | "webm"
+      format: "mp4"
+
+    # 音频下载配置（当 type="audio" 或请求指定 audio 时生效）
+    audio:
+      # 输出音频格式: "best" (保留原始高音质流，如 m4a/opus/aac) | "mp3" | "m4a" | "wav"
+      format: "best"
+      # 音频质量/比特率: "best" | "192k" | "128k"
+      quality: "best"
 
   # 代理配置（支持智能分流）
   proxy:

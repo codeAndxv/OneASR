@@ -4,10 +4,10 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 
-from app.core.config import app_config
-from app.db import async_session
-from app.db.session import init_db
-from app.main import app
+from server.core.config import app_config
+from server.db import async_session
+from server.db.session import init_db
+from server.main import app
 
 app_config.api_key = "oneasr-key"
 

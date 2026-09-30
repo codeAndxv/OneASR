@@ -1,0 +1,33 @@
+services:
+  oneasr:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.cpu   # 如在 GPU 服务器运行，可替换为 docker/Dockerfile.gpu
+    image: oneasr:latest
+    container_name: oneasr-server
+    restart: unless-stopped
+    ports:
+      - "8020:8020"
+    volumes:
+      # 1. 配置文件（只读挂载，修改宿主机 config.yaml 后重启容器即生效）
+      - ./config.yaml:/app/config.yaml:ro
+      # 2. 统一持久化数据目录（包含 models, database, uploads, downloads）
+      - ./data:/app/data:rw
+      # 3. HuggingFace / ModelScope 在线下载模型缓存（避免重启重复拉取）
+      - ~/.cache/huggingface:/root/.cache/huggingface:rw
+    environment:
+      - ONEASR_DEBUG=false
+    # GPU 部署时，取消以下注释以透传宿主机显卡：
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8020/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s

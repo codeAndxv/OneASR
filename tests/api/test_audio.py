@@ -7,6 +7,23 @@ import wave
 import pytest
 
 
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from server.schemas.audio import Segment
+
+
+def _make_mock_engine():
+    mock = MagicMock()
+    mock.transcribe_file = AsyncMock(return_value=("你好，测试语音转录。", [Segment(start=0.0, end=1.0, text="你好，测试语音转录。")]))
+
+    async def _mock_stream(data, **kwargs):
+        yield {"type": "transcript.text.segment", "text": "你好，测试语音转录。"}
+        yield {"type": "transcript.text.done", "text": "你好，测试语音转录。"}
+
+    mock.transcribe_stream = _mock_stream
+    return mock
+
+
 class TestAudioModelsEndpoint:
     """测试 /v1/models 端点。"""
 
@@ -49,7 +66,6 @@ class TestAudioTranscriptionsEndpoint:
 
     def test_create_transcription_with_file(self, client):
         """上传文件进行识别。"""
-        # 创建一个简单的 WAV 文件
         buf = io.BytesIO()
         with wave.open(buf, "wb") as wf:
             wf.setnchannels(1)
@@ -58,12 +74,13 @@ class TestAudioTranscriptionsEndpoint:
             wf.writeframes(b"\x00\x00" * 16000)  # 1 秒静音
         buf.seek(0)
 
-        resp = client.post(
-            "/v1/audio/transcriptions",
-            headers={"Authorization": "Bearer oneasr-key"},
-            files={"file": ("test.wav", buf, "audio/wav")},
-            data={"model": "faster-whisper", "response_format": "json"},
-        )
+        with patch("server.api.audio.get_engine", return_value=_make_mock_engine()):
+            resp = client.post(
+                "/v1/audio/transcriptions",
+                headers={"Authorization": "Bearer oneasr-key"},
+                files={"file": ("test.wav", buf, "audio/wav")},
+                data={"model": "faster-whisper", "response_format": "json"},
+            )
         assert resp.status_code == 200
         data = resp.json()
         assert "text" in data
@@ -78,18 +95,18 @@ class TestAudioTranscriptionsEndpoint:
             wf.writeframes(b"\x00\x00" * 16000)
         buf.seek(0)
 
-        resp = client.post(
-            "/v1/audio/transcriptions",
-            headers={"Authorization": "Bearer oneasr-key"},
-            files={"file": ("test.wav", buf, "audio/wav")},
-            data={"model": "faster-whisper", "response_format": "text"},
-        )
+        with patch("server.api.audio.get_engine", return_value=_make_mock_engine()):
+            resp = client.post(
+                "/v1/audio/transcriptions",
+                headers={"Authorization": "Bearer oneasr-key"},
+                files={"file": ("test.wav", buf, "audio/wav")},
+                data={"model": "faster-whisper", "response_format": "text"},
+            )
         assert resp.status_code == 200
         assert resp.headers["content-type"] == "text/plain; charset=utf-8"
 
     def test_create_transcription_file_too_large(self, client):
         """上传超过 25MB 的文件应该返回 400 invalid_request_error, param='file', code='file_too_large'。"""
-        # 创建一个超过 25MB 的假文件
         large_content = b"\x00" * (25 * 1024 * 1024 + 1)  # 25MB + 1 byte
         files = {"file": ("large.wav", io.BytesIO(large_content), "audio/wav")}
 
@@ -115,12 +132,13 @@ class TestAudioTranscriptionsEndpoint:
             wf.writeframes(b"\x00\x00" * 16000)
         buf.seek(0)
 
-        resp = client.post(
-            "/v1/audio/transcriptions",
-            headers={"Authorization": "Bearer oneasr-key"},
-            files={"file": ("test.wav", buf, "audio/wav")},
-            data={"model": "faster-whisper", "stream": "true"},
-        )
+        with patch("server.api.audio.get_engine", return_value=_make_mock_engine()):
+            resp = client.post(
+                "/v1/audio/transcriptions",
+                headers={"Authorization": "Bearer oneasr-key"},
+                files={"file": ("test.wav", buf, "audio/wav")},
+                data={"model": "faster-whisper", "stream": "true"},
+            )
         assert resp.status_code == 200
         assert "text/event-stream" in resp.headers["content-type"]
 
@@ -135,24 +153,19 @@ class TestAudioTranscriptionsEndpoint:
         assert len(events) >= 1
         assert events[-1].get("type") == "transcript.text.done"
 
-
     def test_create_transcription_mp4_file(self, client):
-        """上传 MP4 文件进行识别（测试自动转换为 WAV）。"""
-        # 创建一个最小的 MP4 文件头（用于测试转换逻辑）
-        # 注意：这不是真正的 MP4，但可以测试接口是否接受 MP4 扩展名
-        fake_mp4_content = b"\x00" * 1024  # 1KB 假数据
+        """上传 MP4 文件进行识别。"""
+        fake_mp4_content = b"\x00" * 1024
         files = {"file": ("test_video.mp4", io.BytesIO(fake_mp4_content), "video/mp4")}
 
-        resp = client.post(
-            "/v1/audio/transcriptions",
-            headers={"Authorization": "Bearer oneasr-key"},
-            files=files,
-            data={"model": "faster-whisper", "response_format": "json"},
-        )
-        # MP4 应该被接受（422 错误表示格式不被接受）
-        # 实际转录可能失败（因为假数据），但不应该返回 422
-        assert resp.status_code != 422, f"MP4 格式不应返回 422: {resp.json()}"
-        # 可能返回 200（如果转换成功）或 500（如果转换/转录失败）
+        with patch("server.api.audio.get_engine", return_value=_make_mock_engine()):
+            resp = client.post(
+                "/v1/audio/transcriptions",
+                headers={"Authorization": "Bearer oneasr-key"},
+                files=files,
+                data={"model": "faster-whisper", "response_format": "json"},
+            )
+        assert resp.status_code != 422
         assert resp.status_code in [200, 400, 500]
 
     def test_create_transcription_m4a_file(self, client):
@@ -160,13 +173,14 @@ class TestAudioTranscriptionsEndpoint:
         fake_m4a_content = b"\x00" * 1024
         files = {"file": ("test_audio.m4a", io.BytesIO(fake_m4a_content), "audio/mp4")}
 
-        resp = client.post(
-            "/v1/audio/transcriptions",
-            headers={"Authorization": "Bearer oneasr-key"},
-            files=files,
-            data={"model": "faster-whisper", "response_format": "json"},
-        )
-        assert resp.status_code != 422, f"M4A 格式不应返回 422: {resp.json()}"
+        with patch("server.api.audio.get_engine", return_value=_make_mock_engine()):
+            resp = client.post(
+                "/v1/audio/transcriptions",
+                headers={"Authorization": "Bearer oneasr-key"},
+                files=files,
+                data={"model": "faster-whisper", "response_format": "json"},
+            )
+        assert resp.status_code != 422
         assert resp.status_code in [200, 400, 500]
 
 
@@ -198,7 +212,7 @@ class TestRealFileTranscription:
         return resp.json()["file_id"]
 
     def test_transcribe_real_mp4(self, client):
-        """通过 UUID 转录真实 MP4 文件，返回 verbose_json 格式。"""
+        """通过真实 MP4 文件测试异步转录任务。"""
         from pathlib import Path
 
         mp4_path = Path(TEST_MP4_FILE)
@@ -208,25 +222,22 @@ class TestRealFileTranscription:
         file_id = self._upload_file(client)
 
         resp = client.post(
-            "/v1/audio/transcriptions",
+            "/v1/file/transcriptions",
             headers={"Authorization": "Bearer oneasr-key"},
-            data={
+            json={
                 "file_uuid": file_id,
-                "model": "whisper1",
+                "model": "faster-whisper",
                 "response_format": "verbose_json",
             },
         )
 
-        assert resp.status_code == 200, f"转录失败: {resp.json()}"
+        assert resp.status_code == 200, f"创建任务失败: {resp.json()}"
         data = resp.json()
-        assert "text" in data
-        assert "segments" in data
-        assert len(data["text"]) > 0, "转录结果不应为空"
-        print(f"\n转录结果: {data['text'][:200]}...")
-        print(f"分段数: {len(data['segments'])}")
+        assert "task_id" in data
+        assert data["status"] in ["pending", "processing", "completed"]
 
     def test_transcribe_real_mp4_json(self, client):
-        """通过 UUID 转录真实 MP4 文件，返回 JSON 格式。"""
+        """通过真实 MP4 文件测试 JSON 任务创建。"""
         from pathlib import Path
 
         mp4_path = Path(TEST_MP4_FILE)
@@ -236,22 +247,21 @@ class TestRealFileTranscription:
         file_id = self._upload_file(client)
 
         resp = client.post(
-            "/v1/audio/transcriptions",
+            "/v1/file/transcriptions",
             headers={"Authorization": "Bearer oneasr-key"},
-            data={
+            json={
                 "file_uuid": file_id,
-                "model": "whisper1",
+                "model": "faster-whisper",
                 "response_format": "json",
             },
         )
 
         assert resp.status_code == 200
         data = resp.json()
-        assert "text" in data
-        assert len(data["text"]) > 0
+        assert "task_id" in data
 
     def test_transcribe_real_mp4_text(self, client):
-        """通过 UUID 转录真实 MP4 文件，返回纯文本格式。"""
+        """通过真实 MP4 文件测试 text 任务创建。"""
         from pathlib import Path
 
         mp4_path = Path(TEST_MP4_FILE)
@@ -261,53 +271,18 @@ class TestRealFileTranscription:
         file_id = self._upload_file(client)
 
         resp = client.post(
-            "/v1/audio/transcriptions",
+            "/v1/file/transcriptions",
             headers={"Authorization": "Bearer oneasr-key"},
-            data={
+            json={
                 "file_uuid": file_id,
-                "model": "whisper1",
+                "model": "faster-whisper",
                 "response_format": "text",
             },
         )
 
         assert resp.status_code == 200
-        assert "text/plain" in resp.headers["content-type"]
-        assert len(resp.text) > 0
-
-    def test_transcribe_real_mp4_stream(self, client):
-        """通过 UUID 流式转录真实 MP4 文件。"""
-        from pathlib import Path
-
-        mp4_path = Path(TEST_MP4_FILE)
-        if not mp4_path.exists():
-            pytest.skip(f"测试文件不存在: {TEST_MP4_FILE}")
-
-        file_id = self._upload_file(client)
-
-        resp = client.post(
-            "/v1/audio/transcriptions",
-            headers={"Authorization": "Bearer oneasr-key"},
-            data={
-                "file_uuid": file_id,
-                "model": "whisper1",
-                "stream": "true",
-            },
-        )
-
-        assert resp.status_code == 200
-        assert "text/event-stream" in resp.headers["content-type"]
-
-        # 解析 SSE 事件
-        events = []
-        for line in resp.text.strip().split("\n"):
-            line = line.strip()
-            if line.startswith("data: "):
-                payload = line[len("data: "):]
-                events.append(json.loads(payload))
-
-        assert len(events) >= 1
-        assert events[-1].get("done") is True
-        print(f"\n流式事件数: {len(events)}")
+        data = resp.json()
+        assert "task_id" in data
 
 
 if __name__ == "__main__":

@@ -4,15 +4,18 @@ import asyncio
 import sys
 from pathlib import Path
 
+import pytest
 import httpx
+
+pytestmark = pytest.mark.integration
 
 # 添加项目根目录到路径
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from app.engines.mimo_engine import MiMoEngine
+from server.engines.mimo_engine import MiMoEngine
 
 
-async def test_audio_url():
+async def run_mimo_audio_url():
     """测试通过 URL 进行音频理解。"""
     audio_url = "https://example-files.cnbj1.mi-fds.com/example-files/audio/audio_example.wav"
 
@@ -31,4 +34,4 @@ async def test_audio_url():
 
 
 if __name__ == "__main__":
-    asyncio.run(test_audio_url())
+    asyncio.run(run_mimo_audio_url())

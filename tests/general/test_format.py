@@ -1,7 +1,7 @@
 """测试输出格式转换功能。"""
 
-from app.schemas.audio import Segment
-from app.utils.format import (
+from server.schemas.audio import Segment
+from server.utils.format import (
     OutputFormat,
     format_output,
     format_time_srt,

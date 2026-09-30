@@ -18,7 +18,7 @@ AUTH = {"Authorization": "Bearer oneasr-key"}
 # ── 工具：mock yt-dlp 让 _run_download 快速收敛 ─────────────────────
 
 def _make_video_info():
-    from app.utils.video_url import VideoInfo
+    from server.utils.video_url import VideoInfo
     return VideoInfo(
         title="mock title",
         duration_seconds=120,
@@ -32,7 +32,7 @@ def _patch_yt_dlp_success(tmp_download_path: str):
 
     返回 dict: name -> patcher，调用方用 .start()/.stop() 控制。
     """
-    def _fake_download_video(url, *, audio_only, progress_hook=None, max_filesize_bytes=None):
+    def _fake_download_video(url, *, audio_only, resolution=None, progress_hook=None, max_filesize_bytes=None, **kwargs):
         if progress_hook:
             progress_hook({"status": "downloading",
                            "downloaded_bytes": 50, "total_bytes": 100})
@@ -43,9 +43,9 @@ def _patch_yt_dlp_success(tmp_download_path: str):
         return _make_video_info()
 
     return {
-        "download_video": patch("app.services.media_service.download_video",
+        "download_video": patch("server.services.media_service.download_video",
                                 side_effect=_fake_download_video),
-        "extract_info": patch("app.services.media_service.extract_info",
+        "extract_info": patch("server.services.media_service.extract_info",
                               side_effect=_fake_extract_info),
     }
 
@@ -53,7 +53,7 @@ def _patch_yt_dlp_success(tmp_download_path: str):
 async def _wait_until_terminal(task_id: str, timeout_s: float = 1.0) -> str | None:
     """轮询任务直到收敛到 succeeded/failed，返回最终状态。"""
     for _ in range(int(timeout_s / 0.05)):
-        from app.services import media_service
+        from server.services import media_service
         r = await media_service.get_task(task_id)
         if r and r.status in ("succeeded", "failed"):
             return r.status
@@ -100,7 +100,7 @@ class TestMediaParse:
     ])
     def test_platform_detection_via_parse(self, client, url, expected_platform):
         """提交 URL 应正确识别平台并返回 task_id（mock 后台起任务）。"""
-        with patch("app.services.media_service.create_parse_task",
+        with patch("server.services.media_service.create_parse_task",
                    return_value="mock-task-id") as m:
             resp = client.post("/v1/media/parse", json={"url": url, "format": "audio"}, headers=AUTH)
 
@@ -109,7 +109,7 @@ class TestMediaParse:
         assert data["task_id"] == "mock-task-id"
         assert data["status"] == "pending"
         assert data["platform"] == expected_platform
-        m.assert_awaited_once_with(url, "audio")
+        m.assert_awaited_once_with(url, "audio", None)
 
     def test_parse_invalid_url_field_missing(self, client):
         """缺 url 字段应 400 或 422"""
@@ -122,7 +122,7 @@ class TestMediaTaskQueryAndDelete:
 
     def test_get_task_not_found(self, client):
         async def _run():
-            from app.services import media_service
+            from server.services import media_service
             r = await media_service.get_task("nonexistent-id")
             return r
         asyncio.run(_run())
@@ -148,7 +148,7 @@ class TestMediaTaskQueryAndDelete:
         合并到一个 async 体内通过单次 asyncio.run 执行。
         """
         async def _setup_and_wait():
-            from app.services import media_service
+            from server.services import media_service
             task_id = await media_service.create_parse_task(
                 "https://www.youtube.com/watch?v=abc", "audio"
             )
@@ -156,15 +156,15 @@ class TestMediaTaskQueryAndDelete:
             return task_id, final
 
         async def _get(tid):
-            from app.services import media_service
+            from server.services import media_service
             return await media_service.get_task(tid)
 
         async def _list():
-            from app.services import media_service
+            from server.services import media_service
             return await media_service.list_tasks()
 
         async def _del(tid):
-            from app.services import media_service
+            from server.services import media_service
             return await media_service.delete_task(tid)
 
         fake_file = tmp_path / "fake.mp3"
@@ -216,7 +216,7 @@ class TestMediaFileDownload:
     def test_download_file_not_succeeded(self, client):
         """非 succeeded 状态下载返回 409"""
         async def _create():
-            from app.services import media_service
+            from server.services import media_service
             return await media_service.create_parse_task(
                 "https://www.youtube.com/watch?v=xyz", "audio"
             )
@@ -228,7 +228,7 @@ class TestMediaFileDownload:
     def test_download_file_success(self, client, tmp_path):
         """succeeded 后下载应返回文件流"""
         async def _create_and_wait():
-            from app.services import media_service
+            from server.services import media_service
             task_id = await media_service.create_parse_task(
                 "https://www.bilibili.com/video/BV1xx", "video"
             )

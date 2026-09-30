@@ -43,7 +43,7 @@ def test_400_file_too_large(client: TestClient):
         "/v1/audio/transcriptions",
         headers={"Authorization": "Bearer oneasr-key"},
         files=files,
-        data={"model": "whisper1"},
+        data={"model": "faster-whisper"},
     )
     assert resp.status_code == 400
     data = resp.json()

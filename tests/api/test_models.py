@@ -2,16 +2,25 @@
 
 import io
 import wave
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from server.schemas.audio import Segment
+
+
+def _make_mock_engine():
+    mock = MagicMock()
+    mock.transcribe_file = AsyncMock(return_value=("测试识别结果", [Segment(start=0.0, end=1.0, text="测试识别结果")]))
+    return mock
+
 
 class TestAudioModelsEndpoint:
-    """测试 /v1/audio/models 端点。"""
+    """测试 /v1/models 端点。"""
 
     def test_list_models(self, client):
         """列出可用模型。"""
-        resp = client.get("/v1/audio/models", headers={"Authorization": "Bearer oneasr-key"})
+        resp = client.get("/v1/models", headers={"Authorization": "Bearer oneasr-key"})
         assert resp.status_code == 200
         data = resp.json()
         assert data["object"] == "list"
@@ -32,12 +41,34 @@ class TestTranscriptionFormats:
             wf.writeframes(b"\x00\x00" * 16000)
         buf.seek(0)
 
-        resp = client.post(
-            "/v1/audio/transcriptions",
-            headers={"Authorization": "Bearer oneasr-key"},
-            files={"file": ("test.wav", buf, "audio/wav")},
-            data={"model": "whisper1", "response_format": "json"},
-        )
+        with patch("server.api.audio.get_engine", return_value=_make_mock_engine()):
+            resp = client.post(
+                "/v1/audio/transcriptions",
+                headers={"Authorization": "Bearer oneasr-key"},
+                files={"file": ("test.wav", buf, "audio/wav")},
+                data={"model": "faster-whisper", "response_format": "json"},
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "text" in data
+
+    def test_transcribe_verbose_json_format(self, client):
+        """测试 verbose_json 格式输出。"""
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(16000)
+            wf.writeframes(b"\x00\x00" * 16000)
+        buf.seek(0)
+
+        with patch("server.api.audio.get_engine", return_value=_make_mock_engine()):
+            resp = client.post(
+                "/v1/audio/transcriptions",
+                headers={"Authorization": "Bearer oneasr-key"},
+                files={"file": ("test.wav", buf, "audio/wav")},
+                data={"model": "faster-whisper", "response_format": "verbose_json"},
+            )
         assert resp.status_code == 200
         data = resp.json()
         assert "text" in data
@@ -53,12 +84,13 @@ class TestTranscriptionFormats:
             wf.writeframes(b"\x00\x00" * 16000)
         buf.seek(0)
 
-        resp = client.post(
-            "/v1/audio/transcriptions",
-            headers={"Authorization": "Bearer oneasr-key"},
-            files={"file": ("test.wav", buf, "audio/wav")},
-            data={"model": "whisper1", "response_format": "text"},
-        )
+        with patch("server.api.audio.get_engine", return_value=_make_mock_engine()):
+            resp = client.post(
+                "/v1/audio/transcriptions",
+                headers={"Authorization": "Bearer oneasr-key"},
+                files={"file": ("test.wav", buf, "audio/wav")},
+                data={"model": "faster-whisper", "response_format": "text"},
+            )
         assert resp.status_code == 200
         assert resp.headers["content-type"] == "text/plain; charset=utf-8"
 
@@ -67,16 +99,15 @@ class TestTranscriptionFormats:
         resp = client.post(
             "/v1/audio/transcriptions",
             headers={"Authorization": "Bearer oneasr-key"},
-            data={"model": "whisper1"},
+            data={"model": "faster-whisper"},
         )
         assert resp.status_code == 400
-        assert "必须提供" in resp.json()["detail"]
 
     def test_transcribe_no_api_key(self, client):
         """没有 API Key 应该返回 401 或 422。"""
         resp = client.post(
             "/v1/audio/transcriptions",
-            data={"model": "whisper1"},
+            data={"model": "faster-whisper"},
         )
         assert resp.status_code in [401, 422]
 

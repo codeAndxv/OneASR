@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from app.main import app
+from server.main import app
 
 
 @pytest.fixture
@@ -41,7 +41,7 @@ class TestRealtimeExtEndpoint:
         mock_state.buffer_transcription = None
         mock_processor.get_current_state = AsyncMock(return_value=mock_state)
 
-        with patch("app.api.realtime_ext.get_engine") as mock_get_engine:
+        with patch("server.api.realtime_ext.get_engine") as mock_get_engine:
             mock_engine = MagicMock()
             mock_engine.create_audio_processor.return_value = mock_processor
             mock_get_engine.return_value = mock_engine
@@ -55,7 +55,7 @@ class TestRealtimeExtEndpoint:
                             "input": {
                                 "format": {"type": "audio/pcm", "rate": 16000},
                                 "transcription": {
-                                    "model": "whisper1",
+                                    "model": "faster-whisper",
                                     "language": "zh",
                                 },
                             },
@@ -81,7 +81,7 @@ class TestRealtimeExtEndpoint:
 
     def test_parse_time_to_seconds(self):
         """测试时间格式解析工具。"""
-        from app.api.realtime_ext import _parse_time_to_seconds
+        from server.api.realtime_ext import _parse_time_to_seconds
         assert _parse_time_to_seconds(1.23) == 1.23
         assert _parse_time_to_seconds("0:00:01.50") == 1.50
         assert _parse_time_to_seconds("0:01:30.00") == 90.00

@@ -14,7 +14,7 @@ import wave
 import numpy as np
 import pytest
 
-from app.utils.audio_converter import AudioConverter
+from server.utils.audio_converter import AudioConverter
 
 
 class TestAudioConverterPCM:

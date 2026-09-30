@@ -1,16 +1,18 @@
-"""测试所有 ASR 引擎。"""
-
 import asyncio
 import os
 from pathlib import Path
 
-from app.core.config import app_config, EngineConfig
-from app.utils.format import format_output
+import pytest
+
+from server.core.config import app_config, EngineConfig
+from server.utils.format import format_output
+
+pytestmark = pytest.mark.integration
 
 TEST_FILE = Path("/Volumes/µ/files/DuRT/DuRT-增加文本校正功能.mp4")
 
 
-async def test_engine(engine_name: str, engine, audio_data: bytes):
+async def _run_engine_transcribe(engine_name: str, engine, audio_data: bytes):
     """测试单个引擎。"""
     print(f"\n{'='*60}")
     print(f"测试引擎: {engine_name}")
@@ -40,26 +42,26 @@ async def test_engine(engine_name: str, engine, audio_data: bytes):
 
 async def test_whisper():
     """测试 Whisper 引擎。"""
-    from app.engines.whisper_engine import WhisperEngine
+    from server.engines.whisper_engine import WhisperEngine
 
-    config = app_config.get_provider_config("whisper1")
+    config = app_config.get_provider_config("faster-whisper")
     config.model_name = "medium"  # 使用 medium 模型
     engine = WhisperEngine(config)
-    return await test_engine("faster-whisper", engine, TEST_FILE.read_bytes())
+    return await _run_engine_transcribe("faster-whisper", engine, TEST_FILE.read_bytes())
 
 
 async def test_firered():
     """测试 FireRedASR 引擎。"""
-    from app.engines.firered_engine import FireRedEngine
+    from server.engines.firered_engine import FireRedEngine
 
     config = app_config.get_provider_config("firered")
     engine = FireRedEngine(config)
-    return await test_engine("firered", engine, TEST_FILE.read_bytes())
+    return await _run_engine_transcribe("firered", engine, TEST_FILE.read_bytes())
 
 
 async def test_openai():
     """测试 OpenAI 引擎。"""
-    from app.engines.openai_engine import OpenAIEngine
+    from server.engines.openai_engine import OpenAIEngine
 
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
@@ -73,12 +75,12 @@ async def test_openai():
         "api_key": api_key,
     }, None)
     engine = OpenAIEngine(config)
-    return await test_engine("openai", engine, TEST_FILE.read_bytes())
+    return await _run_engine_transcribe("openai", engine, TEST_FILE.read_bytes())
 
 
 async def test_mimo(api_key: str = None, base_url: str = None, model_name: str = None):
     """测试小米 MiMo 引擎。"""
-    from app.engines.mimo_engine import MiMoEngine
+    from server.engines.mimo_engine import MiMoEngine
 
     api_key = api_key or os.environ.get("MIMO_API_KEY")
     if not api_key:
@@ -93,7 +95,7 @@ async def test_mimo(api_key: str = None, base_url: str = None, model_name: str =
         "base_url": base_url or "https://token-plan-sgp.xiaomimimo.com/v1",
     }, None)
     engine = MiMoEngine(config)
-    return await test_engine("mimo", engine, TEST_FILE.read_bytes())
+    return await _run_engine_transcribe("mimo", engine, TEST_FILE.read_bytes())
 
 
 async def main():

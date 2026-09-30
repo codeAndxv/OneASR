@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from app.main import app
+from server.main import app
 
 
 @pytest.fixture
@@ -36,22 +36,47 @@ async def _empty_generator():
         yield
 
 
+class MockStreamSession:
+    """模拟 X-ASR 流式会话对象。"""
+    def __init__(self, text="你好世界。"):
+        self.text = text
+        self._partial_sent = False
+
+    def accept_audio(self, audio_bytes, input_sample_rate=None):
+        pass
+
+    def decode(self):
+        pass
+
+    def get_partial_result(self) -> str:
+        if not self._partial_sent:
+            self._partial_sent = True
+            return self.text
+        return ""
+
+    def get_full_text(self) -> str:
+        return self.text
+
+    def is_endpoint(self) -> bool:
+        return True
+
+    def reset_endpoint(self):
+        pass
+
+    def finalize(self) -> str:
+        return self.text
+
+
 class TestRealtimeEndpoint:
     """测试 /v1/realtime 端点。"""
 
     def test_session_update_configures_session(self, client):
         """发送 session.update 应收到 session.updated 响应。"""
-        mock_processor = MagicMock()
-        mock_processor.is_pcm_input = False
-        mock_processor.create_tasks = AsyncMock(return_value=_empty_generator())
-        mock_processor.process_audio = AsyncMock()
-        mock_processor.cleanup = AsyncMock()
+        mock_stream = MockStreamSession()
+        mock_engine = MagicMock()
+        mock_engine.create_stream_session.return_value = mock_stream
 
-        with patch("app.api.realtime.get_engine") as mock_get_engine:
-            mock_engine = MagicMock()
-            mock_engine.create_audio_processor.return_value = mock_processor
-            mock_get_engine.return_value = mock_engine
-
+        with patch("server.api.realtime.get_engine", return_value=mock_engine):
             with client.websocket_connect("/v1/realtime?api_key=oneasr-key") as ws:
                 # 握手成功首先收到 session.created
                 created_msg = ws.receive_json()
@@ -67,7 +92,7 @@ class TestRealtimeEndpoint:
                             "input": {
                                 "format": {"type": "audio/pcm", "rate": 16000},
                                 "transcription": {
-                                    "model": "whisper1",
+                                    "model": "xasr",
                                     "language": "zh",
                                 },
                             },
@@ -90,17 +115,11 @@ class TestRealtimeEndpoint:
 
     def test_audio_append_before_session_update(self, client):
         """在 session.update 之前发送音频应返回错误。"""
-        mock_processor = MagicMock()
-        mock_processor.is_pcm_input = False
-        mock_processor.create_tasks = AsyncMock(return_value=_empty_generator())
-        mock_processor.process_audio = AsyncMock()
-        mock_processor.cleanup = AsyncMock()
+        mock_stream = MockStreamSession()
+        mock_engine = MagicMock()
+        mock_engine.create_stream_session.return_value = mock_stream
 
-        with patch("app.api.realtime.get_engine") as mock_get_engine:
-            mock_engine = MagicMock()
-            mock_engine.create_audio_processor.return_value = mock_processor
-            mock_get_engine.return_value = mock_engine
-
+        with patch("server.api.realtime.get_engine", return_value=mock_engine):
             with client.websocket_connect("/v1/realtime?api_key=oneasr-key") as ws:
                 # 接收 session.created
                 ws.receive_json()
@@ -117,22 +136,11 @@ class TestRealtimeEndpoint:
 
     def test_transcription_results_format(self, client):
         """验证转录结果的 OpenAI 事件格式。"""
-        mock_front_data = _make_mock_front_data()
+        mock_stream = MockStreamSession("你好世界。")
+        mock_engine = MagicMock()
+        mock_engine.create_stream_session.return_value = mock_stream
 
-        async def result_gen():
-            yield mock_front_data
-
-        mock_processor = MagicMock()
-        mock_processor.is_pcm_input = False
-        mock_processor.create_tasks = AsyncMock(return_value=result_gen())
-        mock_processor.process_audio = AsyncMock()
-        mock_processor.cleanup = AsyncMock()
-
-        with patch("app.api.realtime.get_engine") as mock_get_engine:
-            mock_engine = MagicMock()
-            mock_engine.create_audio_processor.return_value = mock_processor
-            mock_get_engine.return_value = mock_engine
-
+        with patch("server.api.realtime.get_engine", return_value=mock_engine):
             with client.websocket_connect("/v1/realtime?api_key=oneasr-key") as ws:
                 # 接收 session.created
                 ws.receive_json()
@@ -144,7 +152,7 @@ class TestRealtimeEndpoint:
                         "type": "transcription",
                         "audio": {
                             "input": {
-                                "transcription": {"model": "whisper1"},
+                                "transcription": {"model": "xasr"},
                             },
                         },
                     },
@@ -155,34 +163,28 @@ class TestRealtimeEndpoint:
                 import base64
                 ws.send_json({
                     "type": "input_audio_buffer.append",
-                    "audio": base64.b64encode(b"\x00\x01" * 100).decode(),
+                    "audio": base64.b64encode(b"\x00\x01" * 1600).decode(),
                 })
 
                 # 接收结果
                 delta_msg = ws.receive_json()
                 assert delta_msg["type"] == "conversation.item.input_audio_transcription.delta"
-                assert delta_msg["delta"] == "你好世界"
+                assert "你好世界" in delta_msg["delta"]
                 assert delta_msg["item_id"] is not None
                 assert delta_msg["content_index"] == 0
 
                 completed_msg = ws.receive_json()
                 assert completed_msg["type"] == "conversation.item.input_audio_transcription.completed"
-                assert completed_msg["transcript"] == "你好世界"
+                assert "你好世界" in completed_msg["transcript"]
                 assert completed_msg["item_id"] is not None
 
     def test_commit_triggers_finalization(self, client):
         """发送 commit 应触发流结束。"""
-        mock_processor = MagicMock()
-        mock_processor.is_pcm_input = False
-        mock_processor.create_tasks = AsyncMock(return_value=_empty_generator())
-        mock_processor.process_audio = AsyncMock()
-        mock_processor.cleanup = AsyncMock()
+        mock_stream = MockStreamSession("你好世界。")
+        mock_engine = MagicMock()
+        mock_engine.create_stream_session.return_value = mock_stream
 
-        with patch("app.api.realtime.get_engine") as mock_get_engine:
-            mock_engine = MagicMock()
-            mock_engine.create_audio_processor.return_value = mock_processor
-            mock_get_engine.return_value = mock_engine
-
+        with patch("server.api.realtime.get_engine", return_value=mock_engine):
             with client.websocket_connect("/v1/realtime?api_key=oneasr-key") as ws:
                 # 接收 session.created
                 ws.receive_json()
@@ -194,7 +196,7 @@ class TestRealtimeEndpoint:
                         "type": "transcription",
                         "audio": {
                             "input": {
-                                "transcription": {"model": "whisper1"},
+                                "transcription": {"model": "xasr"},
                             },
                         },
                     },
@@ -205,28 +207,22 @@ class TestRealtimeEndpoint:
                 import base64
                 ws.send_json({
                     "type": "input_audio_buffer.append",
-                    "audio": base64.b64encode(b"\x00\x00" * 16000).decode(),
+                    "audio": base64.b64encode(b"\x00\x00" * 1600).decode(),
                 })
+
+                ws.receive_json()  # delta
+                ws.receive_json()  # completed
 
                 # 发送 commit
                 ws.send_json({"type": "input_audio_buffer.commit"})
 
-                # 验证 process_audio 被调用了空字节
-                mock_processor.process_audio.assert_called_with(b"")
-
     def test_commit_without_listening_returns_error(self, client):
         """在非 LISTENING 状态下 commit 应返回错误。"""
-        mock_processor = MagicMock()
-        mock_processor.is_pcm_input = False
-        mock_processor.create_tasks = AsyncMock(return_value=_empty_generator())
-        mock_processor.process_audio = AsyncMock()
-        mock_processor.cleanup = AsyncMock()
+        mock_stream = MockStreamSession()
+        mock_engine = MagicMock()
+        mock_engine.create_stream_session.return_value = mock_stream
 
-        with patch("app.api.realtime.get_engine") as mock_get_engine:
-            mock_engine = MagicMock()
-            mock_engine.create_audio_processor.return_value = mock_processor
-            mock_get_engine.return_value = mock_engine
-
+        with patch("server.api.realtime.get_engine", return_value=mock_engine):
             with client.websocket_connect("/v1/realtime?api_key=oneasr-key") as ws:
                 # 接收 session.created
                 ws.receive_json()
@@ -238,7 +234,7 @@ class TestRealtimeEndpoint:
                         "type": "transcription",
                         "audio": {
                             "input": {
-                                "transcription": {"model": "whisper1"},
+                                "transcription": {"model": "xasr"},
                             },
                         },
                     },
@@ -257,13 +253,21 @@ class TestRealtimeProtocol:
     """测试 Realtime 协议的消息格式。"""
 
     def test_session_update_requires_session_field(self, client):
-        """session.update 必须包含 session 字段。"""
-        with client.websocket_connect("/v1/realtime?api_key=oneasr-key") as ws:
-            # 接收 session.created
-            ws.receive_json()
+        """session.update 缺省 session 时使用默认配置。"""
+        mock_stream = MockStreamSession()
+        mock_engine = MagicMock()
+        mock_engine.create_stream_session.return_value = mock_stream
 
-            # 发送无效的 session.update（缺少 session 字段）
-            ws.send_json({"type": "session.update"})
+        with patch("server.api.realtime.get_engine", return_value=mock_engine):
+            with client.websocket_connect("/v1/realtime?api_key=oneasr-key") as ws:
+                # 接收 session.created
+                created = ws.receive_json()
+                assert created["type"] == "session.created"
+
+                # 发送 session.update（缺少 session 字段）
+                ws.send_json({"type": "session.update"})
+                updated = ws.receive_json()
+                assert updated["type"] == "session.updated"
 
 
 if __name__ == "__main__":

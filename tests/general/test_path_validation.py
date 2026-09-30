@@ -2,10 +2,10 @@
 
 import pytest
 
-from app.core.config import EngineConfig, PROJECT_ROOT
-from app.engines.whisper_engine import WhisperEngine
-from app.engines.xasr_engine import XASREngine
-from app.engines.qwen_engine import QwenEngine
+from server.core.config import EngineConfig, PROJECT_ROOT
+from server.engines.whisper_engine import WhisperEngine
+from server.engines.xasr_engine import XASREngine
+from server.engines.qwen_engine import QwenEngine
 
 
 def test_engine_config_paths():

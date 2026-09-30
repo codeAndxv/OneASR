@@ -1,6 +1,6 @@
 import numpy as np
 import pytest
-from app.utils.asr_toolkit import ASRToolkit, AudioChunk
+from server.utils.asr_toolkit import ASRToolkit, AudioChunk
 
 
 def test_collect_chunks_pure_silence():
