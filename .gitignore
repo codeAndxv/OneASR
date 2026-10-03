@@ -25,8 +25,9 @@ web/node_modules/
 web/dist/
 .vite/
 *-workspace
-uploads
-data
-models
-download/
-downloads/
+/uploads/
+/data/
+/models/
+/download/
+/downloads/
+tests/uploads/
