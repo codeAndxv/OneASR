@@ -31,6 +31,7 @@ async def list_providers():
             "categories": base_config.categories if base_config else [],
             "functions": base_config.categories if base_config else [],
             "languages": base_config.languages if base_config else [],
+            "features": base_config.features if base_config else ["asrAutoLanguageDetect"],
         })
 
     prov_names = [p["id"] for p in providers]

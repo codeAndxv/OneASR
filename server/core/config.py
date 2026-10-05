@@ -60,6 +60,16 @@ class EngineConfig:
         self.categories: list[str] = _get_val("categories", _get_val("functions", []))
         self.functions: list[str] = self.categories  # 兼容旧代码引用
 
+        # 高级特性支持 (asrAutoLanguageDetect, asrDiarization, asrWordTimestamp 等)
+        raw_features = _get_val("features", None)
+        if raw_features is None:
+            # 默认赋予 asrAutoLanguageDetect 特性
+            self.features = ["asrAutoLanguageDetect"]
+        elif isinstance(raw_features, str):
+            self.features = [f.strip() for f in raw_features.split(",") if f.strip()]
+        else:
+            self.features = list(raw_features)
+
         # 支持的语言列表（逗号分隔字符串 → list）
         raw = _get_val("languages", "")
         if isinstance(raw, str):
