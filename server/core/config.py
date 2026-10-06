@@ -267,6 +267,8 @@ class AppConfig:
 
 class Settings(BaseSettings):
     app_name: str = "OneASR"
+    app_version: str = "0.1.0"
+    api_version: str = "0.1.0"
     debug: bool = False
     max_file_size_mb: int = 500
 
@@ -275,3 +277,5 @@ class Settings(BaseSettings):
 
 settings = Settings()
 app_config = AppConfig()
+API_VERSION = settings.api_version
+
