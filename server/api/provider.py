@@ -5,6 +5,7 @@ import time
 
 from fastapi import APIRouter, Depends
 
+from server.api.auth import get_api_key
 from server.core.config import API_VERSION, app_config, settings
 from server.engines.registry import get_loaded_engines
 
