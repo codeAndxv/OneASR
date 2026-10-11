@@ -186,14 +186,16 @@ async def _xasr_session_ext(
                 stream_session.accept_audio(audio_bytes, input_sample_rate=sample_rate)
                 stream_session.decode()
 
-                # 1. 获取并发送 partial 增量结果（自动过滤句首残留标点）
+                # 1. 获取并发送 partial 增量结果（自动过滤句首残留标点，并携带当前整句实时文本 text）
                 raw_partial = stream_session.get_partial_result()
+                raw_full = stream_session.get_full_text()
+                clean_full_preview = clean_dangling_punct(raw_full).strip()
                 if raw_partial:
                     partial = raw_partial
                     if not current_sentence_has_emitted_delta:
                         partial = clean_dangling_punct(raw_partial)
 
-                    if partial:
+                    if partial or clean_full_preview:
                         current_sentence_has_emitted_delta = True
                         item_id = session.next_item_id()
                         await send_event({
@@ -201,13 +203,13 @@ async def _xasr_session_ext(
                             "item_id": item_id,
                             "content_index": 0,
                             "delta": partial,
+                            "text": clean_full_preview or partial,
                             "start": round(last_sentence_end_time, 2),
                             "end": round(current_time, 2),
                             "is_endpoint": False,
                         })
 
                 # 2. 标点与语义动态软断句判定
-                raw_full = stream_session.get_full_text()
                 is_acoustic = stream_session.is_endpoint()
                 should_endpoint, reason = evaluate_soft_endpoint(
                     full_text=raw_full,
@@ -496,6 +498,7 @@ async def realtime_transcription_ext(ws: WebSocket):
                             "item_id": item_id,
                             "content_index": 0,
                             "delta": buffer_text,
+                            "text": buffer_text,
                             "start": round(last_completed_end_time, 2),
                             "end": round(audio_time, 2),
                             "is_endpoint": False,
