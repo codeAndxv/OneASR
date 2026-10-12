@@ -93,6 +93,25 @@ ASR-Providers:
         - FileASR
       languages: zh, en, ja, ko, fr, de, es, it, ru, pt, nl, pl, ar, cs, da, fi, el, he, hu, id, ms, no, ro, sk, sv, th, tr, uk, vi, hi
 
+  # FunASR / Paraformer 文件转录（阿里开源，中文高精度非自回归）
+  funasr:
+    enable: false
+    engine: funasr
+
+    # 加载配置
+    load:
+      model_name: iic/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch
+      model_path: null
+      device: cpu
+      vad_model: fsmn-vad
+      punc_model: ct-punc
+
+    # 属性
+    properties:
+      categories:
+        - FileASR
+      languages: zh, en
+
 # ─────────────────────────────────────────────────────────────
 # yt-dlp 视频/音频 URL 解析与下载配置
 # ─────────────────────────────────────────────────────────────

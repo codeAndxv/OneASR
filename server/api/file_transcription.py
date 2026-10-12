@@ -188,6 +188,10 @@ async def _run_transcription(task_id: str):
         async for seg in eng.transcribe_file_stream(data):
             full_text += seg.text
 
+            words_json = None
+            if getattr(seg, "words", None):
+                words_json = json.dumps([w.model_dump() for w in seg.words], ensure_ascii=False)
+
             async with async_session() as session:
                 segment = TranscriptionSegment(
                     task_id=task_id,
@@ -195,6 +199,8 @@ async def _run_transcription(task_id: str):
                     start=seg.start,
                     end=seg.end,
                     text=seg.text,
+                    speaker=str(seg.speaker) if getattr(seg, "speaker", None) is not None else None,
+                    words_json=words_json,
                 )
                 session.add(segment)
                 await session.commit()

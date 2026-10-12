@@ -272,19 +272,28 @@ async def _handle_sync(rid, record_id, data, filename, eng, model, language,
             result["languages"] = [{"code": lang} for lang in languages]
         return result
     elif response_format == OutputFormat.VERBOSE_JSON:
-        return {
-            "text": text,
-            "language": language or "",
-            "duration": duration,
-            "words": [
-                {
+        formatted_words = []
+        for s in segments:
+            if s.words:
+                for w in s.words:
+                    formatted_words.append({
+                        "word": w.word,
+                        "start": w.start,
+                        "end": w.end,
+                        "probability": w.probability if w.probability is not None else 1.0,
+                    })
+            else:
+                formatted_words.append({
                     "word": s.text,
                     "start": s.start,
                     "end": s.end,
                     "probability": 0.0,
-                }
-                for s in segments
-            ],
+                })
+        return {
+            "text": text,
+            "language": language or "",
+            "duration": duration,
+            "words": formatted_words,
             "segments": [
                 {
                     "id": s.id,
@@ -294,9 +303,11 @@ async def _handle_sync(rid, record_id, data, filename, eng, model, language,
                     "text": s.text,
                     "tokens": [],
                     "temperature": 0.0,
-                    "avg_logprob": 0.0,
-                    "compression_ratio": 0.0,
+                    "avg_logprob": s.confidence if s.confidence is not None else 0.0,
+                    "compression_ratio": 1.0,
                     "no_speech_prob": 0.0,
+                    "speaker": s.speaker,
+                    "words": [w.model_dump() for w in s.words] if s.words else None,
                 }
                 for s in segments
             ],

@@ -9,6 +9,7 @@ from server.engines.openai_engine import OpenAIEngine
 from server.engines.mimo_engine import MiMoEngine
 from server.engines.xasr_engine import XASREngine
 from server.engines.qwen_engine import QwenEngine
+from server.engines.funasr_engine import FunASREngine
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +21,7 @@ _engine_classes: dict[str, type[ASREngine]] = {
     "mimo": MiMoEngine,
     "xasr": XASREngine,
     "qwen": QwenEngine,
+    "funasr": FunASREngine,
 }
 
 

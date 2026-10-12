@@ -9,7 +9,8 @@ from faster_whisper import WhisperModel
 
 from server.core.config import EngineConfig
 from server.engines.base import ASREngine
-from server.schemas.audio import Segment
+from server.schemas.audio import Segment, WordTimestamp
+from server.utils.subtitle_segmenter import SubtitleSegmenter
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +28,7 @@ def _infer_whisper_repo_id(model_name: str) -> str:
 
 
 class WhisperEngine(ASREngine):
-    """基于 faster-whisper 的 ASR 引擎。"""
+    """基于 faster-whisper 的 ASR 引擎（集成抗幻觉与词级时间戳优化）。"""
 
     def __init__(self, config: EngineConfig):
         self.config = config
@@ -75,23 +76,86 @@ class WhisperEngine(ASREngine):
             logger.error(err_msg, exc_info=True)
             raise RuntimeError(err_msg) from e
 
-    async def transcribe_file(self, audio_data: bytes) -> tuple[str, list[Segment]]:
+        self.segmenter = SubtitleSegmenter()
+
+    async def transcribe_file(
+        self,
+        audio_data: bytes,
+        language: str | None = None,
+        vad_filter: bool = True,
+        word_timestamps: bool = True,
+        resegment: bool = True,
+    ) -> tuple[str, list[Segment]]:
+        """文件转录：应用 VAD 静音切片、关闭前文依赖（彻底杜绝幻听滚雪球）、生成词级时间戳并智能规整字幕。"""
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
             tmp.write(audio_data)
             tmp_path = Path(tmp.name)
 
         try:
-            segments_iter, info = self.model.transcribe(str(tmp_path), beam_size=5)
-            segments = []
-            full_text_parts = []
-            for seg in segments_iter:
-                segments.append(Segment(start=seg.start, end=seg.end, text=seg.text.strip(), is_endpoint=True))
-                full_text_parts.append(seg.text.strip())
-            return " ".join(full_text_parts), segments
+            segments_iter, info = self.model.transcribe(
+                str(tmp_path),
+                language=language,
+                beam_size=5,
+                vad_filter=vad_filter,
+                vad_parameters=dict(min_silence_duration_ms=500, speech_pad_ms=200) if vad_filter else None,
+                condition_on_previous_text=False,  # 关键抗幻听策略：禁止上一句幻觉污染下一句
+                compression_ratio_threshold=2.4,  # 检测复读死循环自动重试或跳过
+                log_prob_threshold=-1.0,
+                no_speech_threshold=0.6,
+                word_timestamps=word_timestamps,
+            )
+
+            raw_segments: list[Segment] = []
+            full_text_parts: list[str] = []
+
+            for i, seg in enumerate(segments_iter):
+                words: list[WordTimestamp] = []
+                if hasattr(seg, "words") and seg.words:
+                    for w in seg.words:
+                        prob = getattr(w, "probability", None)
+                        words.append(
+                            WordTimestamp(
+                                word=w.word,
+                                start=round(w.start, 3),
+                                end=round(w.end, 3),
+                                probability=round(prob, 3) if prob is not None else None,
+                            )
+                        )
+
+                clean_text = seg.text.strip()
+                if clean_text:
+                    full_text_parts.append(clean_text)
+
+                avg_prob = getattr(seg, "avg_logprob", None)
+                raw_segments.append(
+                    Segment(
+                        id=i,
+                        start=round(seg.start, 3),
+                        end=round(seg.end, 3),
+                        text=clean_text,
+                        is_endpoint=True,
+                        words=words if words else None,
+                        confidence=round(avg_prob, 3) if avg_prob is not None else None,
+                    )
+                )
+
+            # 是否执行智能字幕重断句（根据标点、时长与自然停顿规整）
+            if resegment and raw_segments:
+                final_segments = self.segmenter.optimize_segments(raw_segments)
+            else:
+                final_segments = raw_segments
+
+            return " ".join(full_text_parts), final_segments
         finally:
             tmp_path.unlink(missing_ok=True)
 
-    async def transcribe_file_stream(self, audio_data: bytes) -> AsyncIterator[Segment]:
+    async def transcribe_file_stream(
+        self,
+        audio_data: bytes,
+        language: str | None = None,
+        vad_filter: bool = True,
+        word_timestamps: bool = True,
+    ) -> AsyncIterator[Segment]:
         """流式识别：在子线程中迭代 faster-whisper，逐句 yield 给 SSE。"""
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
             tmp.write(audio_data)
@@ -101,10 +165,49 @@ class WhisperEngine(ASREngine):
 
         def _run():
             try:
-                segments_iter, info = self.model.transcribe(str(tmp_path), beam_size=5)
-                for seg in segments_iter:
+                segments_iter, info = self.model.transcribe(
+                    str(tmp_path),
+                    language=language,
+                    beam_size=5,
+                    vad_filter=vad_filter,
+                    vad_parameters=dict(min_silence_duration_ms=500, speech_pad_ms=200) if vad_filter else None,
+                    condition_on_previous_text=False,
+                    compression_ratio_threshold=2.4,
+                    log_prob_threshold=-1.0,
+                    no_speech_threshold=0.6,
+                    word_timestamps=word_timestamps,
+                )
+                for i, seg in enumerate(segments_iter):
+                    clean_text = seg.text.strip()
+                    if not clean_text:
+                        continue
+
+                    words: list[WordTimestamp] = []
+                    if hasattr(seg, "words") and seg.words:
+                        for w in seg.words:
+                            prob = getattr(w, "probability", None)
+                            words.append(
+                                WordTimestamp(
+                                    word=w.word,
+                                    start=round(w.start, 3),
+                                    end=round(w.end, 3),
+                                    probability=round(prob, 3) if prob is not None else None,
+                                )
+                            )
+
+                    avg_prob = getattr(seg, "avg_logprob", None)
                     asyncio.run_coroutine_threadsafe(
-                        queue.put(Segment(start=seg.start, end=seg.end, text=seg.text.strip(), is_endpoint=True)),
+                        queue.put(
+                            Segment(
+                                id=i,
+                                start=round(seg.start, 3),
+                                end=round(seg.end, 3),
+                                text=clean_text,
+                                is_endpoint=True,
+                                words=words if words else None,
+                                confidence=round(avg_prob, 3) if avg_prob is not None else None,
+                            )
+                        ),
                         loop,
                     )
             finally:

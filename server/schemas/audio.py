@@ -1,7 +1,7 @@
 from enum import Enum
-from typing import Optional
+from typing import Optional, Union
 
-from pydantic import BaseModel, HttpUrl, Field
+from pydantic import BaseModel, HttpUrl, Field, ConfigDict
 
 
 class OutputFormat(str, Enum):
@@ -15,26 +15,40 @@ class OutputFormat(str, Enum):
 
 # ========== 统一请求/响应模型（参考 OpenAI 格式） ==========
 
+class WordTimestamp(BaseModel):
+    """词级别时间戳。"""
+    word: str = Field(..., description="词或字")
+    start: float = Field(..., description="开始时间（秒）")
+    end: float = Field(..., description="结束时间（秒）")
+    probability: Optional[float] = Field(None, description="置信度概率")
+
+
 class Segment(BaseModel):
     """识别结果的分段。"""
     id: int = Field(0, description="分段 ID")
     start: float = Field(..., description="开始时间（秒）")
     end: float = Field(..., description="结束时间（秒）")
     text: str = Field(..., description="识别文本")
-    speaker: Optional[int] = Field(None, description="说话人 ID")
+    speaker: Optional[Union[int, str]] = Field(None, description="说话人 ID (如 0, 1 或 'SPEAKER_00')")
     is_endpoint: bool = Field(False, description="是否为确定端点/完整句子")
+    words: Optional[list[WordTimestamp]] = Field(None, description="词级时间戳列表")
+    confidence: Optional[float] = Field(None, description="分段平均置信度")
 
 
 class TranscriptionRequest(BaseModel):
     """统一的语音识别请求模型。"""
+    model_config = ConfigDict(populate_by_name=True)
+
     url: Optional[HttpUrl] = Field(None, description="音视频 URL（与 file 二选一）")
     model: Optional[str] = Field(None, alias="engine", description="引擎名称")
     language: Optional[str] = Field(None, description="语言代码（如 zh、en、auto）")
     response_format: OutputFormat = Field(OutputFormat.JSON, description="输出格式")
     prompt: Optional[str] = Field(None, description="提示词（可选）")
-
-    class Config:
-        populate_by_name = True
+    word_timestamps: bool = Field(True, description="是否提取词级时间戳")
+    vad_filter: bool = Field(True, description="是否启用 VAD 过滤背景噪音")
+    resegment: bool = Field(True, description="是否根据断句与标点优化字幕切片")
+    max_line_length: int = Field(30, description="单行字幕最大字符数")
+    max_segment_duration: float = Field(6.0, description="单个字幕切片最大时长（秒）")
 
 
 class TranscriptionResponse(BaseModel):

@@ -129,6 +129,8 @@ class TranscriptionSegment(Base):
     start = Column(Float, nullable=False, comment="开始时间（秒）")
     end = Column(Float, nullable=False, comment="结束时间（秒）")
     text = Column(Text, nullable=False, comment="识别文本")
+    speaker = Column(String(32), nullable=True, comment="说话人 ID")
+    words_json = Column(Text, nullable=True, comment="词级时间戳 JSON")
     created_at = Column(DateTime(timezone=True), default=_utcnow, comment="写入时间")
 
 
