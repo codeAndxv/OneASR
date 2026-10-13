@@ -6,7 +6,7 @@ from pathlib import Path
 from sqlalchemy import select
 
 from server.db import async_session
-from server.models.orm_models import UploadedFile
+from server.db.orm_models import UploadedFile
 
 logger = logging.getLogger(__name__)
 

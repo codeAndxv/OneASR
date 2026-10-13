@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 
 from server.db import async_session
-from server.models.orm_models import FileTranscriptionRecord, StreamingRecord
+from server.db.orm_models import FileTranscriptionRecord, StreamingRecord
 
 logger = logging.getLogger(__name__)
 

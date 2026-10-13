@@ -97,7 +97,7 @@ const fileInput = ref(null)
 const loadFiles = async () => {
   loading.value = true
   try {
-    const res = await fetch(`${API_BASE}/api/v1/file/list`, {
+    const res = await fetch(`${API_BASE}/v1/x/files`, {
       headers: { 'X-API-Key': API_KEY },
     })
     if (res.ok) {
@@ -165,7 +165,7 @@ const uploadFiles = async (filesToUpload) => {
         item.error = t('upload.uploadFail')
       })
       
-      xhr.open('POST', `${API_BASE}/api/v1/file/upload`)
+      xhr.open('POST', `${API_BASE}/v1/x/files`)
       xhr.setRequestHeader('X-API-Key', API_KEY)
       xhr.send(formData)
       
@@ -182,7 +182,7 @@ const deleteFile = async (file) => {
   }
   
   try {
-    const res = await fetch(`${API_BASE}/api/v1/file/${file.file_id}`, {
+    const res = await fetch(`${API_BASE}/v1/x/files/${file.file_id}`, {
       method: 'DELETE',
       headers: { 'X-API-Key': API_KEY },
     })
@@ -205,7 +205,7 @@ const copyUuid = (uuid) => {
 
 // 转录文件
 const transcribeFile = (file) => {
-  alert(`文件UUID: ${file.file_id}\n\n使用此UUID调用转录API:\nPOST /api/v1/audio/transcriptions\nfile_uuid: ${file.file_id}`)
+  alert(`文件UUID: ${file.file_id}\n\n使用此UUID调用转录API:\nPOST /v1/x/audio/transcriptions\nfile_uuid: ${file.file_id}`)
 }
 
 // 格式化文件大小

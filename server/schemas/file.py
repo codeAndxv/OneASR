@@ -34,33 +34,3 @@ class FileDeleteResponse(BaseModel):
     """文件删除响应"""
     message: str = Field(..., description="删除结果")
     file_id: str = Field(..., description="删除的文件UUID")
-
-
-class FetchURLRequest(BaseModel):
-    """从网络 URL 异步拉取并导入为文件资产"""
-    url: str = Field(..., description="音视频媒体 URL (YouTube/B站/抖音等)")
-    format: Optional[str] = Field(None, description="提取类型：audio 或 video（为空时遵循 config.yaml 默认配置）")
-    resolution: Optional[str] = Field(None, description="视频分辨率上限（如 1080p, 720p, 480p, 360p, best）")
-
-
-class FetchURLResponse(BaseModel):
-    """URL 拉取任务创建响应"""
-    task_id: str = Field(..., description="任务 ID，用于后续轮询状态")
-    status: str = Field("pending", description="初始状态")
-
-
-class FetchURLTaskInfo(BaseModel):
-    """URL 拉取任务状态响应"""
-    task_id: str
-    url: str
-    status: str = Field(..., description="pending / running / succeeded / failed")
-    progress: float = 0.0
-    file_id: Optional[str] = Field(None, description="下载完成并注册后的文件 UUID")
-    filename: Optional[str] = None
-    file_size: Optional[int] = None
-    title: Optional[str] = None
-    duration_seconds: Optional[float] = None
-    uploader: Optional[str] = None
-    error_message: Optional[str] = None
-    created_at: str
-    completed_at: Optional[str] = None

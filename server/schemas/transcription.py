@@ -8,6 +8,7 @@ class TaskCreateRequest(BaseModel):
     file_uuid: str = Field(..., description="Uploaded file UUID")
     model: str = Field(..., description="Model identifier (engine_name/model_name)")
     language: Optional[str] = Field(None, description="Language code (ISO-639-1)")
+    prompt: Optional[str] = Field(None, description="Prompt or hotwords to guide transcription")
     response_format: Optional[str] = Field("json", description="Output format")
 
 

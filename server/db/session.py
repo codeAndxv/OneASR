@@ -1,25 +1,35 @@
 """数据库连接与配置。"""
 
 import os
+import sys
 import logging
 from pathlib import Path
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 
 from server.db.base import Base
+import server.db.orm_models  # noqa: F401 (ensure all models are registered to Base.metadata)
 
 logger = logging.getLogger(__name__)
 
 DATABASE_DIR = Path(__file__).parent.parent.parent / "data" / "database"
 
-# 测试环境使用独立数据库，避免污染生产数据
-_db_name = "oneasr_test.db" if os.environ.get("PYTEST_CURRENT_TEST") else "oneasr.db"
-DATABASE_URL = f"sqlite+aiosqlite:///{DATABASE_DIR / _db_name}"
+# 测试环境使用独立数据库，避免污染生产数据（兼容 pytest 导入期与执行期）
+_is_testing = bool(
+    os.environ.get("PYTEST_CURRENT_TEST")
+    or os.environ.get("PYTEST_VERSION")
+    or os.environ.get("ONEASR_TESTING")
+    or "pytest" in sys.modules
+)
+_db_name = "oneasr_test.db" if _is_testing else "oneasr.db"
+DATABASE_URL = os.environ.get("ONEASR_DATABASE_URL", f"sqlite+aiosqlite:///{DATABASE_DIR / _db_name}")
 
 engine = create_async_engine(
     DATABASE_URL,
     echo=False,
     connect_args={"timeout": 30.0},
+    **({"poolclass": NullPool} if _is_testing else {}),
 )
 async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 

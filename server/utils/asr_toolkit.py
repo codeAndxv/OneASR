@@ -278,11 +278,12 @@ class ASRToolkit:
         target_chunk_duration: float | None = None,
         max_chunk_duration: float | None = None,
         prompt_history_chars: int = 150,
+        initial_prompt: str | None = None,
     ) -> AsyncIterator[Segment]:
         """通用的全内存流水线流式转录：
         1. 内存解码与零拷贝切片（配置化两阶段切分）
         2. 异步生产者-消费者队列（流水线并行）
-        3. 跨切片上下文 Prompt 动态传递
+        3. 跨切片上下文 Prompt 动态传递（支持 initial_prompt 初始领域词注入）
         4. 全局时间戳精准累加与去幻觉后处理
         """
         # 1. 一次性内存解码
@@ -308,7 +309,7 @@ class ASRToolkit:
         producer_task = asyncio.create_task(_producer())
 
         # 4. 消费与流式产出
-        prompt_context = ""
+        prompt_context = (initial_prompt or "").strip()
         try:
             while True:
                 chunk = await queue.get()
@@ -389,6 +390,7 @@ class ASRToolkit:
         target_chunk_duration: float | None = None,
         max_chunk_duration: float | None = None,
         prompt_history_chars: int = 150,
+        initial_prompt: str | None = None,
     ) -> tuple[str, list[Segment]]:
         """全量转录长音频（分块处理后合并返回）。"""
         all_segments: list[Segment] = []
@@ -400,6 +402,7 @@ class ASRToolkit:
             target_chunk_duration=target_chunk_duration,
             max_chunk_duration=max_chunk_duration,
             prompt_history_chars=prompt_history_chars,
+            initial_prompt=initial_prompt,
         ):
             all_segments.append(seg)
             if seg.text:

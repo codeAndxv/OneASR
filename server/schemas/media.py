@@ -23,6 +23,7 @@ class TaskInfo(BaseModel):
     format: str
     status: str
     progress: float
+    file_id: Optional[str] = Field(None, description="下载完成并注册后的文件资产 UUID，可直接用于 /v1/x/audio/transcriptions")
     title: Optional[str] = None
     duration_seconds: Optional[float] = None
     uploader: Optional[str] = None

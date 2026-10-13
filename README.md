@@ -4,72 +4,57 @@
   <img src="./docs/assets/OneASR.svg" width="128" alt="OneASR Logo">
 </p>
 
-A unified speech recognition API that integrates multiple ASR engines.
+A unified speech recognition API gateway that integrates multiple local and cloud ASR engines with intelligent model lifecycle management.
 
 [中文文档](README_CN.md)
 
 ## Features
 
-- **File Recognition** — Upload audio/video files or provide a URL, get complete transcription results
-- **Streaming File Recognition** — Upload files or provide a URL, receive sentence-by-sentence results via SSE
-- **Real-time Streaming** — Send audio streams via WebSocket, get real-time transcription results
-- **File Upload & Dedup** — Upload files with MD5 fingerprint, instant upload for duplicate files
-- **Web Interface** — Vue.js frontend with file/URL recognition, real-time streaming display, and SRT export
+- **Unified OpenAI-Compatible Audio API** — Upload audio/video files or specify `file_uuid` / `url`, get transcription in `json`, `verbose_json`, `text`, `srt`, `vtt`, or `tsv`
+- **SSE Streaming File Recognition** — Receive sentence-by-sentence transcription segments in real time via Server-Sent Events (`stream=true`)
+- **Real-time WebSocket Streaming** — Low-latency streaming speech recognition (`/v1/realtime` & `/v1/realtime_ext`) powered by `xasr` (`sherpa-onnx` Zipformer2 transducer)
+- **Ollama-Style Model Lifecycle Manager** — On-demand loading, configurable `keep_alive` TTL auto-unloading, `max_loaded_models` LRU eviction, active task reference counting, and manual `/load` & `/unload` APIs
+- **One-Command Model CLI (`cli.model`)** — Inspect, verify, and download local models into `data/models/` with automatic ModelScope / HuggingFace Mirror fallback
+- **File Upload & MD5 Instant Dedup** — Upload files with MD5 fingerprint for instant deduplication, plus async long-audio task management
+- **Web Interface** — Vue 3 frontend with file/URL recognition, real-time streaming display, and SRT/VTT export
 
 ## Quick Start
 
 ### Prerequisites
 
-- Python 3.12+ (managed by uv)
-- [uv](https://docs.astral.sh/uv/) — fast Python package manager
+- Python 3.12+ (managed by [uv](https://docs.astral.sh/uv/))
 - Node.js 18+
-- FFmpeg (required for audio processing)
+- FFmpeg (required for audio/video decoding and resampling)
 
 ### Backend Setup
 
 ```bash
-# 1. Create virtual environment (requires uv: https://docs.astral.sh/uv/)
+# 1. Create virtual environment
 uv venv --python 3.12
 
 # 2. Install dependencies
 uv pip install -r requirements.txt
-# or install with dev dependencies:
+# or install with dev/test dependencies:
 uv pip install -e ".[dev]"
 
-# 3. Start the server
+# 3. Download enabled local models (auto-selects ModelScope / HF-Mirror / HuggingFace)
+uv run python -m cli.model pull
+
+# 4. Start the server
 uv run uvicorn server.main:app --host 0.0.0.0 --port 8020
 ```
 
-The server runs at `http://localhost:8020`. Visit `http://localhost:8020/docs` for interactive API documentation.
+The server runs at `http://localhost:8020`. Visit `http://localhost:8020/docs` for interactive Swagger API documentation.
 
 ### Frontend Setup
 
 ```bash
-# 1. Navigate to web directory
 cd web
-
-# 2. Install dependencies
 npm install
-
-# 3. Start development server
 npm run dev
 ```
 
 The frontend runs at `http://localhost:3020` and automatically proxies API requests to the backend.
-
-### Quick Launch (Two Terminals)
-
-**Terminal 1 - Backend:**
-```bash
-cd OneASR
-uv run uvicorn server.main:app --host 0.0.0.0 --port 8020
-```
-
-**Terminal 2 - Frontend:**
-```bash
-cd OneASR/web
-npm run dev
-```
 
 ### Verify Installation
 
@@ -77,465 +62,338 @@ npm run dev
 # Check backend health
 curl http://localhost:8020/health
 
-# List available engines
-curl -H "X-API-Key: oneasr-key" http://localhost:8020/api/v1/engines
+# List available models (standard OpenAI format)
+curl -H "Authorization: Bearer sk-oneasr-v1-p_L3kXm9QZ8sT2vA4wE7rY1u" \
+  http://localhost:8020/v1/models
+
+# List models with extended capability matrix & runtime status
+curl -H "Authorization: Bearer sk-oneasr-v1-p_L3kXm9QZ8sT2vA4wE7rY1u" \
+  http://localhost:8020/v1/x/models
 ```
 
-After startup:
-- Frontend UI: `http://localhost:3020`
-- API Docs: `http://localhost:8020/docs`
-- Health Check: `http://localhost:8020/health`
+---
 
-### Media Clipping Tool
+## Model Management & Download Guide
 
-The project includes a media clipping tool for splitting long videos into shorter segments:
+Local ASR models are stored in `data/models/` by default. OneASR provides a built-in CLI tool (`cli.model`) that reads `config.yaml` and automatically downloads, extracts, and verifies model weights.
+
+### 1. Recommended: Built-in Model CLI (`cli.model`)
 
 ```bash
-# Clip a specific duration (default 2 minutes)
-python cli/clip.py input_video.mp4 120
+# 1. List all configured local models, status (Ready / Incomplete / Missing), and disk size
+uv run python -m cli.model list
 
-# Auto-clip entire video into 2-minute segments
-python cli/clip.py input_video.mp4
+# 2. Pull all enabled (enable: true) models configured in config.yaml
+uv run python -m cli.model pull
+
+# 3. Pull specific provider models (even if enable: false in config.yaml)
+uv run python -m cli.model pull xasr faster-whisper
+uv run python -m cli.model pull qwen --include-aligner
+
+# 4. Pull all configured local models using a specific hub source
+uv run python -m cli.model pull --all --source modelscope
+uv run python -m cli.model pull faster-whisper --source hf-mirror --force
+
+# 5. Offline integrity verification (checks required .onnx / model.bin / .safetensors shards)
+uv run python -m cli.model check
 ```
 
-Python API usage:
-```python
-from cli.clip import MediaClipper
+### 2. Manual CLI Download (Optional)
 
-clipper = MediaClipper("video.mp4")
-clipper.clip(start=0, duration=120, output="clip.mp4")
-clips = clipper.auto_clip(clip_duration=120, output_dir="clips/")
-```
+If you prefer using `hf` or `modelscope` CLI directly, run from the `OneASR/` root directory:
 
-## Model Download Guide (Hugging Face / ModelScope)
-
-OneASR supports various local ASR engines (Qwen3-ASR, Faster-Whisper, FireRedASR, etc.). Models are stored by default under the `models/` directory in `OneASR/`. You can download models using either **Hugging Face CLI** or **ModelScope**.
-
-### 1. Install Download Tools
-
-```bash
-# Option A: Hugging Face CLI (provides `hf` command)
-pip install -U "huggingface_hub[cli]"
-
-# Optional: China mirror acceleration
-export HF_ENDPOINT=https://hf-mirror.com
-
-# Option B: ModelScope CLI (recommended for users in China)
-pip install -U modelscope
-```
-
-### 2. Model Download Commands
-
-> **Note**: Run these commands from the `OneASR/` directory to save models directly to `models/{model_dir}`.
-
-#### ① Qwen3-ASR (Main ASR Model)
-*Recommended: `Qwen/Qwen3-ASR-1.7B` (High quality) or `Qwen/Qwen3-ASR-0.6B` (Lightweight)*
-
-- **Hugging Face (`hf`)**:
-  ```bash
-  hf download Qwen/Qwen3-ASR-1.7B --local-dir models/Qwen3-ASR-1.7B
-  ```
-- **ModelScope CLI**:
-  ```bash
-  modelscope download --model Qwen/Qwen3-ASR-1.7B --local_dir models/Qwen3-ASR-1.7B
-  ```
-
-#### ② Qwen3-ForcedAligner (Timestamp Forced Alignment Model)
-*Used for word/character-level timestamps: `Qwen/Qwen3-ForcedAligner-0.6B`*
-
-- **Hugging Face (`hf`)**:
-  ```bash
-  hf download Qwen/Qwen3-ForcedAligner-0.6B --local-dir models/Qwen3-ForcedAligner-0.6B
-  ```
-- **ModelScope CLI**:
-  ```bash
-  modelscope download --model Qwen/Qwen3-ForcedAligner-0.6B --local_dir models/Qwen3-ForcedAligner-0.6B
-  ```
-
-#### ③ Faster-Whisper
-*Supported: `Systran/faster-whisper-medium`, `large-v3`, `small`, etc.*
-
-- **Hugging Face (`hf`)**:
-  ```bash
-  hf download Systran/faster-whisper-medium --local-dir models/faster-whisper-medium
-  ```
-- **ModelScope CLI**:
-  ```bash
-  modelscope download --model Systran/faster-whisper-medium --local_dir models/faster-whisper-medium
-  ```
-
-#### ④ FireRedASR Models
-*Supported: `FireRedTeam/FireRedASR-AED-L`, `FireRedTeam/FireRedASR-LLM-L`*
-
-- **Hugging Face (`hf`)**:
-  ```bash
-  hf download FireRedTeam/FireRedASR-AED-L --local-dir models/FireRedASR-AED-L
-  ```
-- **ModelScope CLI**:
-  ```bash
-  modelscope download --model FireRedTeam/FireRedASR-AED-L --local_dir models/FireRedASR-AED-L
-  ```
-
-#### ⑤ X-ASR (Real-time Streaming Model, sherpa-onnx based)
-*Model: [`GilgameshWind/X-ASR-zh-en`](https://huggingface.co/GilgameshWind/X-ASR-zh-en) — Chinese/English streaming recognition using zipformer2 transducer*
-
-- **Hugging Face (`hf`)**:
-  ```bash
-  hf download GilgameshWind/X-ASR-zh-en \
-    --include "deployment/models/chunk-160ms-model/*" \
-    --local-dir models
-  mv models/deployment/models/chunk-160ms-model models/chunk-160ms-model
-  ```
-
-- **ModelScope CLI**:
+- **X-ASR (`sherpa-onnx` streaming model)**:
   ```bash
   modelscope download --model Gilgamesh-J/X-ASR-zh-en \
     --include "deployment/models/chunk-160ms-model/*" \
-    --local_dir models
-  mv models/deployment/models/chunk-160ms-model models/chunk-160ms-model
+    --local_dir data/models
+  mv data/models/deployment/models/chunk-160ms-model data/models/chunk-160ms-model
+  rm -rf data/models/deployment
+  ```
+- **Faster-Whisper (`medium` / `large-v3`)**:
+  ```bash
+  hf download Systran/faster-whisper-medium --local-dir data/models/faster-whisper-medium
+  # or via ModelScope:
+  modelscope download --model Systran/faster-whisper-medium --local_dir data/models/faster-whisper-medium
+  ```
+- **Qwen3-ASR (`Qwen/Qwen3-ASR-1.7B` & `ForcedAligner`)**:
+  ```bash
+  modelscope download --model Qwen/Qwen3-ASR-1.7B --local_dir data/models/Qwen3-ASR-1.7B
+  modelscope download --model Qwen/Qwen3-ForcedAligner-0.6B --local_dir data/models/Qwen3-ForcedAligner-0.6B
+  ```
+- **FunASR (`iic/SenseVoiceSmall` + `fsmn-vad`)**:
+  ```bash
+  modelscope download --model iic/SenseVoiceSmall --local_dir data/models/SenseVoiceSmall
+  modelscope download --model iic/speech_fsmn_vad_zh-cn-16k-common-pytorch --local_dir data/models/speech_fsmn_vad_zh-cn-16k-common-pytorch
   ```
 
-### 3. Batch Download via Python Script (Optional)
+---
 
-```python
-# download_models.py
-from modelscope import snapshot_download
+## Configuration & Model Lifecycle (`config.yaml`)
 
-MODELS = {
-    "models/Qwen3-ASR-1.7B": "Qwen/Qwen3-ASR-1.7B",
-    "models/Qwen3-ForcedAligner-0.6B": "Qwen/Qwen3-ForcedAligner-0.6B",
-    "models/faster-whisper-medium": "Systran/faster-whisper-medium",
-}
+OneASR automatically maps `model_name` (`Org/Repo-Name`) to `data/models/<Repo-Name>` and features an Ollama-inspired model lifecycle manager that prevents out-of-memory issues when configuring multiple large local ASR models:
 
-for local_path, model_id in MODELS.items():
-    print(f"Downloading {model_id} to {local_path} via ModelScope...")
-    snapshot_download(model_id, local_dir=local_path)
-print("All models downloaded successfully!")
-```
-
-### 4. Enable Models in `config.yaml`
-
-After downloading, configure the corresponding provider in `OneASR/config.yaml`:
+- **`preload: true` & `keep_alive: -1`**: Ideal for lightweight real-time streaming models (`xasr`), keeping them permanently resident in memory with zero cold-start latency.
+- **`preload: false` & `keep_alive: 600`**: Ideal for heavy offline transcription models (`faster-whisper`, `qwen`, `funasr`). Validated at startup with zero RAM usage, loaded on first request, and automatically unloaded after 10 minutes of inactivity or when `max_loaded_models` capacity is reached.
 
 ```yaml
+api_key: sk-oneasr-v1-p_L3kXm9QZ8sT2vA4wE7rY1u
+
+# Ollama-style model lifecycle & memory management
+model_manager:
+  default_keep_alive: 600        # Default idle TTL in seconds (supports "10m", 600, -1 forever, 0 immediate unload)
+  max_loaded_models: 2           # Max concurrent non-pinned local models in RAM (LRU eviction)
+  cleanup_interval: 30           # Background idle reaper interval in seconds
+
+ASR-Toolkit:
+  vad:
+    model: "silero_vad"
+    threshold: 0.5
+    min_speech_duration_ms: 250
+    min_silence_duration_ms: 300
+    padding_ms: 100
+  chunking:
+    target_chunk_duration: 6.0
+    max_chunk_duration: 8.0
+    min_pause_duration: 0.4
+    min_sentence_duration: 2.0
+
 ASR-Providers:
-  # Qwen3-ASR Configuration
-  qwen:
+  xasr:
     enable: true
+    engine: xasr
+    preload: true                # Preload at startup
+    keep_alive: -1               # Pin in memory forever
+    load:
+      model_name: Gilgamesh-J/X-ASR-zh-en
+      provider: cpu
+      sample_rate: 16000
+
+  faster-whisper:
+    enable: true
+    engine: faster-whisper
+    preload: false               # Lazy load on demand
+    keep_alive: 600              # Auto-unload after 10m idle
+    load:
+      model_name: Systran/faster-whisper-medium
+      device: cpu
+      compute_type: int8
+
+  qwen:
+    enable: false
     engine: qwen
     load:
       model_name: Qwen/Qwen3-ASR-1.7B
-      model_path: models/Qwen3-ASR-1.7B
-      device: cpu  # or cuda:0 / mps
-      dtype: float32
-      max_new_tokens: 256
-      max_inference_batch_size: 32
-      # Optional: forced aligner
-      # forced_aligner_name: Qwen/Qwen3-ForcedAligner-0.6B
-      # forced_aligner_path: models/Qwen3-ForcedAligner-0.6B
-
-  # Faster-Whisper Configuration
-  faster-whisper:
-    enable: false
-    engine: faster-whisper
-    load:
-      model_name: medium
-      model_path: models/faster-whisper-medium
       device: cpu
-      compute_type: int8
+      dtype: float32
+      # forced_aligner_name: Qwen/Qwen3-ForcedAligner-0.6B
+
+  funasr:
+    enable: false
+    engine: funasr
+    load:
+      model_name: iic/SenseVoiceSmall
+      vad_model: iic/speech_fsmn_vad_zh-cn-16k-common-pytorch
+      punc_model: null
+      device: cpu
 ```
 
-## Authentication
-
-All API endpoints (except `/health`) require an API Key via the `X-API-Key` request header.
-
-Configure the API Key in `config.yaml`:
-
-```yaml
-api_key: oneasr-key
-```
-
-```bash
-# Call API with API Key
-curl -H "X-API-Key: oneasr-key" http://localhost:8020/api/v1/engines
-
-# Upload file for recognition
-curl -X POST -H "X-API-Key: oneasr-key" \
-  http://localhost:8020/api/v1/transcribe/file \
-  -F "file=@audio.mp3" -F "format=srt" -o subtitle.srt
-```
-
-WebSocket streaming uses query parameters (browser WebSocket API doesn't support custom headers): `ws://localhost:8020/ws/transcribe/stream?api_key=oneasr-key`
+---
 
 ## API Endpoints
 
-### Unified API (OpenAI-compatible)
+All API endpoints (except `/health`) require authentication via `Authorization: Bearer <api_key>` or `X-API-Key: <api_key>`.
+
+### 1. OpenAI Standard API (`/v1/*`)
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/v1/audio/transcriptions` | POST | Create transcription (file upload or file_uuid) |
-| `/api/v1/audio/transcriptions/stream` | POST | Create streaming transcription (SSE) |
-| `/api/v1/audio/models` | GET | List available models |
-| `/api/v1/files/upload` | POST | Upload file (supports MD5 instant upload) |
-| `/api/v1/files/list` | GET | List all uploaded files |
-| `/api/v1/files/{file_id}` | GET | Get file info |
-| `/api/v1/files/{file_id}` | DELETE | Delete uploaded file |
-| `/health` | GET | Health check |
-
-### WebSocket Streaming
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/v1/realtime?api_key=` | WebSocket | Real-time streaming (OpenAI Realtime Transcription 协议) |
-| `/ws/transcribe/stream?api_key=` | WebSocket | Real-time streaming (Legacy WhisperLiveKit 协议) |
-
-## File Upload & Instant Upload (MD5 Dedup)
-
-Upload files with optional MD5 fingerprint for instant upload of duplicate files:
+| `/v1/models` | GET | List available models (standard OpenAI format) |
+| `/v1/models/{model_id}` | GET | Get model details (standard OpenAI format) |
+| `/v1/audio/transcriptions` | POST | Transcribe audio/video (`file`, `file_uuid`, or `url`; supports `stream=true` SSE) |
+| `/v1/realtime?api_key=` | WebSocket | Real-time streaming (OpenAI Realtime Transcription protocol) |
+| `/health` | GET | Service health check |
 
 ```bash
-# First upload: file is saved and metadata stored in DB
-curl -X POST -H "X-API-Key: oneasr-key" \
-  "http://localhost:8020/api/v1/files/upload?file_md5=abc123&file_size=1024000" \
-  -F "file=@audio.mp3"
-# Response: {"duplicate": false, "file_id": "uuid-1", ...}
-
-# Second upload with same file: instant return (no re-upload)
-curl -X POST -H "X-API-Key: oneasr-key" \
-  "http://localhost:8020/api/v1/files/upload?file_md5=abc123&file_size=1024000" \
-  -F "file=@audio_copy.mp3"
-# Response: {"duplicate": true, "file_id": "uuid-1", ...}
+# Synchronous transcription (verbose_json / srt / vtt / text / json)
+curl -X POST http://localhost:8020/v1/audio/transcriptions \
+  -H "Authorization: Bearer sk-oneasr-v1-p_L3kXm9QZ8sT2vA4wE7rY1u" \
+  -F "file=@tests/fixtures/media/en_speech_15s.wav" \
+  -F "model=faster-whisper" \
+  -F "language=en" \
+  -F "response_format=srt"
 ```
 
-## Streaming Recognition
+### 2. OneASR Extended Native API (`/v1/x/*`)
 
-Real-time speech recognition powered by [WhisperLiveKit](https://github.com/QuentinFuxa/WhisperLiveKit):
-
-- **VAD/VAC** — Silero Voice Activity Detection, automatic speech/silence boundary detection
-- **SimulStreaming** — Low-latency streaming strategy (default), or LocalAgreement high-accuracy strategy
-- **Timestamp Alignment** — Each line has precise start/end timestamps
-- **Speaker Diarization** — Optional speaker identification (requires additional models)
-- **Multi-language** — Automatic language detection or manual specification
-
-### WebSocket Connection (OpenAI Realtime Transcription 协议)
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/v1/x/models` | GET | List models with full capability matrix, languages, and RAM/VRAM runtime status |
+| `/v1/x/models/{model_id}/load` | POST | Manually warm up / load a model into memory |
+| `/v1/x/models/{model_id}/unload` | POST | Manually unload a model to free RAM/VRAM (`?force=true` supported) |
+| `/v1/x/files` | POST / GET | Upload audio/video (supports MD5 instant dedup) or list files |
+| `/v1/x/files/{file_id}` | GET / DELETE | Get or delete an uploaded file asset |
+| `/v1/x/audio/transcriptions` | POST / GET | Create or list async long-audio transcription tasks (supports up to 2GB) |
+| `/v1/x/audio/transcriptions/{task_id}` | GET / DELETE | Query async task status/result or cancel a task |
+| `/v1/x/audio/transcriptions/{task_id}/stream` | GET | Subscribe to SSE progress & segment stream of an async task |
+| `/v1/x/media` | POST / GET | Submit URL parsing & background download task (yt-dlp) or list tasks |
+| `/v1/x/media/{task_id}` | GET / DELETE | Query media download task status or delete task & files |
+| `/v1/x/media/{task_id}/file` | GET | Download parsed media file asset |
+| `/v1/x/realtime?api_key=` | WebSocket | Extended real-time streaming with sentence-level events & timestamps |
+| `/v1/x/info` | GET | Query server configuration & system status |
 
 ```javascript
-const ws = new WebSocket("ws://localhost:8020/v1/realtime?api_key=oneasr-key");
+const ws = new WebSocket("ws://localhost:8020/v1/realtime?api_key=sk-oneasr-v1-p_L3kXm9QZ8sT2vA4wE7rY1u");
 
-// 1. 配置会话
-ws.send(JSON.stringify({
-  type: "session.update",
-  session: {
-    type: "transcription",
-    audio: {
-      input: {
-        format: { type: "audio/pcm", rate: 16000 },
-        transcription: { model: "wlk-live", language: "zh" },
+ws.onopen = () => {
+  ws.send(JSON.stringify({
+    type: "session.update",
+    session: {
+      type: "transcription",
+      audio: {
+        input: {
+          format: { type: "audio/pcm", rate: 16000 },
+          transcription: { model: "xasr", language: "en" },
+        },
       },
     },
-  },
-}));
-
-ws.onmessage = (event) => {
-  const data = JSON.parse(event.data);
-  if (data.type === "session.updated") {
-    console.log("Session configured:", data.session.id);
-  } else if (data.type === "conversation.item.input_audio_transcription.delta") {
-    process.stdout.write(data.delta);  // 增量文本
-  } else if (data.type === "conversation.item.input_audio_transcription.completed") {
-    console.log("\nFinal:", data.transcript);  // 完整文本
-  }
+  }));
 };
-
-// 2. 发送 base64 编码的 PCM 音频
-ws.send(JSON.stringify({
-  type: "input_audio_buffer.append",
-  audio: btoa(String.fromCharCode(...pcmBytes)),
-}));
-
-// 3. 提交音频缓冲区
-ws.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
 ```
 
-### Stream Simulation Client
+---
 
-CLI 工具，将本地音视频文件模拟为麦克风实时输入：
+## CLI Utilities
 
-```bash
-# 基本用法
-python -m cli.stream_simulation_client test.wav
+- **Model Management (`cli/model.py`)**:
+  ```bash
+  uv run python -m cli.model list
+  uv run python -m cli.model pull
+  uv run python -m cli.model check
+  ```
+- **Media Clipping (`cli/clip.py`)**:
+  ```bash
+  uv run python cli/clip.py input_video.mp4 120
+  ```
+- **Realtime Stream Simulator (`cli/stream_simulation_client.py`)**:
+  ```bash
+  uv run python -m cli.stream_simulation_client tests/fixtures/media/en_speech_15s.wav --model xasr
+  ```
 
-# 指定中文和引擎
-python -m cli.stream_simulation_client test.wav --language zh --model wlk-live
-
-# 10 倍速快速测试
-python -m cli.stream_simulation_client test.wav --speed 10
-
-# 连接远程服务
-python -m cli.stream_simulation_client test.wav --url ws://remote:8020/v1/realtime
-```
+---
 
 ## Running Tests
 
-```bash
-# Run all tests
-uv run pytest tests/ -v
+OneASR uses a 3-tier test pyramid (`unit`, `api`, `integration`) with isolated test SQLite database (`oneasr_test.db`) and built-in **100% Public Domain** English audio/video fixtures in `tests/fixtures/media/`.
 
-# Run API tests only (fast, no external dependencies)
+```bash
+# 1. Run fast unit + API contract tests (~1.6s, no real model weights required)
+uv run pytest -m "not integration" -v
+
+# 2. Run unit tests only
+uv run pytest tests/unit/ -v
+
+# 3. Run API & WebSocket contract tests only
 uv run pytest tests/api/ -v
 
-# Run general/unit tests only
-uv run pytest tests/general/ -v
-
-# Run a specific test file
-uv run pytest tests/api/test_file_upload.py -v
-
-# Skip integration tests (need real audio files and running services)
-uv run pytest tests/ -m "not integration" -v
-
-# Run with short traceback
-uv run pytest tests/api/ -v --tb=short
+# 4. Run real-model & end-to-end integration tests (loads real xasr, faster-whisper, qwen)
+uv run pytest tests/integration/ -v -s
 ```
 
-### Test Structure
+### Test Directory Structure
 
-```
+```text
 tests/
-├── conftest.py                  # Shared fixtures (client, DB cleanup)
-├── api/                         # API endpoint tests (TestClient)
-│   ├── test_audio.py            # Audio transcription API
-│   ├── test_file_upload.py      # File upload, MD5 dedup, CRUD
-│   ├── test_models.py           # Models listing, format params
-│   └── test_streaming.py        # SSE streaming transcription
-└── general/                     # Unit tests & integration tests
-    ├── test_format.py           # Output format conversion (SRT/VTT/JSON/TSV)
-    ├── test_engines.py          # Engine loading and transcription
-    ├── test_mimo.py             # MiMo audio understanding engine
-    ├── test_stream_websocket.py # WebSocket streaming integration
-    ├── test_stream_realtime.py  # OpenAI Realtime Transcription protocol tests
-    └── test_stream_whisperlivekit.py   # WhisperLiveKit engine tests
+├── conftest.py                  # Global test setup (ONEASR_TESTING=1, shared fixtures)
+├── fixtures/
+│   └── media/                   # Built-in 100% Public Domain speech & video fixtures
+│       ├── en_speech_15s.wav    # 15s 16kHz PCM WAV speech sample
+│       ├── en_speech_120s.mp3   # 120s long speech MP3 for VAD chunking
+│       ├── en_video_60s.mp4     # 60s H.264+AAC MP4 video sample
+│       └── README.md            # Public Domain license & Ground Truth transcript
+├── helpers/
+│   ├── audio_factory.py         # In-memory WAV/PCM synthesizer & fixture loader
+│   └── mock_engines.py          # Standardized mock ASR engines & stream sessions
+├── unit/                        # Tier 1: Fast isolated unit tests
+│   ├── engines/                 # Engine & VAD toolkit unit tests
+│   ├── utils/                   # Audio converter, formatting, subtitles, URL parsers
+│   └── cli/                     # Model CLI downloader & shard verification tests
+├── api/                         # Tier 2: FastAPI & WebSocket contract tests
+│   ├── standard/                # OpenAI standard contract tests (/v1/*)
+│   │   ├── test_audio.py        # /v1/audio/transcriptions (sync + SSE stream)
+│   │   ├── test_models.py       # /v1/models contract tests
+│   │   └── test_realtime.py     # /v1/realtime WebSocket contract tests
+│   ├── x/                       # OneASR extended contract tests (/v1/x/*)
+│   │   ├── test_audio.py        # /v1/x/audio/transcriptions & SSE stream tests
+│   │   ├── test_files.py        # /v1/x/files upload, dedup & CRUD tests
+│   │   ├── test_info.py         # /v1/x/info version & health tests
+│   │   ├── test_media.py        # /v1/x/media parse & download tests
+│   │   ├── test_models.py       # /v1/x/models load/unload & capabilities tests
+│   │   └── test_realtime.py     # /v1/x/realtime extended WebSocket tests
+│   └── test_error_format.py     # Unified OpenAI-compatible error schema tests
+└── integration/                 # Tier 3: Real-model & E2E integration tests
+    ├── conftest.py              # Session-scoped real media fixtures
+    ├── test_local_engines.py    # Real xasr, faster-whisper & Qwen3-ASR inference benchmarks
+    ├── test_e2e_api.py          # Unmocked REST + WebSocket end-to-end tests
+    └── test_cloud_engines.py    # Cloud ASR provider tests (OpenAI / MiMo)
 ```
-
-## Configuration
-
-Edit `config.yaml` to configure API Key and engines:
-
-```yaml
-api_key: oneasr-key
-
-default_provider: whisper1
-
-providers:
-  whisper1:
-    engine: faster-whisper
-    type: local
-    model_name: medium
-    device: cpu
-    compute_type: int8
-  wlk-live:
-    engine: whisperlivekit
-    type: local
-    model_name: base
-    device: cpu
-    compute_type: int8
-    backend: auto
-    backend_policy: simulstreaming
-    language: auto
-    vac: true
-    diarization: false
-    pcm_input: true
-```
-
-## Documentation Navigation
-
-Detailed designs and guides are located in the `docs/` directory:
-
-- **API Design & Reference**
-  - [API Design](docs/api/API_DESIGN.md) — Architecture, audio chunking, and streaming design
-  - [API Reference](docs/api/API_REFERENCE.md) — Endpoint specifications, parameters, and examples
-- **Architecture & Toolkits**
-  - [Project Design](docs/architecture/project_design.md) — System layering, state machine, and scheduling
-  - [ASR Toolkit Design](docs/architecture/ASR_TOOLKIT_DESIGN.md) — VAD, resampling, and audio chunking
-- **Guides & Best Practices**
-  - [Model Guide](docs/guides/MODEL_GUIDE.md) — FireRedASR, SenseVoice, Whisper, and cloud engines
-  - [uv Guide](docs/guides/UV_GUIDE.md) — Fast dependency and environment management
-  - [Development Guide](docs/guides/CLAUDE.md) — Code style and testing conventions
-- **References**
-  - [yt-dlp Reference](docs/references/yt-dlp-README.md) — Media extraction reference
 
 ---
 
 ## Project Structure
 
-```
+```text
 OneASR/
-├── docs/                         # Documentation center
-│   ├── api/                      # API design and reference
-│   ├── architecture/             # Architectural specifications
-│   ├── guides/                   # Model and environment guides
-│   ├── references/               # Upstream third-party references
-│   └── assets/                   # Icons and visual assets
-├── app/                          # Core backend application
-│   ├── main.py                   # FastAPI entry point & lifespan
-│   ├── api/                      # Routing layer (controllers)
-│   │   ├── auth.py               # API Key authentication
-│   │   ├── audio.py              # OpenAI-compatible audio API
-│   │   ├── file_upload.py        # File upload, MD5 dedup, & URL import
-│   │   ├── file_transcription.py # Async file transcription & SSE stream
-│   │   ├── media.py              # Media download & parse API
-│   │   ├── model.py              # Models listing API
-│   │   ├── provider.py           # Providers listing API
-│   │   ├── realtime.py           # Realtime WebSocket transcription
-│   │   └── realtime_ext.py       # Extended realtime WebSocket API
-│   ├── core/                     # Core configs, errors, & storage
-│   │   ├── config.py             # YAML config management
-│   │   ├── errors.py             # Unified exceptions
-│   │   └── file_storage.py       # File storage utilities
-│   ├── db/                       # Database session & engine
-│   │   ├── base.py               # SQLAlchemy declarative base
-│   │   └── session.py            # Async engine & sessionmaker
-│   ├── engines/                  # ASR engine adapters
-│   │   ├── base.py               # Abstract engine base class
-│   │   ├── whisper_engine.py     # faster-whisper adapter
-│   │   ├── firered_engine.py     # FireRedASR adapter
-│   │   ├── qwen_engine.py        # Qwen ASR adapter
-│   │   ├── xasr_engine.py        # Sherpa / SenseVoice adapter
-│   │   ├── openai_engine.py      # OpenAI-compatible engine
-│   │   ├── mimo_engine.py        # Xiaomi MiMo adapter
-│   │   └── registry.py           # Engine registry & factory
-│   ├── models/                   # SQLAlchemy ORM models
-│   │   └── orm_models.py         # Database entity tables
-│   ├── schemas/                  # Pydantic request/response schemas (DTOs)
-│   │   ├── audio.py              # Audio transcription schemas
-│   │   ├── file.py               # File asset & URL import schemas
-│   │   ├── media.py              # Media parse & task schemas
-│   │   └── transcription.py      # Async transcription task schemas
-│   ├── services/                 # Business logic service layer
-│   │   ├── file_service.py       # File transcription task service
-│   │   ├── media_service.py      # Media download & state machine
-│   │   └── record_service.py     # Transcription records service
-│   └── utils/                    # Audio & processing utilities
-│       ├── audio.py              # Format conversion & duration probe
-│       ├── asr_toolkit.py        # VAD segmentation & streaming chunks
-│       ├── audio_converter.py    # Resampling & channel conversion
-│       ├── download.py           # URL download utility
-│       ├── format.py             # Output formatting (SRT/VTT/JSON/TSV)
-│       ├── stream.py             # PCM streaming utilities
-│       ├── vad.py                # Silero VAD integration
-│       └── video_url.py          # yt-dlp & direct URL extractor
-├── cli/                          # CLI & client test tools
-│   ├── clip.py                   # Media clipping tool
-│   ├── converter.py              # Audio converter
-│   └── stream_simulation_client.py # Simulation client
-├── web/                          # Vue 3 frontend web UI
-├── tests/                        # Automated test suites
-├── models/                       # Model storage directory
-├── data/                         # SQLite database directory
-├── uploads/                      # Uploaded files storage
-├── download/                     # Media download temporary directory
-├── config.yaml                   # Engine & server configuration
-├── pyproject.toml                # Project metadata & dependencies
-└── requirements.txt              # Pinned requirements
+├── server/                       # Core FastAPI backend application
+│   ├── main.py                   # FastAPI entry point, lifespan & idle model reaper
+│   ├── api/                      # Dual-layer REST & WebSocket route controllers
+│   │   ├── auth.py               # Bearer / X-API-Key authentication
+│   │   ├── standard/             # OpenAI standard layer (/v1/*)
+│   │   │   ├── audio.py          # POST /v1/audio/transcriptions
+│   │   │   ├── models.py         # GET /v1/models, GET /v1/models/{model_id}
+│   │   │   └── realtime.py       # WS /v1/realtime (OpenAI Realtime protocol)
+│   │   └── x/                    # OneASR extended native layer (/v1/x/*)
+│   │       ├── audio.py          # POST /v1/x/audio/transcriptions & SSE stream
+│   │       ├── files.py          # POST /v1/x/files RESTful upload, dedup & CRUD
+│   │       ├── info.py           # GET /v1/x/info version & status
+│   │       ├── media.py          # POST /v1/x/media yt-dlp parsing & download
+│   │       ├── models.py         # GET /v1/x/models & lifecycle load/unload
+│   │       └── realtime.py       # WS /v1/x/realtime (sentence events & timestamps)
+│   ├── core/                     # Configuration, exceptions & file storage
+│   ├── db/                       # Async SQLAlchemy session & SQLite management
+│   │   ├── session.py            # Session factory & WAL initialization
+│   │   ├── base.py               # DeclarativeBase
+│   │   └── orm_models.py         # SQLAlchemy database models
+│   ├── engines/                  # ASR engine adapters & lifecycle registry
+│   │   ├── base.py               # ASREngine ABC (validate_config, load, unload)
+│   │   ├── registry.py           # ModelManager (keep_alive, LRU, acquire_engine)
+│   │   ├── xasr_engine.py        # sherpa-onnx streaming engine
+│   │   ├── whisper_engine.py     # faster-whisper engine
+│   │   ├── qwen_engine.py        # Qwen3-ASR engine
+│   │   ├── funasr_engine.py      # FunASR / Paraformer engine
+│   │   ├── firered_engine.py     # FireRedASR engine
+│   │   ├── openai_engine.py      # OpenAI cloud ASR engine
+│   │   └── mimo_engine.py        # Xiaomi MiMo cloud ASR engine
+│   ├── schemas/                  # Pydantic request/response schemas
+│   ├── services/                 # Business logic services
+│   │   ├── transcription_service.py # Async task orchestrator, workers & SSE
+│   │   ├── file_service.py       # Uploaded file reader & dedup
+│   │   ├── media_service.py      # yt-dlp download & background workers
+│   │   └── record_service.py     # Transcription records persistence
+│   └── utils/                    # High-performance audio & subtitle utilities
+├── cli/                          # Command-line utilities
+│   ├── model.py                  # Model download, status & integrity check CLI
+│   ├── clip.py                   # Media clipping utility
+│   ├── converter.py              # Audio format converter
+│   └── stream_simulation_client.py # WebSocket streaming test client
+├── data/                         # Runtime data directory (models, uploads, downloads, DB)
+│   └── models/                   # Local ASR model weights directory
+├── tests/                        # 3-tier automated test suite
+├── web/                          # Vue 3 frontend application
+├── docs/                         # Architecture & API design documentation
+├── config.yaml                   # Server, model lifecycle & provider configuration
+├── pyproject.toml                # Project metadata, scripts & pytest config
+└── requirements.txt              # Python dependencies
 ```
 
 ## License

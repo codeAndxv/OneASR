@@ -18,7 +18,7 @@ from sqlalchemy import select, update
 
 from server.db import async_session
 import hashlib
-from server.models.orm_models import MediaParseRecord, UploadedFile
+from server.db.orm_models import MediaParseRecord, UploadedFile
 from server.utils.video_url import (
     DOWNLOAD_DIR,
     download_video,
@@ -139,28 +139,23 @@ async def _run_download(task_id: str, url: str, video_format: bool, resolution: 
 
         await _update_video_info(task_id, video_info)
 
-        # 3) 注册为 UploadedFile 资产
+        # 3) 注册为 UploadedFile 资产（直接引用下载文件原路径，避免双份拷贝与全量内存读取）
         disk_file = Path(file_path)
-        content_bytes = disk_file.read_bytes() if disk_file.exists() else b""
-        actual_md5 = hashlib.md5(content_bytes).hexdigest() if content_bytes else ""
-        
-        file_id = str(uuid.uuid4())
-        upload_dir = Path("data/uploads")
-        upload_dir.mkdir(parents=True, exist_ok=True)
-        saved_path = upload_dir / f"{file_id}{disk_file.suffix}"
-        
-        # 写入 uploads
-        import shutil
+        md5_hasher = hashlib.md5()
         if disk_file.exists():
-            shutil.copy2(disk_file, saved_path)
-            
+            with open(disk_file, "rb") as f:
+                for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                    md5_hasher.update(chunk)
+        actual_md5 = md5_hasher.hexdigest()
+
+        file_id = str(uuid.uuid4())
         async with async_session() as session:
             record = UploadedFile(
                 file_id=file_id,
                 filename=disk_file.name,
                 file_size=file_size,
                 file_md5=actual_md5,
-                storage_path=str(saved_path),
+                storage_path=str(disk_file),
                 content_type="audio/m4a" if not video_format else "video/mp4",
             )
             session.add(record)
@@ -238,7 +233,7 @@ async def list_tasks(limit: int = 50, offset: int = 0) -> list[MediaParseRecord]
 
 
 async def delete_task(task_id: str) -> tuple[bool, str]:
-    """删除任务记录 + 连带删 download/ 下文件。返回 (success, message)。"""
+    """删除任务记录 + 关联 UploadedFile 记录 + 连带删 download/ 下文件。返回 (success, message)。"""
     async with async_session() as session:
         result = await session.execute(
             select(MediaParseRecord).where(MediaParseRecord.id == task_id)
@@ -255,6 +250,15 @@ async def delete_task(task_id: str) -> tuple[bool, str]:
                 disk_path.unlink()
                 file_deleted = True
                 logger.info("[media] 删除文件: %s", disk_path)
+
+        # 同步清理关联的 UploadedFile 记录
+        if record.file_id:
+            uf_res = await session.execute(
+                select(UploadedFile).where(UploadedFile.file_id == record.file_id)
+            )
+            uf_record = uf_res.scalar_one_or_none()
+            if uf_record is not None:
+                await session.delete(uf_record)
 
         await session.delete(record)
         await session.commit()

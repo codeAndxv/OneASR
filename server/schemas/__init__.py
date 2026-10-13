@@ -15,9 +15,6 @@ from server.schemas.file import (
     FileInfo,
     FileListResponse,
     FileDeleteResponse,
-    FetchURLRequest,
-    FetchURLResponse,
-    FetchURLTaskInfo,
 )
 from server.schemas.media import (
     ParseRequest,
@@ -49,9 +46,6 @@ __all__ = [
     "FileInfo",
     "FileListResponse",
     "FileDeleteResponse",
-    "FetchURLRequest",
-    "FetchURLResponse",
-    "FetchURLTaskInfo",
     # Media
     "ParseRequest",
     "ParseResponse",

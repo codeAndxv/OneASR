@@ -1,134 +1,69 @@
-"""环境检查脚本：验证 config.yaml 配置及模型/服务可用性。
+"""环境检查脚本：验证 config.yaml 配置及本地模型/云端服务可用性。
 
 用法:
-    python -m server.check_env              # 检查所有已配置的 Provider
-    python -m server.check_env faster-whisper  # 只检查指定 Provider（可多个）
-    python -m server.check_env --list       # 列出所有已配置的 Provider
+    uv run python -m server.check_env              # 检查所有已配置的 Provider
+    uv run python -m server.check_env faster-whisper  # 只检查指定 Provider（可多个）
+    uv run python -m server.check_env --list       # 列出所有已配置的 Provider
 """
 
 import argparse
 import sys
-from pathlib import Path
 
-import yaml
-
-PROJECT_ROOT = Path(__file__).parent.parent
-CONFIG_PATH = PROJECT_ROOT / "config.yaml"
+from cli.model import CLOUD_ENGINES, resolve_provider_specs, verify_model_dir
+from server.core.config import AppConfig, EngineConfig
 
 
-def load_config() -> dict:
-    with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
-
-
-def _get_field(config: dict, key: str, default=""):
-    load_cfg = config.get("load", {}) if isinstance(config.get("load"), dict) else {}
-    props_cfg = config.get("properties", {}) if isinstance(config.get("properties"), dict) else {}
-    if key in load_cfg:
-        return load_cfg[key]
-    if key in props_cfg:
-        return props_cfg[key]
-    return config.get(key, default)
-
-
-def check_whisper(config: dict) -> bool:
-    """检查 faster-whisper 模型是否可用，不可用则下载。"""
-    model_name = config.get("model_name", "base")
-    device = config.get("device", "cpu")
-    compute_type = config.get("compute_type", "int8")
-    model_name = _get_field(config, "model_name", "base")
-    device = _get_field(config, "device", "cpu")
-    compute_type = _get_field(config, "compute_type", "int8")
-    print(f"  模型: {model_name}, 设备: {device}, 计算类型: {compute_type}")
-
-    try:
-        from faster_whisper import WhisperModel
-
-        print("  正在加载模型（首次可能需要下载）...")
-        model = WhisperModel(model_name, device=device, compute_type=compute_type)
-        print("  [OK] faster-whisper 模型加载成功")
-        del model
-        return True
-    except Exception as e:
-        print(f"  [FAIL] faster-whisper 模型加载失败: {e}")
+def check_local_provider(cfg: EngineConfig) -> bool:
+    """检查本地 Provider 的模型目录完整性（基于 cli.model 规则，零内存开销）。"""
+    specs = resolve_provider_specs(cfg, include_aligner=False)
+    if not specs:
+        print(f"  [WARN] 未能解析本地模型规格: {cfg.name}")
         return False
 
-
-def check_firered(config: dict) -> bool:
-    """检查 FireRedASR 模型是否可用，不可用则下载。"""
-    model_name = config.get("model_name", "aed")
-    model_name = _get_field(config, "model_name", "aed")
-    asr_type = model_name.lower()
-    if asr_type not in ("aed", "llm"):
-        asr_type = "aed"
-    print(f"  模型类型: {asr_type}")
-
-    try:
-        import argparse
-        import torch
-        torch.serialization.add_safe_globals([argparse.Namespace])
-
-        from fireredasr.models.fireredasr import FireRedAsr
-
-        print("  正在加载模型（首次可能需要下载）...")
-        model = FireRedAsr.from_pretrained(asr_type)
-        print("  [OK] FireRedASR 模型加载成功")
-        del model
-        return True
-    except Exception as e:
-        print(f"  [FAIL] FireRedASR 模型加载失败: {e}")
-        return False
+    all_ok = True
+    for spec in specs:
+        ok, reasons = verify_model_dir(spec.engine_name, spec.local_dir, spec.required_files)
+        if ok:
+            print(f"  [OK] {spec.display_name} -> {spec.relative_local_dir} (repo: {spec.ms_repo_id})")
+        else:
+            all_ok = False
+            print(f"  [FAIL] {spec.display_name} -> {spec.relative_local_dir} ({'; '.join(reasons)})")
+            print(f"         请运行: uv run python -m cli.model pull {cfg.name}")
+    return all_ok
 
 
-def check_cloud_api(name: str, config: dict) -> bool:
+def check_cloud_provider(cfg: EngineConfig) -> bool:
     """检查云端 API（OpenAI 兼容接口）是否可用。"""
-    api_key = config.get("api_key", "")
-    base_url = config.get("base_url", "")
-    model_name = config.get("model_name", "")
-    api_key = _get_field(config, "api_key", "")
-    base_url = _get_field(config, "base_url", "")
-    model_name = _get_field(config, "model_name", "")
-    print(f"  模型: {model_name}, URL: {base_url}")
+    print(f"  模型: {cfg.model_name}, URL: {cfg.base_url}")
 
-    if not api_key or not base_url:
-        print(f"  [SKIP] 未配置 api_key 或 base_url，跳过")
-        return True  # 未配置不算失败
+    if not cfg.api_key or not cfg.base_url:
+        print("  [SKIP] 未配置 api_key 或 base_url，跳过")
+        return True
 
     try:
         from openai import OpenAI
 
-        client = OpenAI(api_key=api_key, base_url=base_url.rstrip("/"))
+        client = OpenAI(api_key=cfg.api_key, base_url=cfg.base_url.rstrip("/"))
         print("  正在测试 API 连接...")
         client.models.list()
-        print(f"  [OK] {name} API 连接正常")
+        print(f"  [OK] {cfg.name} API 连接正常")
         return True
     except Exception as e:
-        print(f"  [FAIL] {name} API 连接失败: {e}")
+        print(f"  [FAIL] {cfg.name} API 连接失败: {e}")
         return False
 
 
-# 引擎类型名 → (标签, 检查函数)
-CHECKERS = {
-    "faster-whisper": ("faster-whisper", check_whisper),
-    "firered": ("FireRedASR", check_firered),
-    "openai": ("OpenAI API", check_cloud_api),
-    "mimo": ("MiMo API", check_cloud_api),
-}
-
-
-def check_provider(provider_name: str, prov_conf: dict) -> bool:
+def check_provider(cfg: EngineConfig) -> bool:
     """检查单个 Provider。"""
-    engine_type = prov_conf.get("engine", "")
-    if engine_type not in CHECKERS:
-        print(f"\n[{provider_name}] 跳过：未知引擎类型 '{engine_type}'")
-        return True
+    eng = (cfg.engine_name or cfg.name).lower()
+    is_cloud = cfg.type == "cloud" or eng in CLOUD_ENGINES
+    prov_type = "cloud" if is_cloud else "local"
+    status_str = "enabled" if cfg.enable else "disabled"
+    print(f"\n[{cfg.name}] engine={cfg.engine_name}, type={prov_type}, status={status_str}")
 
-    label, checker = CHECKERS[engine_type]
-    prov_type = prov_conf.get("type", "local")
-    print(f"\n[{provider_name}] {label} (engine={engine_type}, type={prov_type})")
-    print(f"\n[{provider_name}] {label} (engine={engine_type})")
-
-    return checker(provider_name, prov_conf) if checker is check_cloud_api else checker(prov_conf)
+    if is_cloud:
+        return check_cloud_provider(cfg)
+    return check_local_provider(cfg)
 
 
 def main():
@@ -137,36 +72,34 @@ def main():
     parser.add_argument("--list", action="store_true", help="列出所有已配置的 Provider")
     args = parser.parse_args()
 
-    config = load_config()
-    providers_conf = config.get("ASR-Providers", {})
+    app_cfg = AppConfig()
+    providers = app_cfg.providers
 
     if args.list:
-        for name, conf in providers_conf.items():
-            engine_type = conf.get("engine", "?")
-            print(f"  {name} (engine={engine_type}, type={conf.get('type', 'local')})")
-            print(f"  {name} (engine={engine_type})")
+        for name, cfg in providers.items():
+            print(f"  {name:<18} (engine={cfg.engine_name}, enable={cfg.enable}, model={cfg.model_name})")
         return
 
-    print("=" * 50)
+    print("=" * 60)
     print("OneASR 环境检查")
-    print("=" * 50)
+    print("=" * 60)
 
-    if not providers_conf:
+    if not providers:
         print("\n[WARN] config.yaml 中未配置任何 Provider")
         return
 
-    targets = args.providers if args.providers else list(providers_conf.keys())
+    targets = args.providers if args.providers else list(providers.keys())
 
     results = {}
     for name in targets:
-        if name not in providers_conf:
+        if name not in providers:
             print(f"\n[{name}] 配置中不存在，跳过")
             continue
-        results[name] = check_provider(name, providers_conf[name])
+        results[name] = check_provider(providers[name])
 
-    print("\n" + "=" * 50)
+    print("\n" + "=" * 60)
     print("检查结果汇总")
-    print("=" * 50)
+    print("=" * 60)
     all_ok = True
     for name, ok in results.items():
         tag = "OK" if ok else "FAIL"
@@ -175,9 +108,9 @@ def main():
             all_ok = False
 
     if all_ok:
-        print("\n所有 Provider 检查通过")
+        print("\n所有目标 Provider 检查通过")
     else:
-        print("\n部分 Provider 检查失败，请根据上方提示修复")
+        print("\n部分 Provider 检查失败，请运行 `uv run python -m cli.model pull` 下载缺失模型")
         sys.exit(1)
 
 

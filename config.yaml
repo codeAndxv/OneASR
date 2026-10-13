@@ -3,6 +3,12 @@
 # API Key（所有接口必须携带此 key）
 api_key: sk-oneasr-v1-p_L3kXm9QZ8sT2vA4wE7rY1u
 
+# 模型生命周期与内存管理配置（Ollama 风格智能加载与释放）
+model_manager:
+  default_keep_alive: 600        # 默认空闲存活时长（秒，支持 "10m" / 600 / -1 常驻 / 0 用完即焚）
+  max_loaded_models: 2           # 最大同时驻留内存的非常驻本地模型数（超出时自动按 LRU 释放空闲模型）
+  cleanup_interval: 30           # 后台空闲模型回收巡检间隔（秒）
+
 # ASR Toolkit 全局切片与 VAD 配置（长音频切片、分句与字幕分段参数）
 ASR-Toolkit:
   vad:
@@ -22,21 +28,19 @@ ASR-Toolkit:
     remove_repeats: true         # 是否过滤 ASR 连续重复复读幻觉
     normalize_text: true         # 是否规范化空格与标点
 
-# ASR Provider 配置
+# ASR Provider 配置（所有本地模型自动映射至 data/models/<仓库名> 目录，可通过 `uv run python -m cli.model pull` 一键拉取）
 ASR-Providers:
 
   # X-ASR 流式识别（基于 sherpa-onnx，zipformer2 transducer）
   xasr:
     enable: true
     engine: xasr
+    preload: true                # 实时流式小模型启动即预热
+    keep_alive: -1               # -1 表示永驻内存，确保实时语音 0 冷启动延迟
 
     # 加载配置
     load:
-      model_name: xasr-zh-en
-      tokens_path: data/models/chunk-160ms-model/tokens.txt
-      encoder_path: data/models/chunk-160ms-model/encoder-160ms.onnx
-      decoder_path: data/models/chunk-160ms-model/decoder-160ms.onnx
-      joiner_path: data/models/chunk-160ms-model/joiner-160ms.onnx
+      model_name: Gilgamesh-J/X-ASR-zh-en
       provider: cpu
       sample_rate: 16000
       feature_dim: 80
@@ -56,11 +60,12 @@ ASR-Providers:
   faster-whisper:
     enable: true
     engine: faster-whisper
+    preload: false               # 离线大模型按需加载（启动时仅校验路径）
+    keep_alive: 600              # 空闲 10 分钟后自动卸载释放内存
 
-    # 加载配置
+    # 加载配置（可选模型: Systran/faster-whisper-small | Systran/faster-whisper-medium | Systran/faster-whisper-large-v3 | mobiuslabsgmbh/faster-whisper-large-v3-turbo）
     load:
-      model_name: medium
-      model_path: data/models/faster-whisper-medium
+      model_name: Systran/faster-whisper-medium
       device: cpu
       compute_type: int8
       max_duration: null
@@ -76,16 +81,14 @@ ASR-Providers:
     enable: false
     engine: qwen
 
-    # 加载配置
+    # 加载配置（可选模型: Qwen/Qwen3-ASR-0.6B | Qwen/Qwen3-ASR-1.7B）
     load:
       model_name: Qwen/Qwen3-ASR-1.7B
-      model_path: data/models/Qwen3-ASR-1.7B
       device: cpu
       dtype: float32
       max_new_tokens: 256
       max_inference_batch_size: 32
-#      forced_aligner_name: Qwen/Qwen3-ForcedAligner-0.6B
-#      forced_aligner_path: data/models/Qwen3-ForcedAligner-0.6B
+      # forced_aligner_name: Qwen/Qwen3-ForcedAligner-0.6B
 
     # 属性
     properties:
@@ -93,24 +96,23 @@ ASR-Providers:
         - FileASR
       languages: zh, en, ja, ko, fr, de, es, it, ru, pt, nl, pl, ar, cs, da, fi, el, he, hu, id, ms, no, ro, sk, sv, th, tr, uk, vi, hi
 
-  # FunASR / Paraformer 文件转录（阿里开源，中文高精度非自回归）
+  # FunASR 文件转录（阿里开源，默认使用 SenseVoiceSmall 极速多语言模型 + fsmn-vad，亦支持切换 paraformer-zh）
   funasr:
     enable: false
     engine: funasr
 
-    # 加载配置
+    # 加载配置（可选模型: iic/SenseVoiceSmall | iic/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch）
     load:
-      model_name: iic/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch
-      model_path: null
+      model_name: iic/SenseVoiceSmall
+      vad_model: iic/speech_fsmn_vad_zh-cn-16k-common-pytorch
+      punc_model: null
       device: cpu
-      vad_model: fsmn-vad
-      punc_model: ct-punc
 
     # 属性
     properties:
       categories:
         - FileASR
-      languages: zh, en
+      languages: zh, en, yue, ja, ko
 
 # ─────────────────────────────────────────────────────────────
 # yt-dlp 视频/音频 URL 解析与下载配置

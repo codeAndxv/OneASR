@@ -2,36 +2,14 @@
 
 使用 sherpa-onnx 的 OnlineRecognizer 实现流式语音识别。
 支持 zipformer2 transducer 模型，提供低延迟的实时转录。
-
-配置示例 (config.yaml):
-  xasr:
-    engine: xasr
-    type: local
-    load:
-      model_name: xasr-zh-en
-      tokens_path: models/chunk-160ms-model/tokens.txt
-      encoder_path: models/chunk-160ms-model/encoder-160ms.onnx
-      decoder_path: models/chunk-160ms-model/decoder-160ms.onnx
-      joiner_path: models/chunk-160ms-model/joiner-160ms.onnx
-      provider: cpu
-      sample_rate: 16000
-      feature_dim: 80
-      num_threads: 1
-      decoding_method: greedy_search
-      enable_endpoint_detection: false
-    properties:
-      functions:
-        - RealtimeASR
 """
 
 import logging
 from collections.abc import AsyncIterator
 from pathlib import Path
 
-import numpy as np
-
 from server.core.config import EngineConfig
-from server.engines.base import ASREngine
+from server.engines.base import ASREngine, release_hardware_memory
 from server.schemas.audio import Segment
 from server.utils.audio_converter import AudioConverter
 
@@ -68,21 +46,13 @@ class XASRStreamingSession:
             self._recognizer.decode_stream(self._stream)
 
     def get_partial_result(self) -> str:
-        """获取当前部分识别结果的增量文本。
-
-        sherpa-onnx 返回累计文本，需要去掉：
-        1. 之前已确认的最终文本 (_final_text)
-        2. 上次已经发送过的部分文本 (_last_partial)
-        只返回真正新增的部分。
-        """
+        """获取当前部分识别结果的增量文本。"""
         full = self._recognizer.get_result(self._stream).strip()
-        # 去掉已确认的最终文本
         if self._final_text and full.startswith(self._final_text):
             current_partial = full[len(self._final_text):].strip()
         else:
             current_partial = full
 
-        # 计算增量：当前部分文本去掉上次已发送的部分
         if self._last_partial and current_partial.startswith(self._last_partial):
             delta = current_partial[len(self._last_partial):]
         else:
@@ -111,7 +81,6 @@ class XASRStreamingSession:
         while self._recognizer.is_ready(self._stream):
             self._recognizer.decode_stream(self._stream)
         full_text = self._recognizer.get_result(self._stream).strip()
-        # 计算本次新增的文本
         if self._final_text and full_text.startswith(self._final_text):
             new_text = full_text[len(self._final_text):].strip()
         else:
@@ -124,11 +93,10 @@ class XASRStreamingSession:
 class XASREngine(ASREngine):
     """X-ASR 流式识别引擎（基于 sherpa-onnx OnlineRecognizer）。"""
 
-    def __init__(self, config: EngineConfig):
+    def __init__(self, config: EngineConfig, lazy_load: bool = False):
         self.config = config
         self.sample_rate: int = int(getattr(config, "sample_rate", 16000))
 
-        # 模型路径
         self._tokens_path: str = getattr(config, "tokens_path", "") or getattr(config, "tokens", "") or ""
         self._encoder_path: str = getattr(config, "encoder_path", "") or getattr(config, "encoder", "") or ""
         self._decoder_path: str = getattr(config, "decoder_path", "") or getattr(config, "decoder", "") or ""
@@ -141,26 +109,15 @@ class XASREngine(ASREngine):
         self._rule2_min_trailing_silence: float = float(getattr(config, "rule2_min_trailing_silence", 1.2))
         self._rule3_min_utterance_length: float = float(getattr(config, "rule3_min_utterance_length", 20.0))
 
-        # 懒加载识别器
         self._recognizer = None
+        self._resolved_paths: tuple[Path, Path, Path, Path] | None = None
 
-        logger.info(
-            "[XASR] 引擎配置: sample_rate=%d, provider=%s, decoding=%s, endpoint=%s, rule1=%.2fs, rule2=%.2fs, rule3=%.2fs",
-            self.sample_rate, self._provider, self._decoding_method, self._enable_endpoint_detection,
-            self._rule1_min_trailing_silence, self._rule2_min_trailing_silence, self._rule3_min_utterance_length,
-        )
+        self.validate_config()
+        if not lazy_load:
+            self.load()
 
-        # 启动时立即校验路径并加载模型
-        self._ensure_recognizer()
-
-    def _ensure_recognizer(self):
-        """懒加载 sherpa-onnx OnlineRecognizer。"""
-        if self._recognizer is not None:
-            return
-
-        import sherpa_onnx
-
-        # 1. 检查各路径是否已配置（XASR 无自动下载机制，必须配置路径）
+    def validate_config(self) -> None:
+        """校验 X-ASR 所需模型文件路径是否完整且存在（零内存开销）。"""
         missing_fields = []
         if not self._tokens_path:
             missing_fields.append("tokens_path")
@@ -191,7 +148,6 @@ class XASREngine(ASREngine):
             logger.error(err_msg)
             raise RuntimeError(err_msg)
 
-        # 2. 检查各路径文件是否存在
         tokens_resolved = self.config.resolve_path(self._tokens_path)
         encoder_resolved = self.config.resolve_path(self._encoder_path)
         decoder_resolved = self.config.resolve_path(self._decoder_path)
@@ -207,12 +163,26 @@ class XASREngine(ASREngine):
                 err_msg = (
                     f"\n{'='*70}\n"
                     f"[XASR] 模型文件不存在 ({label}): {p_raw} (绝对路径: {p_resolved})\n"
-                    f"X-ASR (sherpa-onnx) 引擎不支持在线自动下载，请确保模型文件已放置在对应目录。\n"
+                    f"X-ASR (sherpa-onnx) 引擎不支持在线自动下载，请先下载模型文件：\n"
+                    f"  推荐一键下载命令:\n"
+                    f"    uv run python -m cli.model pull {self.config.name}\n"
                     f"{'='*70}"
                 )
                 logger.error(err_msg)
                 raise RuntimeError(err_msg)
 
+        self._resolved_paths = (tokens_resolved, encoder_resolved, decoder_resolved, joiner_resolved)
+
+    def load(self) -> None:
+        """幂等加载 sherpa-onnx OnlineRecognizer。"""
+        if self._recognizer is not None:
+            return
+        if self._resolved_paths is None:
+            self.validate_config()
+
+        import sherpa_onnx
+
+        tokens_resolved, encoder_resolved, decoder_resolved, joiner_resolved = self._resolved_paths
         logger.info(
             "[XASR] 正在加载模型: encoder=%s, tokens=%s, decoder=%s, joiner=%s",
             encoder_resolved, tokens_resolved, decoder_resolved, joiner_resolved,
@@ -238,18 +208,48 @@ class XASREngine(ASREngine):
             logger.error(err_msg, exc_info=True)
             raise RuntimeError(err_msg) from e
 
+    def _ensure_recognizer(self):
+        self.load()
+
+    def unload(self) -> None:
+        """卸载 X-ASR 识别器并释放内存。"""
+        if self._recognizer is not None:
+            logger.info("[XASR] 正在卸载模型释放内存")
+            self._recognizer = None
+            release_hardware_memory()
+
+    @property
+    def is_loaded(self) -> bool:
+        return self._recognizer is not None
+
     def create_stream_session(self, input_sample_rate: int | None = None) -> XASRStreamingSession:
         """创建一个新的流式识别会话。"""
-        self._ensure_recognizer()
+        self.load()
         return XASRStreamingSession(self._recognizer, self.sample_rate, input_sample_rate=input_sample_rate)
 
-    # ── ASREngine 接口（文件转录不支持）──
-
-    async def transcribe_file(self, audio_data: bytes) -> tuple[str, list[Segment]]:
+    async def transcribe_file(
+        self,
+        audio_data: bytes,
+        language: str | None = None,
+        prompt: str | None = None,
+        temperature: float | None = None,
+        **kwargs,
+    ) -> tuple[str, list[Segment]]:
         raise NotImplementedError("X-ASR 仅支持实时流式识别，不支持文件转录")
 
+    async def transcribe_file_stream(
+        self,
+        audio_data: bytes,
+        language: str | None = None,
+        prompt: str | None = None,
+        temperature: float | None = None,
+        **kwargs,
+    ) -> AsyncIterator[Segment]:
+        raise NotImplementedError("X-ASR 仅支持实时流式识别，不支持文件转录")
+        yield  # pragma: no cover
+
     async def transcribe_stream(self, audio_chunk: bytes) -> str | None:
-        raise NotImplementedError("X-ASR 请使用 create_stream_session() 进行流式识别")
+        raise NotImplementedError("请使用 create_stream_session() 进行流式识别")
 
     async def stream_finalize(self) -> str:
-        raise NotImplementedError("X-ASR 请使用 create_stream_session() 进行流式识别")
+        raise NotImplementedError("请使用 create_stream_session() 进行流式识别")

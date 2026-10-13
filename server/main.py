@@ -1,11 +1,24 @@
 import asyncio
+import contextlib
 import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from server.api import audio, file_transcription, file_upload, media, model, provider, realtime, realtime_ext
+from server.api.standard import (
+    audio as std_audio,
+    models as std_models,
+    realtime as std_realtime,
+)
+from server.api.x import (
+    audio as x_audio,
+    files as x_files,
+    info as x_info,
+    media as x_media,
+    models as x_models,
+    realtime as x_realtime,
+)
 from server.core.config import settings
 
 # 配置日志级别
@@ -14,38 +27,69 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 logger = logging.getLogger(__name__)
 
 
+async def _idle_model_reaper(interval_seconds: int):
+    """后台轻量巡检任务：定期扫描并卸载超过 keep_alive 空闲时间且无活跃任务的模型。"""
+    from server.engines.registry import unload_idle_engines
+    while True:
+        await asyncio.sleep(interval_seconds)
+        try:
+            await asyncio.to_thread(unload_idle_engines)
+        except Exception as e:
+            logger.warning("[ModelManager] 空闲模型巡检异常: %s", e)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """应用生命周期：启动时初始化数据库、同步校验并加载所有已启用的 Provider。"""
+    """应用生命周期：
+    1. 初始化数据库与清洗过期任务；
+    2. 对所有 enable=true 的 Provider 执行轻量级路径与配置校验 (Fail-Fast，零内存开销)；
+    3. 仅对 preload=true 的 Provider (如实时流式小模型 xasr) 预加载权重；
+    4. 启动后台 keep_alive 空闲模型自动释放巡检协程，并在退出时释放所有模型。
+    """
     from server.db import init_db
     await init_db()
 
-    # 清洗重启前未完成的媒体下载任务，避免状态永久卡在 pending/running
     from server.services import media_service
     n = await media_service.reset_stale_tasks()
     if n:
         logger.info("[startup] 重置 %d 个未完成的媒体下载任务为 failed", n)
 
-    # 启动时同步校验并加载所有已启用的 Provider
-    # 若配置了路径但模型缺失或加载失败，直接抛出异常终止服务启动 (Fail-Fast)
     from server.core.config import app_config
-    from server.engines.registry import get_engine
+    from server.engines.registry import get_engine, unload_all, validate_provider
 
     enabled_providers = [
         name for name, cfg in app_config.providers.items()
         if getattr(cfg, "enable", True)
     ]
-    logger.info("[startup] 待加载启用的 Provider: %s", enabled_providers)
+    logger.info("[startup] 启用的 Provider 列表: %s", enabled_providers)
+
     for name in enabled_providers:
+        cfg = app_config.providers[name]
         try:
-            logger.info("[startup] 正在加载 Provider: %s", name)
-            await asyncio.to_thread(get_engine, name)
-            logger.info("[startup] Provider 加载成功: %s", name)
+            if cfg.preload:
+                logger.info("[startup] 正在预热加载 Provider (preload=true): %s", name)
+                await asyncio.to_thread(get_engine, name)
+                logger.info("[startup] Provider 预热完成: %s (keep_alive=%ss)", name, cfg.keep_alive)
+            else:
+                logger.info("[startup] 正在校验按需加载 Provider (preload=false): %s", name)
+                await asyncio.to_thread(validate_provider, name)
+                logger.info("[startup] Provider 路径校验通过 (待命按需加载): %s (keep_alive=%ss)", name, cfg.keep_alive)
         except Exception as e:
-            logger.error("[startup] Provider [%s] 加载失败，终止服务启动: %s", name, e)
+            logger.error("[startup] Provider [%s] 校验或加载失败，终止服务启动: %s", name, e)
             raise RuntimeError(f"Provider [{name}] 加载失败: {e}") from e
 
-    yield
+    reaper_task = asyncio.create_task(
+        _idle_model_reaper(app_config.model_manager.cleanup_interval)
+    )
+    try:
+        yield
+    finally:
+        reaper_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await reaper_task
+        unloaded = await asyncio.to_thread(unload_all, True)
+        if unloaded:
+            logger.info("[shutdown] 已释放所有已加载模型: %s", unloaded)
 
 
 app = FastAPI(title=settings.app_name, debug=settings.debug, lifespan=lifespan)
@@ -58,29 +102,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 统一 API（参考 OpenAI 格式）
-app.include_router(audio.router)
+# ── OpenAI 标准兼容层 (/v1) ─────────────────────────────────────────
+app.include_router(std_audio.router)         # POST /v1/audio/transcriptions
+app.include_router(std_models.router)        # GET  /v1/models, GET /v1/models/{model_id}
+app.include_router(std_realtime.router)      # WS   /v1/realtime
 
-# 模型列表 API（兼容 OpenAI /v1/models）
-app.include_router(model.router)
-
-# Provider 信息 API
-app.include_router(provider.router)
-
-# 文件管理 API（上传/列表/查询/删除）
-app.include_router(file_upload.router)
-
-# 流式识别 API（OpenAI Realtime Transcription 协议）
-app.include_router(realtime.router)
-
-# 流式识别 API（扩展版，/v1/realtimeext）
-app.include_router(realtime_ext.router)
-
-# 文件转录 API（异步任务，大文件 ≤2GB，长时间转录）
-app.include_router(file_transcription.router)
-
-# 媒体 URL 解析与下载 API
-app.include_router(media.router)
+# ── OneASR 增强原生层 (/v1/x) ─────────────────────────────────────────
+app.include_router(x_audio.router)           # POST /v1/x/audio/transcriptions (async tasks & SSE)
+app.include_router(x_files.router)           # POST /v1/x/files (upload, dedup & CRUD)
+app.include_router(x_models.router)          # GET  /v1/x/models (capability matrix & load/unload)
+app.include_router(x_realtime.router)        # WS   /v1/x/realtime (sentence events & timestamps)
+app.include_router(x_media.router)           # POST /v1/x/media (yt-dlp parsing & download)
+app.include_router(x_info.router)            # GET  /v1/x/info (service version & status)
 
 
 # ── 全局错误处理（兼容 FastAPI detail 与 OpenAI error.message）──────

@@ -10,7 +10,6 @@ sqlalchemy>=2.0.0
 aiosqlite>=0.20.0
 greenlet>=3.0.0
 faster-whisper==1.2.1
-fireredasr>=0.0.2
 silero-vad>=6.0
 torch>=2.0.0
 torchaudio>=2.0.0
@@ -22,3 +21,6 @@ sherpa-onnx>=1.13.0
 numpy>=1.24.0
 yt-dlp>=2024.8.6
 qwen-asr
+funasr>=1.1.0
+huggingface-hub>=0.24.0
+modelscope>=1.18.0
