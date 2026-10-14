@@ -7,28 +7,25 @@ import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 
-from server.core.config import app_config
+from server.core.config import DRIVER_ALIAS_MAP, app_config
 from server.engines.base import ASREngine, release_hardware_memory
-from server.engines.firered_engine import FireRedEngine
 from server.engines.funasr_engine import FunASREngine
-from server.engines.mimo_engine import MiMoEngine
 from server.engines.openai_engine import OpenAIEngine
 from server.engines.qwen_engine import QwenEngine
+from server.engines.sherpa_onnx_engine import SherpaOnnxEngine
 from server.engines.whisper_engine import WhisperEngine
-from server.engines.xasr_engine import XASREngine
 
 logger = logging.getLogger(__name__)
 
-# 引擎类型名 → 引擎类
+# 核心模型系列驱动 → 引擎实现类（四大本地模型系列 + 统一云端服务）
 _engine_classes: dict[str, type[ASREngine]] = {
-    "faster-whisper": WhisperEngine,
-    "firered": FireRedEngine,
-    "openai": OpenAIEngine,
-    "mimo": MiMoEngine,
-    "xasr": XASREngine,
-    "qwen": QwenEngine,
+    "xasr": SherpaOnnxEngine,
+    "whisper": WhisperEngine,
     "funasr": FunASREngine,
+    "qwen": QwenEngine,
+    "openai": OpenAIEngine,
 }
+
 
 
 @dataclass
@@ -86,10 +83,11 @@ def _find_loaded_entry(name: str) -> tuple[str, LoadedEngine] | tuple[None, None
 
 def _instantiate_engine(provider_name: str, lazy_load: bool = False) -> ASREngine:
     config = app_config.get_provider_config(provider_name)
-    if config.engine_name not in _engine_classes:
+    engine_name = DRIVER_ALIAS_MAP.get(config.engine_name, config.engine_name)
+    if engine_name not in _engine_classes:
         raise ValueError(f"未知引擎类型: {config.engine_name}，可用: {list(_engine_classes)}")
 
-    engine_cls = _engine_classes[config.engine_name]
+    engine_cls = _engine_classes[engine_name]
     sig = inspect.signature(engine_cls.__init__)
     if "lazy_load" in sig.parameters:
         return engine_cls(config, lazy_load=lazy_load)
@@ -176,8 +174,9 @@ def _ensure_engine(provider_name: str) -> ASREngine:
     """确保引擎权重已加载进内存，包含并发锁与 LRU 容量回收。"""
     with _registry_lock:
         config = app_config.get_provider_config(provider_name)
+        engine_name = DRIVER_ALIAS_MAP.get(config.engine_name, config.engine_name)
 
-        if config.engine_name not in _engine_classes:
+        if engine_name not in _engine_classes:
             raise ValueError(f"未知引擎类型: {config.engine_name}，可用: {list(_engine_classes)}")
 
         key = _make_key(provider_name, config.model_name, config.device, config.compute_type)

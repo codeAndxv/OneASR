@@ -195,7 +195,7 @@ def resolve_provider_specs(
 ) -> list[ModelArtifactSpec]:
     """根据 config.yaml 中的单个 Provider 配置解析出对应的模型下载规格列表。"""
     eng = (cfg.engine_name or cfg.name).lower()
-    if cfg.type == "cloud" or eng in CLOUD_ENGINES:
+    if cfg.type == "cloud" or getattr(cfg, "is_cloud", False) or eng in CLOUD_ENGINES:
         return []
 
     specs: list[ModelArtifactSpec] = []
@@ -222,7 +222,7 @@ def resolve_provider_specs(
         specs.append(
             ModelArtifactSpec(
                 provider_name=cfg.name,
-                engine_name=eng,
+                engine_name="xasr",
                 label="main",
                 enable=cfg.enable,
                 local_dir=local_dir,
@@ -233,7 +233,7 @@ def resolve_provider_specs(
             )
         )
 
-    elif eng in ("faster-whisper", "whisper"):
+    elif eng in ("whisper", "faster-whisper"):
         repo_id = infer_whisper_repo_id(cfg.model_name)
         default_dir_name = repo_id.split("/")[-1]
         local_dir = (
@@ -244,7 +244,7 @@ def resolve_provider_specs(
         specs.append(
             ModelArtifactSpec(
                 provider_name=cfg.name,
-                engine_name="faster-whisper",
+                engine_name="whisper",
                 label="main",
                 enable=cfg.enable,
                 local_dir=local_dir,
@@ -570,7 +570,8 @@ def collect_all_specs(
 ) -> list[ModelArtifactSpec]:
     """收集 config.yaml 中所有本地 Provider 的模型规格。"""
     all_specs: list[ModelArtifactSpec] = []
-    for prov_cfg in app_cfg.providers.values():
+    local_dict = getattr(app_cfg, "local_models", app_cfg.providers)
+    for prov_cfg in local_dict.values():
         all_specs.extend(resolve_provider_specs(prov_cfg, include_aligner=include_aligner))
     return all_specs
 
@@ -648,7 +649,10 @@ def cmd_pull(args: argparse.Namespace) -> int:
     specs = collect_all_specs(app_cfg, include_aligner=args.include_aligner)
 
     if args.providers:
-        available = {p for p, c in app_cfg.providers.items() if c.type != "cloud" and c.engine_name not in CLOUD_ENGINES}
+        available = {
+            p for p, c in getattr(app_cfg, "local_models", app_cfg.providers).items()
+            if not getattr(c, "is_cloud", False) and c.type != "cloud" and c.engine_name not in CLOUD_ENGINES
+        }
         unknown = [p for p in args.providers if p not in available]
         if unknown:
             print(

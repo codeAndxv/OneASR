@@ -83,6 +83,13 @@ class ModelManagerConfig:
         self.cleanup_interval: int = max(5, int(data.get("cleanup_interval", 30)))
 
 
+DRIVER_ALIAS_MAP: dict[str, str] = {
+    "faster-whisper": "whisper",
+    "qwen-asr": "qwen",
+    "openai-compatible": "openai",
+}
+
+
 class EngineConfig:
     def __init__(
         self,
@@ -90,27 +97,38 @@ class EngineConfig:
         config: dict,
         model_dir: Path | None = None,
         default_keep_alive: int = 600,
+        is_cloud: bool = False,
     ):
         self.name = name
         self.raw_config = config
         self.model_dir = model_dir
+        self.is_cloud = is_cloud
 
+        # 兼顾新旧语法 (model, runtime, capabilities, load, properties)
+        model_conf = config.get("model", {}) if isinstance(config.get("model"), dict) else {}
+        runtime_conf = config.get("runtime", {}) if isinstance(config.get("runtime"), dict) else {}
+        caps_conf = config.get("capabilities", {}) if isinstance(config.get("capabilities"), dict) else {}
         load_conf = config.get("load", {}) if isinstance(config.get("load"), dict) else {}
         props_conf = config.get("properties", {}) if isinstance(config.get("properties"), dict) else {}
-        self.load = load_conf
-        self.properties = props_conf
+
+        self.load = load_conf or runtime_conf
+        self.properties = props_conf or caps_conf
 
         def _get_val(key, default=None):
-            if key in load_conf:
-                return load_conf[key]
-            if key in props_conf:
-                return props_conf[key]
+            for d in (runtime_conf, model_conf, caps_conf, load_conf, props_conf):
+                if key in d:
+                    return d[key]
             return config.get(key, default)
 
         self.enable = bool(config.get("enable", config.get("enabled", True)))
-        self.engine_name = config.get("engine", name)
-        self.type = _get_val("type", "local")
-        self.model_name = _get_val("model_name", "") or ""
+        raw_driver = config.get("driver") or config.get("engine") or name
+        self.driver = raw_driver
+        self.engine_name = DRIVER_ALIAS_MAP.get(raw_driver, raw_driver)
+        self.type = "cloud" if is_cloud else _get_val("type", "local")
+        if self.type == "cloud":
+            self.is_cloud = True
+
+        self.model_name = _get_val("repo", _get_val("model_name", "")) or ""
         self.model_path = _get_val("model_path", "") or ""
         self.device = _get_val("device", "cpu")
         self.compute_type = _get_val("compute_type", "float32")
@@ -124,9 +142,9 @@ class EngineConfig:
         self.language = _get_val("language", "")
 
         # FunASR 字段
-        self.vad_model = _get_val("vad_model", "") or ""
+        self.vad_model = _get_val("vad_repo", _get_val("vad_model", "")) or ""
         self.vad_model_path = _get_val("vad_model_path", "") or ""
-        self.punc_model = _get_val("punc_model", "") or ""
+        self.punc_model = _get_val("punc_repo", _get_val("punc_model", "")) or ""
         self.punc_model_path = _get_val("punc_model_path", "") or ""
 
         # X-ASR 字段
@@ -137,8 +155,8 @@ class EngineConfig:
 
         # 根据 model_name 自动推导 data/models/ 下的本地路径（当未显式指定 *_path 时）
         eng = (self.engine_name or name).lower()
-        if self.type != "cloud":
-            if eng in ("faster-whisper", "whisper"):
+        if not self.is_cloud:
+            if eng in ("whisper", "faster-whisper"):
                 if not self.model_path and self.model_name:
                     repo_id = infer_whisper_repo_id(self.model_name)
                     self.model_path = f"data/models/{repo_id.split('/')[-1]}"
@@ -226,7 +244,7 @@ class EngineConfig:
         # - RealtimeASR 流式小模型默认 preload=True, keep_alive=-1 (常驻零延迟)
         # - FileASR 离线大模型默认 preload=False, keep_alive=default_keep_alive (按需加载 + 空闲释放)
         is_realtime = "RealtimeASR" in self.categories or self.engine_name == "xasr"
-        is_cloud = self.type == "cloud" or self.engine_name in ("openai", "mimo")
+        is_cloud = self.is_cloud or self.type == "cloud" or self.engine_name == "openai"
 
         raw_preload = _get_val("preload", None)
         if raw_preload is None:
@@ -432,15 +450,99 @@ class AppConfig:
         )
         self.ytdlp = YtDlpConfig(raw_ytdlp)
 
-        # ASR Providers
+        # ASR Providers: 支持 local-models (本地模型) 与 cloud-providers (云端一键多模型)
         self.providers: dict[str, EngineConfig] = {}
-        for name, prov_conf in self._data.get("ASR-Providers", {}).items():
-            self.providers[name] = EngineConfig(
-                name,
-                prov_conf,
-                self.model_dir,
-                default_keep_alive=self.model_manager.default_keep_alive,
-            )
+        self.local_models: dict[str, EngineConfig] = {}
+        self.cloud_providers: dict[str, dict] = {}
+
+        # 1. 解析本地模型 (local-models / Local-Models / ASR-Providers)
+        raw_local = (
+            self._data.get("local-models")
+            or self._data.get("Local-Models")
+            or self._data.get("local_models")
+            or self._data.get("ASR-Providers")
+            or self._data.get("Local-Providers")
+            or {}
+        )
+        if isinstance(raw_local, dict):
+            for name, model_conf in raw_local.items():
+                if not isinstance(model_conf, dict):
+                    continue
+                cfg = EngineConfig(
+                    name,
+                    model_conf,
+                    self.model_dir,
+                    default_keep_alive=self.model_manager.default_keep_alive,
+                    is_cloud=False,
+                )
+                self.local_models[name] = cfg
+                self.providers[name] = cfg
+
+        # 2. 解析云端服务商 (cloud-providers / Cloud-Providers) 并展平多模型
+        raw_cloud = (
+            self._data.get("cloud-providers")
+            or self._data.get("Cloud-Providers")
+            or self._data.get("cloud_providers")
+            or {}
+        )
+        if isinstance(raw_cloud, dict):
+            for prov_name, prov_conf in raw_cloud.items():
+                if not isinstance(prov_conf, dict):
+                    continue
+                self.cloud_providers[prov_name] = prov_conf
+                if not prov_conf.get("enable", True):
+                    continue
+
+                driver = prov_conf.get("driver") or prov_conf.get("engine") or "openai"
+                conn = prov_conf.get("connection", {}) if isinstance(prov_conf.get("connection"), dict) else prov_conf
+                api_key = conn.get("api_key") or prov_conf.get("api_key", "")
+                base_url = conn.get("base_url") or prov_conf.get("base_url", "")
+                timeout = conn.get("timeout") or prov_conf.get("timeout", 30)
+                proxy = conn.get("proxy") or prov_conf.get("proxy", "")
+                models_list = prov_conf.get("models", [])
+
+                for m in models_list:
+                    if isinstance(m, str):
+                        m_id = m
+                        m_remote = m
+                        m_cats = ["FileASR"]
+                        m_langs = []
+                    elif isinstance(m, dict):
+                        m_id = m.get("id") or m.get("name")
+                        m_remote = m.get("remote_name") or m.get("remote_model") or m_id
+                        m_cats = m.get("categories", ["FileASR"])
+                        m_langs = m.get("languages", [])
+                    else:
+                        continue
+
+                    if not m_id:
+                        continue
+
+                    cloud_engine_conf = {
+                        "enable": True,
+                        "engine": driver,
+                        "driver": driver,
+                        "type": "cloud",
+                        "provider": prov_name,
+                        "api_key": api_key,
+                        "base_url": base_url,
+                        "timeout": timeout,
+                        "proxy": proxy,
+                        "model_name": m_remote,
+                        "remote_model": m_remote,
+                        "categories": m_cats,
+                        "languages": m_langs,
+                        "keep_alive": -1,
+                        "preload": False,
+                    }
+                    cfg = EngineConfig(
+                        m_id,
+                        cloud_engine_conf,
+                        self.model_dir,
+                        default_keep_alive=-1,
+                        is_cloud=True,
+                    )
+                    self.providers[m_id] = cfg
 
         # API Key 配置
         self.api_key = self._data.get("api_key", "")
@@ -449,7 +551,12 @@ class AppConfig:
         if name in self.providers:
             return self.providers[name]
 
-        raise ValueError(f"未知 Provider: {name}，可用: {list(self.providers)}")
+        # 支持短别名查找 (如 "whisper-large-v3" 匹配 "groq/whisper-large-v3")
+        for prov_id, cfg in self.providers.items():
+            if prov_id.split("/")[-1] == name:
+                return cfg
+
+        raise ValueError(f"未知 Provider / Model: {name}，可用: {list(self.providers)}")
 
 
 class Settings(BaseSettings):

@@ -164,11 +164,11 @@ ASR-Toolkit:
     min_pause_duration: 0.4
     min_sentence_duration: 2.0
 
-# ASR Provider 配置（所有本地模型自动映射至 data/models/<仓库名> 目录）
-ASR-Providers:
-  xasr:
+# 本地模型配置 (local-models)
+local-models:
+  streaming-zh-en:
     enable: true
-    engine: xasr
+    driver: xasr
     preload: true                # 启动即预热
     keep_alive: -1               # -1 永驻内存
     load:
@@ -176,9 +176,9 @@ ASR-Providers:
       provider: cpu
       sample_rate: 16000
 
-  faster-whisper:
+  whisper-medium:
     enable: true
-    engine: faster-whisper
+    driver: whisper
     preload: false               # 按需懒加载
     keep_alive: 600              # 空闲 10 分钟自动卸载
     load:

@@ -34,10 +34,10 @@ class TestOpenAIModelsEndpoint:
 
     def test_retrieve_model_success(self, client, auth_headers):
         """查询已存在的单个模型详情。"""
-        resp = client.get("/v1/models/faster-whisper", headers=auth_headers)
+        resp = client.get("/v1/models/whisper-medium", headers=auth_headers)
         assert resp.status_code == 200
         data = resp.json()
-        assert data["id"] == "faster-whisper"
+        assert data["id"] == "whisper-medium"
         assert data["object"] == "model"
         assert "loaded" in data
 

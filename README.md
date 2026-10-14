@@ -158,10 +158,10 @@ ASR-Toolkit:
     min_pause_duration: 0.4
     min_sentence_duration: 2.0
 
-ASR-Providers:
-  xasr:
+local-models:
+  streaming-zh-en:
     enable: true
-    engine: xasr
+    driver: xasr
     preload: true                # Preload at startup
     keep_alive: -1               # Pin in memory forever
     load:
@@ -169,9 +169,9 @@ ASR-Providers:
       provider: cpu
       sample_rate: 16000
 
-  faster-whisper:
+  whisper-medium:
     enable: true
-    engine: faster-whisper
+    driver: whisper
     preload: false               # Lazy load on demand
     keep_alive: 600              # Auto-unload after 10m idle
     load:

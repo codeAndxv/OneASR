@@ -28,17 +28,21 @@ ASR-Toolkit:
     remove_repeats: true         # 是否过滤 ASR 连续重复复读幻觉
     normalize_text: true         # 是否规范化空格与标点
 
-# ASR Provider 配置（所有本地模型自动映射至 data/models/<仓库名> 目录，可通过 `uv run python -m cli.model pull` 一键拉取）
-ASR-Providers:
+# ─────────────────────────────────────────────────────────────
+# 本地模型配置 (local-models)
+# Key 为对外暴露的 model_id，由用户/业务自由命名（如 streaming-zh-en, whisper-medium）；
+# driver 指定模型系列驱动（xasr, whisper, qwen, funasr 等）；
+# 模型文件将自动映射至 data/models/<目录名>，支持 `uv run python -m cli.model pull`。
+# ─────────────────────────────────────────────────────────────
+local-models:
 
-  # X-ASR 流式识别（基于 sherpa-onnx，zipformer2 transducer）
-  xasr:
+  # 【实时流式】双语实时听写 (基于 sherpa-onnx, zipformer2 transducer)
+  streaming-zh-en:
     enable: true
-    engine: xasr
+    driver: xasr
     preload: true                # 实时流式小模型启动即预热
     keep_alive: -1               # -1 表示永驻内存，确保实时语音 0 冷启动延迟
 
-    # 加载配置
     load:
       model_name: Gilgamesh-J/X-ASR-zh-en
       provider: cpu
@@ -50,38 +54,34 @@ ASR-Providers:
       rule2_min_trailing_silence: 1.2
       rule3_min_utterance_length: 20.0
 
-    # 属性
-    properties:
+    capabilities:
       categories:
         - RealtimeASR
       languages: zh, en
 
-  # Faster-Whisper 文件转录
-  faster-whisper:
+  # 【离线文件】Whisper Medium 均衡版 (基于 faster-whisper)
+  whisper-medium:
     enable: true
-    engine: faster-whisper
+    driver: whisper
     preload: false               # 离线大模型按需加载（启动时仅校验路径）
     keep_alive: 600              # 空闲 10 分钟后自动卸载释放内存
 
-    # 加载配置（可选模型: Systran/faster-whisper-small | Systran/faster-whisper-medium | Systran/faster-whisper-large-v3 | mobiuslabsgmbh/faster-whisper-large-v3-turbo）
     load:
       model_name: Systran/faster-whisper-medium
       device: cpu
       compute_type: int8
       max_duration: null
 
-    # 属性
-    properties:
+    capabilities:
       categories:
         - FileASR
       languages: zh, en, ja, ko, fr, de, es, it, ru, pt, nl, pl, ar, cs, da, fi, el, he, hu, id, ms, no, ro, sk, sv, th, tr, uk, vi, hi
 
-  # Qwen3-ASR 文件转录（基于 qwen_asr，支持 CPU / GPU）
-  qwen:
+  # 【离线文件】Qwen3-ASR 1.7B (基于 qwen_asr，支持 CPU / GPU)
+  qwen3-asr:
     enable: false
-    engine: qwen
+    driver: qwen
 
-    # 加载配置（可选模型: Qwen/Qwen3-ASR-0.6B | Qwen/Qwen3-ASR-1.7B）
     load:
       model_name: Qwen/Qwen3-ASR-1.7B
       device: cpu
@@ -90,29 +90,69 @@ ASR-Providers:
       max_inference_batch_size: 32
       # forced_aligner_name: Qwen/Qwen3-ForcedAligner-0.6B
 
-    # 属性
-    properties:
+    capabilities:
       categories:
         - FileASR
       languages: zh, en, ja, ko, fr, de, es, it, ru, pt, nl, pl, ar, cs, da, fi, el, he, hu, id, ms, no, ro, sk, sv, th, tr, uk, vi, hi
 
-  # FunASR 文件转录（阿里开源，默认使用 SenseVoiceSmall 极速多语言模型 + fsmn-vad，亦支持切换 paraformer-zh）
-  funasr:
+  # 【极速文件】阿里 SenseVoice 极速多语言模型 + fsmn-vad (基于 funasr)
+  sensevoice-small:
     enable: false
-    engine: funasr
+    driver: funasr
 
-    # 加载配置（可选模型: iic/SenseVoiceSmall | iic/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch）
     load:
       model_name: iic/SenseVoiceSmall
       vad_model: iic/speech_fsmn_vad_zh-cn-16k-common-pytorch
       punc_model: null
       device: cpu
 
-    # 属性
-    properties:
+    capabilities:
       categories:
         - FileASR
       languages: zh, en, yue, ja, ko
+
+# ─────────────────────────────────────────────────────────────
+# 云端 / API 服务商配置 (cloud-providers)
+# 厂商账号凭据集中配置，一处配置 api_key / base_url 即可激活其下全部模型；
+# 云端模型免本地权重下载，不占用本机显存，亦不受 ModelManager 淘汰管辖。
+# ─────────────────────────────────────────────────────────────
+cloud-providers:
+
+  # 官方 OpenAI 语音服务
+  openai-official:
+    enable: false
+    driver: openai
+    connection:
+      base_url: "https://api.openai.com/v1"
+      api_key: "sk-xxxxxx"
+      timeout: 30
+      max_retries: 3
+    models:
+      - id: "whisper-1"
+        categories:
+          - FileASR
+        languages: zh, en, ja, ko, fr, de, es, it, ru
+
+  # Groq 极速推理云 (一 Key 多模型范例)
+  groq-cloud:
+    enable: false
+    driver: openai
+    connection:
+      base_url: "https://api.groq.com/openai/v1"
+      api_key: "gsk_xxxxxx"
+      timeout: 15
+    models:
+      - id: "groq/whisper-large-v3"
+        remote_name: "whisper-large-v3"
+        categories:
+          - FileASR
+        languages: zh, en, ja, ko, fr, de, es, it, ru
+      - id: "groq/whisper-large-v3-turbo"
+        remote_name: "whisper-large-v3-turbo"
+        categories:
+          - FileASR
+        languages: zh, en, ja, ko, fr, de, es, it, ru
+
 
 # ─────────────────────────────────────────────────────────────
 # yt-dlp 视频/音频 URL 解析与下载配置
