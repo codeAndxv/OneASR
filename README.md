@@ -159,7 +159,7 @@ ASR-Toolkit:
     min_sentence_duration: 2.0
 
 local-models:
-  streaming-zh-en:
+  xasr-zh-en:
     enable: true
     driver: xasr
     preload: true                # Preload at startup

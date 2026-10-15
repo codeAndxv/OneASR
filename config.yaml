@@ -30,14 +30,14 @@ ASR-Toolkit:
 
 # ─────────────────────────────────────────────────────────────
 # 本地模型配置 (local-models)
-# Key 为对外暴露的 model_id，由用户/业务自由命名（如 streaming-zh-en, whisper-medium）；
+# Key 为对外暴露的 model_id，由用户/业务自由命名（如 xasr-zh-en, whisper-medium）；
 # driver 指定模型系列驱动（xasr, whisper, qwen, funasr 等）；
 # 模型文件将自动映射至 data/models/<目录名>，支持 `uv run python -m cli.model pull`。
 # ─────────────────────────────────────────────────────────────
 local-models:
 
   # 【实时流式】双语实时听写 (基于 sherpa-onnx, zipformer2 transducer)
-  streaming-zh-en:
+  xasr-zh-en:
     enable: true
     driver: xasr
     preload: true                # 实时流式小模型启动即预热

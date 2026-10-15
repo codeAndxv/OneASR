@@ -166,7 +166,7 @@ ASR-Toolkit:
 
 # 本地模型配置 (local-models)
 local-models:
-  streaming-zh-en:
+  xasr-zh-en:
     enable: true
     driver: xasr
     preload: true                # 启动即预热
