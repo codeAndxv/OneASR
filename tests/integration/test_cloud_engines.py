@@ -1,4 +1,4 @@
-"""云端 ASR 引擎真实集成测试（OpenAI / 小米 MiMo 等）。
+"""云端 ASR 引擎真实集成测试（OpenAI 等）。
 
 运行方式：
     OPENAI_API_KEY=sk-xxx uv run pytest tests/integration/test_cloud_engines.py -v -s
@@ -35,27 +35,3 @@ async def test_openai_cloud_engine(sample_en_wav_bytes: bytes):
     assert isinstance(text, str)
     assert len(text.strip()) > 0
 
-
-async def test_mimo_cloud_engine(sample_en_wav_bytes: bytes):
-    """测试小米 MiMo 云端音频识别。"""
-    api_key = os.environ.get("MIMO_API_KEY")
-    if not api_key:
-        pytest.skip("未设置 MIMO_API_KEY 环境变量，跳过 MiMo 云端集成测试")
-
-    from server.engines.mimo_engine import MiMoEngine
-
-    config = EngineConfig(
-        "mimo",
-        {
-            "engine": "mimo",
-            "type": "cloud",
-            "model_name": "mimo-v2.5",
-            "api_key": api_key,
-            "base_url": "https://token-plan-sgp.xiaomimimo.com/v1",
-        },
-        None,
-    )
-    engine = MiMoEngine(config)
-    text, segments = await engine.transcribe_file(sample_en_wav_bytes)
-    assert isinstance(text, str)
-    assert len(text.strip()) > 0

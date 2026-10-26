@@ -323,7 +323,7 @@ tests/
     ├── conftest.py              # Session 级真实音频/视频 fixtures
     ├── test_local_engines.py    # 真实 xasr、faster-whisper、Qwen3-ASR 加载与推理基准测试
     ├── test_e2e_api.py          # 无 Mock 的 REST + WebSocket 端到端集成测试
-    └── test_cloud_engines.py    # 云端 ASR 引擎集成测试 (OpenAI / MiMo)
+    └── test_cloud_engines.py    # 云端 ASR 引擎集成测试 (OpenAI)
 ```
 
 ---
@@ -360,8 +360,7 @@ OneASR/
 │   │   ├── qwen_engine.py        # Qwen3-ASR 引擎
 │   │   ├── funasr_engine.py      # FunASR / Paraformer 引擎
 │   │   ├── firered_engine.py     # FireRedASR 引擎
-│   │   ├── openai_engine.py      # OpenAI 云端兼容引擎
-│   │   └── mimo_engine.py        # 小米 MiMo 云端引擎
+│   │   └── openai_engine.py      # OpenAI 云端兼容引擎
 │   ├── schemas/                  # Pydantic 请求/响应 Schema (DTO)
 │   ├── services/                 # 业务逻辑服务层
 │   │   ├── transcription_service.py # 异步转录任务编排、后台调度与 SSE 流生成

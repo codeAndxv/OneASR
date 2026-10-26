@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 
 from server.core.config import DRIVER_ALIAS_MAP, app_config
 from server.engines.base import ASREngine, release_hardware_memory
+from server.engines.firered_engine import FireRedEngine
 from server.engines.funasr_engine import FunASREngine
 from server.engines.openai_engine import OpenAIEngine
 from server.engines.qwen_engine import QwenEngine
@@ -17,12 +18,13 @@ from server.engines.whisper_engine import WhisperEngine
 
 logger = logging.getLogger(__name__)
 
-# 核心模型系列驱动 → 引擎实现类（四大本地模型系列 + 统一云端服务）
+# 核心模型系列驱动 → 引擎实现类（本地模型系列 + 统一云端服务）
 _engine_classes: dict[str, type[ASREngine]] = {
     "xasr": SherpaOnnxEngine,
     "whisper": WhisperEngine,
     "funasr": FunASREngine,
     "qwen": QwenEngine,
+    "firered": FireRedEngine,
     "openai": OpenAIEngine,
 }
 

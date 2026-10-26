@@ -44,7 +44,7 @@ from server.core.config import (  # noqa: E402
     infer_whisper_repo_id,
 )
 
-CLOUD_ENGINES = {"openai", "mimo"}
+CLOUD_ENGINES = {"openai"}
 
 
 @dataclass

@@ -335,7 +335,7 @@ tests/
     ├── conftest.py              # Session-scoped real media fixtures
     ├── test_local_engines.py    # Real xasr, faster-whisper & Qwen3-ASR inference benchmarks
     ├── test_e2e_api.py          # Unmocked REST + WebSocket end-to-end tests
-    └── test_cloud_engines.py    # Cloud ASR provider tests (OpenAI / MiMo)
+    └── test_cloud_engines.py    # Cloud ASR provider tests (OpenAI)
 ```
 
 ---
@@ -372,8 +372,7 @@ OneASR/
 │   │   ├── qwen_engine.py        # Qwen3-ASR engine
 │   │   ├── funasr_engine.py      # FunASR / Paraformer engine
 │   │   ├── firered_engine.py     # FireRedASR engine
-│   │   ├── openai_engine.py      # OpenAI cloud ASR engine
-│   │   └── mimo_engine.py        # Xiaomi MiMo cloud ASR engine
+│   │   └── openai_engine.py      # OpenAI cloud ASR engine
 │   ├── schemas/                  # Pydantic request/response schemas
 │   ├── services/                 # Business logic services
 │   │   ├── transcription_service.py # Async task orchestrator, workers & SSE

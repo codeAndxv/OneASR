@@ -111,6 +111,23 @@ local-models:
         - FileASR
       languages: zh, en, yue, ja, ko
 
+  # 【离线文件】FireRedASR (基于 sherpa-onnx 离线版，支持中文/方言高精度)
+  firered-aed:
+    enable: false
+    driver: firered
+
+    load:
+      model_name: FireRedASR/FireRedASR-AED-L
+      # model_path: "data/models/firered-aed"
+      device: cpu
+      num_threads: 4
+      decoding_method: greedy_search
+
+    capabilities:
+      categories:
+        - FileASR
+      languages: zh, en, yue
+
 # ─────────────────────────────────────────────────────────────
 # 云端 / API 服务商配置 (cloud-providers)
 # 厂商账号凭据集中配置，一处配置 api_key / base_url 即可激活其下全部模型；

@@ -87,6 +87,8 @@ DRIVER_ALIAS_MAP: dict[str, str] = {
     "faster-whisper": "whisper",
     "qwen-asr": "qwen",
     "openai-compatible": "openai",
+    "firered-asr": "firered",
+    "fireredasr": "firered",
 }
 
 

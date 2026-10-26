@@ -218,3 +218,15 @@ def test_lru_capacity_evicts_oldest_idle_heavy_model():
     assert heavy2.is_loaded is True
     assert heavy1.is_loaded is False
     assert pinned.is_loaded is True
+
+
+def test_firered_registered_in_engine_classes():
+    """验证 firered 引擎已注册且驱动别名映射正确。"""
+    from server.core.config import DRIVER_ALIAS_MAP
+    from server.engines.firered_engine import FireRedEngine
+
+    assert "firered" in registry._engine_classes
+    assert registry._engine_classes["firered"] is FireRedEngine
+    assert DRIVER_ALIAS_MAP.get("firered-asr") == "firered"
+    assert DRIVER_ALIAS_MAP.get("fireredasr") == "firered"
+
