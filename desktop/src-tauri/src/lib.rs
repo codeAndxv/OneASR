@@ -112,7 +112,87 @@ fn discover_backend_env() -> Option<(PathBuf, PathBuf)> {
         }
     }
 
+    // 4. Fallback development directory check
+    let dev_dir = PathBuf::from("/Volumes/du/project/github/codeAndxv/ASR_Projects/OneASR");
+    if dev_dir.join("server").join("main.py").exists() {
+        let dev_venv = dev_dir.join(".venv").join("bin").join("python");
+        if dev_venv.exists() {
+            return Some((dev_dir, dev_venv));
+        }
+    }
+
     None
+}
+
+/// Ensure 'oneasr' command is available in user's PATH (~/.local/bin/oneasr).
+/// Modeled after Ollama's automatic CLI tool registration.
+fn ensure_cli_installed() {
+    #[cfg(unix)]
+    {
+        if let Some(home) = dirs::home_dir() {
+            let local_bin = home.join(".local").join("bin");
+            let target_cli = local_bin.join("oneasr");
+
+            let _ = std::fs::create_dir_all(&local_bin);
+
+            // Determine what launcher script to point to
+            let mut launcher_source: Option<PathBuf> = None;
+
+            // 1. Packaged standalone application Resources/bin/oneasr
+            if let Ok(exe) = std::env::current_exe() {
+                if let Some(contents) = exe.parent().and_then(|p| p.parent()) {
+                    let standalone_oneasr = contents.join("Resources").join("bin").join("oneasr");
+                    if standalone_oneasr.exists() {
+                        launcher_source = Some(standalone_oneasr);
+                    }
+                }
+            }
+
+            if let Some(src) = launcher_source {
+                if target_cli.exists() || std::fs::symlink_metadata(&target_cli).is_ok() {
+                    let _ = std::fs::remove_file(&target_cli);
+                }
+                use std::os::unix::fs::symlink;
+                if let Ok(_) = symlink(&src, &target_cli) {
+                    eprintln!("[OneASR] Successfully symlinked CLI tool from {:?} to {:?}", src, target_cli);
+                }
+                return;
+            }
+
+            // 2. Discover from development environment
+            let script_content = if let Some((root_dir, py_bin)) = discover_backend_env() {
+                format!(
+                    "#!/usr/bin/env bash\nexport PYTHONPATH=\"{}:$PYTHONPATH\"\nexec \"{}\" -m cli.main \"$@\"\n",
+                    root_dir.to_string_lossy(),
+                    py_bin.to_string_lossy()
+                )
+            } else {
+                // 3. Fallback for developer machine when App is installed in /Applications
+                let dev_root = PathBuf::from("/Volumes/du/project/github/codeAndxv/ASR_Projects/OneASR");
+                if dev_root.join("server").join("main.py").exists() {
+                    let py_bin = dev_root.join(".venv").join("bin").join("python");
+                    let py_exec = if py_bin.exists() {
+                        format!("exec \"{}\" -m cli.main \"$@\"", py_bin.to_string_lossy())
+                    } else {
+                        "exec uv run python -m cli.main \"$@\"".to_string()
+                    };
+                    format!(
+                        "#!/usr/bin/env bash\ncd \"{}\"\nexport PYTHONPATH=\"{}:$PYTHONPATH\"\n{}\n",
+                        dev_root.to_string_lossy(),
+                        dev_root.to_string_lossy(),
+                        py_exec
+                    )
+                } else {
+                    return;
+                }
+            };
+
+            let _ = std::fs::write(&target_cli, script_content);
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&target_cli, std::fs::Permissions::from_mode(0o755));
+            eprintln!("[OneASR] Injected CLI launcher at {:?}", target_cli);
+        }
+    }
 }
 
 /// Safely terminate a child process.
@@ -126,6 +206,19 @@ fn terminate_child(child_lock: &Arc<Mutex<Option<Child>>>) {
     }
 }
 
+/// Tauri native command: Open local application directories in macOS Finder.
+/// Bypasses HTTP server completely for robust, offline-capable desktop UX.
+#[tauri::command]
+fn open_local_dir(target: String) -> Result<(), String> {
+    if let Some(home) = dirs::home_dir() {
+        let sub = if target == "logs" { "logs" } else { "models" };
+        let path = home.join(".oneasr").join(sub);
+        let _ = std::fs::create_dir_all(&path);
+        let _ = open::that(path);
+    }
+    Ok(())
+}
+
 pub fn run() {
     let child_handle: Arc<Mutex<Option<Child>>> = Arc::new(Mutex::new(None));
     let child_for_tray = child_handle.clone();
@@ -133,9 +226,13 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .invoke_handler(tauri::generate_handler![open_local_dir])
         .setup(move |app| {
             let handle = app.handle();
             let backend_addr = "127.0.0.1:8020";
+
+            // 0. Ensure global CLI tool 'oneasr' is registered in PATH (Ollama pattern)
+            ensure_cli_installed();
 
             // 1. Check if backend daemon is already running
             if !is_server_listening(backend_addr) {

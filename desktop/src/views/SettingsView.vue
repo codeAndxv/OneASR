@@ -1,7 +1,39 @@
 <template>
   <div class="settings-view">
     <div class="settings-container">
-      <!-- Section 1: Storage & Paths -->
+      <!-- Section 1: General (Theme & Language) -->
+      <div class="settings-group">
+        <h3 class="group-title">{{ t('sectionGeneral') }}</h3>
+        
+        <div class="setting-row">
+          <div class="row-info">
+            <span class="row-label">{{ t('generalTheme') }}</span>
+            <span class="row-desc">{{ t('generalThemeDesc') || '浅色、深色或随系统自动切换' }}</span>
+          </div>
+          <div class="row-control">
+            <select v-model="selectedTheme" class="custom-select" @change="handleThemeChange">
+              <option value="auto">{{ t('themeAuto') }}</option>
+              <option value="dark">{{ t('themeDark') }}</option>
+              <option value="light">{{ t('themeLight') }}</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="setting-row">
+          <div class="row-info">
+            <span class="row-label">{{ t('generalLanguage') }}</span>
+            <span class="row-desc">{{ t('generalLanguageDesc') || '系统界面多语言支持' }}</span>
+          </div>
+          <div class="row-control">
+            <select :value="locale" class="custom-select" @change="e => setLocale(e.target.value)">
+              <option value="zh-CN">简体中文 (Simplified Chinese)</option>
+              <option value="en-US">English (US)</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Section 2: Storage & Paths -->
       <div class="settings-group">
         <h3 class="group-title">{{ t('sectionStorage') }}</h3>
         
@@ -18,7 +50,7 @@
         </div>
       </div>
 
-      <!-- Section 2: Network & Host -->
+      <!-- Section 3: Network & Host -->
       <div class="settings-group">
         <h3 class="group-title">{{ t('sectionNetwork') }}</h3>
         
@@ -45,7 +77,7 @@
         </div>
       </div>
 
-      <!-- Section 3: Lifecycle Strategy -->
+      <!-- Section 4: Lifecycle Strategy -->
       <div class="settings-group">
         <h3 class="group-title">{{ t('sectionStrategy') }}</h3>
         
@@ -66,7 +98,7 @@
         </div>
       </div>
 
-      <!-- Section 4: Hardware & Diagnosis -->
+      <!-- Section 5: Hardware & Diagnosis -->
       <div class="settings-group">
         <h3 class="group-title">{{ t('sectionDiagnostics') }}</h3>
         
@@ -104,23 +136,6 @@
           </div>
         </div>
       </div>
-
-      <!-- Section 5: Language -->
-      <div class="settings-group">
-        <h3 class="group-title">{{ t('sectionLanguage') }}</h3>
-        
-        <div class="setting-row">
-          <div class="row-info">
-            <span class="row-label">{{ t('languageLabel') }}</span>
-          </div>
-          <div class="row-control">
-            <select :value="locale" class="custom-select" @change="e => setLocale(e.target.value)">
-              <option value="zh-CN">简体中文 (Simplified Chinese)</option>
-              <option value="en-US">English (US)</option>
-            </select>
-          </div>
-        </div>
-      </div>
     </div>
   </div>
 </template>
@@ -129,11 +144,17 @@
 import { ref, onMounted } from 'vue';
 import { useI18n } from '../i18n';
 import { apiClient } from '../api/client';
+import { currentTheme, setTheme } from '../utils/theme';
 
 const { locale, setLocale, t } = useI18n();
 
+const selectedTheme = ref(currentTheme.value);
 const isLanExposed = ref(false);
 const keepAliveTimeout = ref('300');
+
+function handleThemeChange() {
+  setTheme(selectedTheme.value);
+}
 
 onMounted(async () => {
   try {
@@ -216,7 +237,7 @@ function openLogs() {
   align-items: center;
   justify-content: space-between;
   padding-bottom: 10px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .setting-row:last-child {
@@ -243,34 +264,42 @@ function openLogs() {
 }
 
 .custom-select {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--bg-card);
   border: 1px solid var(--border-subtle);
   color: var(--text-primary);
   font-size: 11px;
-  padding: 4px 8px;
+  padding: 5px 8px;
   border-radius: 6px;
   outline: none;
+  cursor: pointer;
+}
+
+.custom-select option {
+  background: var(--bg-card);
+  color: var(--text-primary);
 }
 
 .secondary-btn {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--bg-app);
   border: 1px solid var(--border-subtle);
-  color: var(--text-secondary);
+  color: var(--text-primary);
   font-size: 11px;
   padding: 4px 10px;
   border-radius: 6px;
   cursor: pointer;
+  transition: all 0.15s ease;
 }
 
 .secondary-btn:hover {
-  background: rgba(255, 255, 255, 0.09);
-  color: var(--text-primary);
+  background: var(--bg-card-hover);
+  border-color: var(--border-focus);
 }
 
 .mono-badge {
   font-family: ui-monospace, SFMono-Regular, monospace;
   font-size: 11px;
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--bg-app);
+  border: 1px solid var(--border-subtle);
   padding: 2px 8px;
   border-radius: 4px;
   color: var(--text-secondary);
@@ -290,7 +319,7 @@ function openLogs() {
 .toggle-btn {
   width: 36px;
   height: 20px;
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--border-subtle);
   border-radius: 10px;
   border: none;
   cursor: pointer;

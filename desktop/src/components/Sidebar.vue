@@ -1,7 +1,10 @@
 <template>
-  <aside class="sidebar">
+  <aside class="sidebar" data-tauri-drag-region @mousedown="handleSidebarMouseDown">
+    <!-- Top Window Drag Bar (Safe area for macOS traffic lights & window drag header) -->
+    <div class="sidebar-top-bar" data-tauri-drag-region @mousedown="handleSidebarMouseDown"></div>
+
     <!-- Brand / Mascot Header -->
-    <div class="brand">
+    <div class="brand" data-tauri-drag-region @mousedown="handleSidebarMouseDown">
       <div class="mascot-badge">
         <svg viewBox="0 0 24 24" class="mascot-icon" fill="none" stroke="currentColor" stroke-width="2">
           <!-- Cat Mascot Outline -->
@@ -17,12 +20,12 @@
       </div>
     </div>
 
-    <!-- Navigation List (4 Tabs) -->
-    <nav class="nav-list">
+    <!-- Navigation List (3 Core Tabs) -->
+    <nav class="nav-list no-drag">
       <button
         v-for="item in navItems"
         :key="item.id"
-        class="nav-item"
+        class="nav-item no-drag"
         :class="{ active: currentTab === item.id }"
         @click="$emit('select-tab', item.id)"
       >
@@ -31,19 +34,38 @@
       </button>
     </nav>
 
-    <!-- Bottom Server Status Card -->
-    <div class="server-status" :class="{ online: isOnline }">
-      <div class="status-indicator"></div>
-      <div class="status-text">
-        <div class="status-title">{{ isOnline ? t('statusOnline') : t('statusOffline') }}</div>
-        <div class="status-host">127.0.0.1:8020</div>
+    <!-- Sidebar Footer: Status on top, Settings at the very bottom -->
+    <div class="sidebar-footer no-drag">
+      <!-- Engine Status Card (above settings) -->
+      <div class="server-status no-drag" :class="{ online: isOnline }">
+        <div class="status-indicator"></div>
+        <div class="status-text">
+          <div class="status-title">{{ isOnline ? t('statusOnline') : t('statusOffline') }}</div>
+          <div class="status-host">127.0.0.1:8020</div>
+        </div>
       </div>
+
+      <!-- Preferences / Settings Button (Triggers Preferences Modal) -->
+      <button
+        class="nav-item settings-item no-drag"
+        :title="t('navSettings') + ' (⌘,)'"
+        @click="$emit('open-settings')"
+      >
+        <span class="nav-icon">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+        </span>
+        <span class="nav-label">{{ t('navSettings') }}</span>
+      </button>
     </div>
   </aside>
 </template>
 
 <script setup>
 import { useI18n } from '../i18n';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 
 const props = defineProps({
   currentTab: {
@@ -56,8 +78,21 @@ const props = defineProps({
   }
 });
 
-defineEmits(['select-tab']);
+defineEmits(['select-tab', 'open-settings']);
 const { t } = useI18n();
+
+let appWindow = null;
+try {
+  appWindow = getCurrentWindow();
+} catch (err) {
+  // Fallback
+}
+
+function handleSidebarMouseDown(e) {
+  if (appWindow && e.buttons === 1 && !e.target.closest('button, select, input, a, .nav-item, .settings-item, .server-status, .no-drag')) {
+    appWindow.startDragging();
+  }
+}
 
 const navItems = [
   {
@@ -74,11 +109,6 @@ const navItems = [
     id: 'models',
     labelKey: 'navModels',
     icon: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>`
-  },
-  {
-    id: 'settings',
-    labelKey: 'navSettings',
-    icon: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>`
   }
 ];
 </script>
@@ -90,17 +120,32 @@ const navItems = [
   border-right: 1px solid var(--border-subtle);
   display: flex;
   flex-direction: column;
-  padding: 16px 12px;
+  padding: 0 12px 14px 12px;
   height: 100%;
+  user-select: none;
+  -webkit-app-region: drag;
+  cursor: default;
+}
+
+.sidebar-top-bar {
+  height: 34px;
+  width: 100%;
+  margin: 0 -12px;
+  padding: 0 12px;
+  flex-shrink: 0;
+  -webkit-app-region: drag;
+  cursor: default;
 }
 
 .brand {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 8px 8px 18px 8px;
+  padding: 4px 8px 16px 8px;
   border-bottom: 1px solid var(--border-subtle);
   margin-bottom: 14px;
+  user-select: none;
+  -webkit-app-region: drag;
 }
 
 .mascot-badge {
@@ -113,11 +158,16 @@ const navItems = [
   align-items: center;
   justify-content: center;
   color: var(--accent-emerald);
+  pointer-events: none;
 }
 
 .mascot-icon {
   width: 20px;
   height: 20px;
+}
+
+.brand-text {
+  pointer-events: none;
 }
 
 .brand-title {
@@ -137,6 +187,10 @@ const navItems = [
   flex-direction: column;
   gap: 4px;
   flex: 1;
+}
+
+.no-drag {
+  -webkit-app-region: no-drag;
 }
 
 .nav-item {
@@ -170,6 +224,19 @@ const navItems = [
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.sidebar-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-subtle);
+  margin-top: auto;
+}
+
+.settings-item {
+  width: 100%;
 }
 
 .server-status {

@@ -189,4 +189,29 @@ def scan_all_models() -> dict[str, ModelScanResult]:
         except (PermissionError, FileNotFoundError):
             pass
 
+    # 3. Include any explicitly configured providers from app_config
+    try:
+        from server.core.config import app_config
+        for pid, pcfg in app_config.providers.items():
+            if pid not in results:
+                p_path = Path(pcfg.model_path) if pcfg.model_path else None
+                is_ready = bool(p_path and p_path.exists())
+                results[pid] = ModelScanResult(
+                    id=pid,
+                    name=pcfg.name or pid,
+                    driver=pcfg.driver,
+                    repo=f"config/{pid}",
+                    categories=["FileASR"] if pcfg.driver != "xasr" else ["RealtimeASR"],
+                    languages=pcfg.languages or ["multilingual"],
+                    status="ready" if is_ready else "not_downloaded",
+                    model_path=p_path if is_ready else None,
+                    size_on_disk=_calc_dir_size(p_path) if is_ready and p_path else 0,
+                    size_expected=0,
+                    features=["asrAutoLanguageDetect"],
+                    preload=pcfg.preload,
+                    keep_alive=pcfg.keep_alive,
+                )
+    except Exception:
+        pass
+
     return results

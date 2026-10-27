@@ -1,18 +1,13 @@
 <template>
-  <header class="app-header" data-tauri-drag-region>
+  <header class="app-header" data-tauri-drag-region @mousedown="startDrag">
     <div class="header-left">
       <h1 class="header-title">{{ title }}</h1>
       <span class="header-subtitle">{{ subtitle }}</span>
     </div>
 
     <div class="header-right">
-      <!-- Language Quick Switcher -->
-      <button class="icon-btn" :title="locale === 'zh-CN' ? 'Switch to English' : '切换为简体中文'" @click="toggleLocale">
-        <span class="lang-text">{{ locale === 'zh-CN' ? '中' : 'EN' }}</span>
-      </button>
-
       <!-- History Drawer Toggle -->
-      <button class="icon-btn history-btn" :class="{ active: isHistoryOpen }" :title="t('historyTitle')" @click="$emit('toggle-history')">
+      <button class="icon-btn history-btn no-drag" :class="{ active: isHistoryOpen }" :title="t('historyTitle')" @click="$emit('toggle-history')">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="12" r="10"/>
           <polyline points="12 6 12 12 16 14"/>
@@ -25,6 +20,7 @@
 
 <script setup>
 import { useI18n } from '../i18n';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 
 defineProps({
   title: {
@@ -47,11 +43,21 @@ defineProps({
 
 defineEmits(['toggle-history']);
 
-const { locale, setLocale, t } = useI18n();
+const { t } = useI18n();
 
-function toggleLocale() {
-  setLocale(locale.value === 'zh-CN' ? 'en-US' : 'zh-CN');
+let appWindow = null;
+try {
+  appWindow = getCurrentWindow();
+} catch (err) {
+  // Fallback if running outside Tauri
 }
+
+function startDrag(e) {
+  if (appWindow && e.buttons === 1 && !e.target.closest('button, select, input, a, .icon-btn, .no-drag')) {
+    appWindow.startDragging();
+  }
+}
+
 </script>
 
 <style scoped>
@@ -64,12 +70,14 @@ function toggleLocale() {
   border-bottom: 1px solid var(--border-subtle);
   background-color: var(--bg-app);
   user-select: none;
+  -webkit-app-region: drag;
 }
 
 .header-left {
   display: flex;
   align-items: baseline;
   gap: 12px;
+  pointer-events: none;
 }
 
 .header-title {
@@ -88,6 +96,7 @@ function toggleLocale() {
   display: flex;
   align-items: center;
   gap: 8px;
+  -webkit-app-region: no-drag;
 }
 
 .icon-btn {

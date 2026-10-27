@@ -5,11 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>OneASR</title>
     <style>
-      :root {
+      :root,
+      html[data-theme="dark"] {
         --bg-app: #121316;
         --bg-sidebar: #0e0f11;
-        --bg-card: #1a1b1f;
-        --bg-card-hover: #222329;
+        --bg-surface: #18191d;
+        --bg-card: #1c1d22;
+        --bg-card-hover: #23242a;
+        --bg-elevated: #212228;
         --border-subtle: rgba(255, 255, 255, 0.08);
         --border-focus: rgba(16, 185, 129, 0.4);
         --text-primary: #f4f4f6;
@@ -19,6 +22,28 @@
         --accent-emerald-subtle: rgba(16, 185, 129, 0.12);
         --accent-red: #ef4444;
         --accent-blue: #3b82f6;
+        --scrollbar-thumb: rgba(255, 255, 255, 0.15);
+        --scrollbar-thumb-hover: rgba(255, 255, 255, 0.25);
+      }
+
+      html[data-theme="light"] {
+        --bg-app: #f4f5f7;
+        --bg-sidebar: #e9ebef;
+        --bg-surface: #ffffff;
+        --bg-card: #ffffff;
+        --bg-card-hover: #f8f9fa;
+        --bg-elevated: #f4f5f7;
+        --border-subtle: rgba(0, 0, 0, 0.09);
+        --border-focus: rgba(16, 185, 129, 0.5);
+        --text-primary: #18191c;
+        --text-secondary: #4b4e55;
+        --text-muted: #808590;
+        --accent-emerald: #059669;
+        --accent-emerald-subtle: rgba(16, 185, 129, 0.12);
+        --accent-red: #dc2626;
+        --accent-blue: #2563eb;
+        --scrollbar-thumb: rgba(0, 0, 0, 0.15);
+        --scrollbar-thumb-hover: rgba(0, 0, 0, 0.25);
       }
 
       * {
@@ -47,11 +72,11 @@
         background: transparent;
       }
       ::-webkit-scrollbar-thumb {
-        background: rgba(255, 255, 255, 0.15);
+        background: var(--scrollbar-thumb);
         border-radius: 3px;
       }
       ::-webkit-scrollbar-thumb:hover {
-        background: rgba(255, 255, 255, 0.25);
+        background: var(--scrollbar-thumb-hover);
       }
     </style>
   </head>

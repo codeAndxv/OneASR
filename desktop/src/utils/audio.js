@@ -10,6 +10,7 @@ export class AudioEngine {
     this.onVolumeCallback = null;
     this.onAudioChunkCallback = null;
     this.audioChunks = [];
+    this.sourceSampleRate = 16000;
   }
 
   /**
@@ -51,32 +52,42 @@ export class AudioEngine {
 
     const audioConstraints = {
       channelCount: 1,
-      sampleRate: 16000,
       echoCancellation: true,
       noiseSuppression: true,
-      autoGainControl: true
+      autoGainControl: true,
+      ...(deviceId ? { deviceId: { exact: deviceId } } : {})
     };
 
-    if (deviceId) {
-      audioConstraints.deviceId = { exact: deviceId };
-    }
-
     try {
-      this.mediaStream = await navigator.mediaDevices.getUserMedia({
-        audio: audioConstraints
-      });
+      // 1. Acquire media stream (with fallback to basic audio: true)
+      try {
+        this.mediaStream = await navigator.mediaDevices.getUserMedia({
+          audio: audioConstraints
+        });
+      } catch (err) {
+        console.warn('[OneASR Audio] Failed with constraints, retrying with simple audio request:', err);
+        this.mediaStream = await navigator.mediaDevices.getUserMedia({
+          audio: true
+        });
+      }
 
+      // 2. Initialize native AudioContext (supports any macOS hardware sample rate: 44.1k/48k/16k)
       const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-      this.audioContext = new AudioContextClass({ sampleRate: 16000 });
+      this.audioContext = new AudioContextClass();
+      if (this.audioContext.state === 'suspended') {
+        await this.audioContext.resume();
+      }
+      this.sourceSampleRate = this.audioContext.sampleRate || 44100;
+
       const source = this.audioContext.createMediaStreamSource(this.mediaStream);
 
-      // Volume Analyser Node
+      // 3. Volume Analyser Node
       this.analyser = this.audioContext.createAnalyser();
       this.analyser.fftSize = 256;
       this.analyser.smoothingTimeConstant = 0.4;
       source.connect(this.analyser);
 
-      // Audio Processor for PCM extraction
+      // 4. Audio Processor for PCM extraction
       const bufferSize = 4096;
       this.processor = this.audioContext.createScriptProcessor(bufferSize, 1, 1);
       this.processor.onaudioprocess = (e) => {
@@ -127,6 +138,31 @@ export class AudioEngine {
   }
 
   /**
+   * Downsample Float32Array PCM buffer to target sample rate (default: 16000)
+   */
+  downsampleBuffer(buffer, inputRate, outputRate = 16000) {
+    if (inputRate === outputRate) return buffer;
+    const ratio = inputRate / outputRate;
+    const newLength = Math.round(buffer.length / ratio);
+    const result = new Float32Array(newLength);
+    let offsetResult = 0;
+    let offsetBuffer = 0;
+    while (offsetResult < result.length) {
+      const nextOffsetBuffer = Math.round((offsetResult + 1) * ratio);
+      let accum = 0;
+      let count = 0;
+      for (let i = offsetBuffer; i < nextOffsetBuffer && i < buffer.length; i++) {
+        accum += buffer[i];
+        count++;
+      }
+      result[offsetResult] = count > 0 ? accum / count : 0;
+      offsetResult++;
+      offsetBuffer = nextOffsetBuffer;
+    }
+    return result;
+  }
+
+  /**
    * Stop recording and export WAV Blob
    * @returns {Blob} 16kHz Mono WAV Blob
    */
@@ -146,6 +182,7 @@ export class AudioEngine {
       this.mediaStream.getTracks().forEach((track) => track.stop());
       this.mediaStream = null;
     }
+    const rate = this.sourceSampleRate;
     if (this.audioContext) {
       await this.audioContext.close();
       this.audioContext = null;
@@ -166,13 +203,16 @@ export class AudioEngine {
       offset += chunk.length;
     }
 
-    return this.encodeWAV(merged, 16000);
+    // Downsample from hardware rate (e.g. 48000 or 44100) to 16000
+    const resampled = this.downsampleBuffer(merged, rate, 16000);
+
+    return this.encodeWAV(resampled, 16000);
   }
 
   /**
    * Convert Float32Array PCM to 16-bit PCM WAV Blob
    */
-  encodeWAV(samples, sampleRate) {
+  encodeWAV(samples, sampleRate = 16000) {
     const buffer = new ArrayBuffer(44 + samples.length * 2);
     const view = new DataView(buffer);
 

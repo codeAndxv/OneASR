@@ -14,10 +14,10 @@
       {
         "title": "OneASR",
         "label": "main",
-        "width": 840,
-        "height": 580,
-        "minWidth": 720,
-        "minHeight": 500,
+        "width": 1020,
+        "height": 680,
+        "minWidth": 800,
+        "minHeight": 560,
         "resizable": true,
         "fullscreen": false,
         "decorations": true,
@@ -26,11 +26,6 @@
         "visible": false
       }
     ],
-    "trayIcon": {
-      "iconPath": "icons/tray.png",
-      "iconAsTemplate": true,
-      "menuOnLeftClick": true
-    },
     "security": {
       "csp": null
     }
@@ -46,7 +41,8 @@
       "icons/icon.ico"
     ],
     "macOS": {
-      "infoPlist": "Info.plist"
+      "infoPlist": "Info.plist",
+      "entitlements": "Entitlements.plist"
     },
     "resources": [
       "resources/**/*"

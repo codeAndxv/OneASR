@@ -5,6 +5,7 @@
       :current-tab="currentTab"
       :is-online="isServerOnline"
       @select-tab="handleSelectTab"
+      @open-settings="isSettingsOpen = true"
     />
 
     <!-- Main Content Area -->
@@ -29,9 +30,6 @@
         <ModelsView
           v-else-if="currentTab === 'models'"
         />
-        <SettingsView
-          v-else-if="currentTab === 'settings'"
-        />
       </div>
     </main>
 
@@ -41,6 +39,12 @@
       :items="historyItems"
       @close="isHistoryOpen = false"
       @clear="clearHistory"
+    />
+
+    <!-- Preferences / Settings Modal -->
+    <SettingsModal
+      :is-open="isSettingsOpen"
+      @close="isSettingsOpen = false"
     />
   </div>
 </template>
@@ -52,23 +56,23 @@ import { apiClient } from './api/client';
 import Sidebar from './components/Sidebar.vue';
 import Header from './components/Header.vue';
 import HistoryDrawer from './components/HistoryDrawer.vue';
+import SettingsModal from './components/SettingsModal.vue';
 import DictateView from './views/DictateView.vue';
 import FilesView from './views/FilesView.vue';
 import ModelsView from './views/ModelsView.vue';
-import SettingsView from './views/SettingsView.vue';
 
 const { t } = useI18n();
 
 const currentTab = ref('dictate');
 const isHistoryOpen = ref(false);
+const isSettingsOpen = ref(false);
 const isServerOnline = ref(false);
 const historyItems = ref([]);
 
 const tabMeta = {
   dictate: { titleKey: 'dictateTitle', subtitleKey: 'dictateSubtitle' },
   files: { titleKey: 'filesTitle', subtitleKey: 'filesSubtitle' },
-  models: { titleKey: 'modelsTitle', subtitleKey: 'modelsSubtitle' },
-  settings: { titleKey: 'settingsTitle', subtitleKey: 'settingsSubtitle' }
+  models: { titleKey: 'modelsTitle', subtitleKey: 'modelsSubtitle' }
 };
 
 const currentTabTitle = computed(() => {
@@ -83,6 +87,13 @@ const currentTabSubtitle = computed(() => {
 
 function handleSelectTab(tabId) {
   currentTab.value = tabId;
+}
+
+function handleGlobalKeydown(e) {
+  if ((e.metaKey || e.ctrlKey) && e.key === ',') {
+    e.preventDefault();
+    isSettingsOpen.value = !isSettingsOpen.value;
+  }
 }
 
 function addHistoryItem(item) {
@@ -105,6 +116,8 @@ function saveHistoryToStorage() {
 let healthInterval = null;
 
 onMounted(async () => {
+  window.addEventListener('keydown', handleGlobalKeydown);
+
   // Load saved history
   try {
     const saved = localStorage.getItem('oneasr_history');
@@ -121,6 +134,7 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  window.removeEventListener('keydown', handleGlobalKeydown);
   if (healthInterval) {
     clearInterval(healthInterval);
   }
@@ -128,7 +142,7 @@ onUnmounted(() => {
 
 async function checkHealth() {
   const info = await apiClient.checkHealth();
-  isServerOnline.value = !!info;
+  isServerOnline.value = !!(info && (info.status === 'ok' || info.online));
 }
 </script>
 
@@ -137,21 +151,23 @@ async function checkHealth() {
   display: flex;
   width: 100vw;
   height: 100vh;
-  background-color: var(--bg-app);
   overflow: hidden;
+  background-color: var(--bg-base);
+  position: relative;
 }
 
 .main-viewport {
   flex: 1;
   display: flex;
   flex-direction: column;
+  height: 100%;
   overflow: hidden;
-  position: relative;
+  background-color: var(--bg-surface);
 }
 
 .view-container {
   flex: 1;
-  overflow: hidden;
+  overflow-y: auto;
   position: relative;
 }
 </style>

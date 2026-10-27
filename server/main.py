@@ -237,3 +237,9 @@ from fastapi.staticfiles import StaticFiles
 _dist_dir = Path(__file__).parent.parent / "web" / "dist"
 if _dist_dir.exists():
     app.mount("/", StaticFiles(directory=str(_dist_dir), html=True), name="static_web")
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("server.main:app", host="127.0.0.1", port=8020, log_level="info")
+

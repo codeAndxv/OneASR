@@ -437,8 +437,18 @@ class AppConfig:
         self.local_models: dict[str, EngineConfig] = {}
         self.cloud_providers: dict[str, dict] = {}
 
-        # 1. Check if an explicit config file was requested
+        # 1. Check if an explicit config file was requested, or fallback to config.yaml
         explicit_file = Path(config_path) if config_path else None
+        if not explicit_file:
+            candidates = [
+                Path("config.yaml"),
+                Path(__file__).parent.parent.parent / "config.yaml",
+            ]
+            for c in candidates:
+                if c.is_file():
+                    explicit_file = c
+                    break
+
         if explicit_file and explicit_file.is_file():
             try:
                 with open(explicit_file, "r", encoding="utf-8") as f:
@@ -467,19 +477,19 @@ class AppConfig:
         self.asr_toolkit = ASRToolkitConfig(self._data.get("ASR-Toolkit", {}))
         self.ytdlp = YtDlpConfig(self._data.get("yt-dlp", {}))
 
-        # 5. API Key resolution: Environment > explicit config > settings.json
+        # 5. API Key resolution: Environment > explicit config > settings.json > default standard key
         self.api_key = (
             os.getenv("ONEASR_API_KEY")
             or self._data.get("api_key")
-            or user_settings.get("api_key", "")
+            or user_settings.get("api_key")
+            or "sk-oneasr-v1-p_L3kXm9QZ8sT2vA4wE7rY1u"
         )
 
         # 6. Parse legacy local-models and cloud-providers if present in _data
         self._parse_yaml_providers()
 
-        # 7. Merge dynamic models from built-in manifest and disk scan when not explicitly restricted by YAML
-        if not self._data or ("local-models" not in self._data and "local_models" not in self._data):
-            self.refresh_models()
+        # 7. Merge dynamic models from built-in manifest and disk scan
+        self.refresh_models()
 
     def _parse_yaml_providers(self) -> None:
         """Parse explicit local-models and cloud-providers from YAML if present."""
@@ -604,7 +614,8 @@ class AppConfig:
                 default_keep_alive=self.model_manager.default_keep_alive,
                 is_cloud=False,
             )
-            self.local_models[model_id] = cfg
+            if not self._data:
+                self.local_models[model_id] = cfg
             self.providers[model_id] = cfg
 
     def get_provider_config(self, name: str) -> EngineConfig:
