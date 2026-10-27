@@ -18,6 +18,7 @@ from server.api.x import (
     media as x_media,
     models as x_models,
     realtime as x_realtime,
+    system as x_system,
 )
 from server.core.config import settings
 
@@ -114,6 +115,7 @@ app.include_router(x_models.router)          # GET  /v1/x/models (capability mat
 app.include_router(x_realtime.router)        # WS   /v1/x/realtime (sentence events & timestamps)
 app.include_router(x_media.router)           # POST /v1/x/media (yt-dlp parsing & download)
 app.include_router(x_info.router)            # GET  /v1/x/info (service version & status)
+app.include_router(x_system.router)          # GET/POST /v1/x/system (info & settings)
 
 
 # ── 全局错误处理（兼容 FastAPI detail 与 OpenAI error.message）──────

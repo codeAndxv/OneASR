@@ -10,15 +10,30 @@ A unified speech recognition API gateway that integrates multiple local and clou
 
 ## Features
 
+- **Ollama-Style Zero-GUI Architecture** — Native headless daemon and system tray companion under 5MB RAM, with terminal CLI (`oneasr`) and standard REST/WebSocket API
+- **Standalone Prebuilt Packages** — Self-contained installers for macOS, Windows, and Linux with pre-bundled Python runtime, hardware acceleration (MPS/CUDA), and FFmpeg. No manual Python or PyTorch setup required
 - **Unified OpenAI-Compatible Audio API** — Upload audio/video files or specify `file_uuid` / `url`, get transcription in `json`, `verbose_json`, `text`, `srt`, `vtt`, or `tsv`
 - **SSE Streaming File Recognition** — Receive sentence-by-sentence transcription segments in real time via Server-Sent Events (`stream=true`)
 - **Real-time WebSocket Streaming** — Low-latency streaming speech recognition (`/v1/realtime` & `/v1/realtime_ext`) powered by `xasr` (`sherpa-onnx` Zipformer2 transducer)
 - **Ollama-Style Model Lifecycle Manager** — On-demand loading, configurable `keep_alive` TTL auto-unloading, `max_loaded_models` LRU eviction, active task reference counting, and manual `/load` & `/unload` APIs
-- **One-Command Model CLI (`cli.model`)** — Inspect, verify, and download local models into `data/models/` with automatic ModelScope / HuggingFace Mirror fallback
+- **One-Command Model CLI (`oneasr`)** — Inspect, verify, and download local models into `~/.oneasr/models` with automatic ModelScope / HuggingFace Mirror fallback
 - **File Upload & MD5 Instant Dedup** — Upload files with MD5 fingerprint for instant deduplication, plus async long-audio task management
-- **Web Interface** — Vue 3 frontend with file/URL recognition, real-time streaming display, and SRT/VTT export
 
-## Quick Start
+## Download & Installation
+
+The easiest way to get started with OneASR is downloading the self-contained standalone release for your platform from **[GitHub Releases](https://github.com/codeAndxv/OneASR/releases)**:
+
+| Platform | Package | Architecture | Acceleration |
+| :--- | :--- | :--- | :--- |
+| **macOS** | `OneASR-macos-arm64.dmg` | Apple Silicon (M1/M2/M3/M4) | Metal Performance Shaders (MPS) |
+| **Windows** | `OneASR-windows-x64-setup.exe` | x86_64 | NVIDIA CUDA 12 / CPU fallback |
+| **Linux** | `oneasr-linux-amd64.tar.gz` | x86_64 | NVIDIA CUDA 12 / CPU fallback |
+
+*All standalone releases bundle an isolated Python 3.12 runtime, hardware-accelerated PyTorch, and static FFmpeg binary. No external environment setup needed.*
+
+---
+
+## Quick Start (Developer Setup)
 
 ### Prerequisites
 
@@ -46,15 +61,64 @@ uv run uvicorn server.main:app --host 0.0.0.0 --port 8020
 
 The server runs at `http://localhost:8020`. Visit `http://localhost:8020/docs` for interactive Swagger API documentation.
 
-### Frontend Setup
+### Command Line Interface (`oneasr`)
+
+OneASR provides an Ollama-style terminal CLI for model lifecycle management and quick transcription tests:
 
 ```bash
-cd web
-npm install
-npm run dev
+# List all available models, local readiness, and disk size
+oneasr list
+
+# Pull a model from ModelScope / HuggingFace with progress bar
+oneasr pull sensevoice-small
+oneasr pull whisper-large-v3-turbo
+
+# Inspect active models in VRAM/memory
+oneasr ps
+
+# Display compute acceleration (MPS/CUDA/CPU) and storage paths
+oneasr info
+
+# Transcribe an audio file directly from terminal
+oneasr run sensevoice-small /path/to/sample.wav
+
+# Remove local model weights to free up disk space
+oneasr rm whisper-large-v3-turbo
+
+# Start the daemon in foreground
+oneasr serve --host 127.0.0.1 --port 8020
 ```
 
-The frontend runs at `http://localhost:3020` and automatically proxies API requests to the backend.
+### Desktop Companion App (`OneASR.app`)
+
+Modeled strictly on Ollama, OneASR includes a zero-GUI native system tray companion. It stays quietly in your macOS menu bar, supervises the backend daemon, and keeps resource usage under 5MB RAM:
+
+```bash
+cd desktop
+npm run build
+```
+
+The native package `OneASR.app` and `OneASR_<version>_<arch>.dmg` will be in `desktop/src-tauri/target/debug/bundle/`.
+
+### Client Integration (DuRT & OpenAI SDK)
+
+OneASR runs locally at `http://127.0.0.1:8020`. Any OpenAI-compatible client (including DuRT, Python scripts, and automation workflows) connects seamlessly:
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="http://127.0.0.1:8020/v1",
+    api_key="sk-oneasr-v1-p_L3kXm9QZ8sT2vA4wE7rY1u"
+)
+
+with open("audio.wav", "rb") as f:
+    transcript = client.audio.transcriptions.create(
+        model="sensevoice-small",
+        file=f
+    )
+print(transcript.text)
+```
 
 ### Verify Installation
 

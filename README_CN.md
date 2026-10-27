@@ -10,17 +10,32 @@
 
 ## 核心特性
 
+- **Ollama 风格零界面常驻架构** — 原生系统托盘常驻伴侣（内存占用低于 5MB），配合终端命令行（`oneasr`）与标准化 REST/WebSocket API
+- **开箱即用独立打包** — 针对 macOS、Windows、Linux 平台提供全量自包含安装包，内置隔离 Python 3.12 运行时、硬件加速环境（MPS/CUDA）与 FFmpeg，无需手动配置 Python 或 PyTorch
 - **统一 OpenAI 兼容音频接口** — 支持上传音视频文件、指定 `file_uuid` 或远程 `url`，输出格式涵盖 `json`、`verbose_json`、`text`、`srt`、`vtt`、`tsv`
 - **SSE 流式文件识别** — 基于 Silero VAD 智能切片，以 Server-Sent Events (`stream=true`) 逐句实时推送长音频识别结果
 - **WebSocket 实时流式听写** — 基于 `xasr` (`sherpa-onnx` Zipformer2 transducer) 提供毫秒级低延迟实时语音流识别（兼容 `/v1/realtime` 与扩展协议 `/v1/realtime_ext`）
 - **Ollama 风格模型生命周期管理** — 支持启动预热 (`preload`)、按需懒加载、空闲超时自动卸载 (`keep_alive`)、最大常驻模型数 LRU 淘汰 (`max_loaded_models`)、活跃任务引用计数保护，以及手动 `/load` 与 `/unload` 接口
-- **内置模型管理 CLI (`cli.model`)** — 一键查看模型状态、离线校验权重分片完整性、自动从 ModelScope / HF-Mirror / HuggingFace 下载并整理目录至 `data/models/`
+- **统一模型管理 CLI (`oneasr`)** — 一键查看模型状态、从 ModelScope / HuggingFace 下载并自动存放至 `~/.oneasr/models`
 - **文件秒传与大文件异步任务** — 支持 MD5 指纹秒传去重、音视频 URL 解析下载（`yt-dlp`）及大文件后台异步转录队列
-- **Web 管理界面** — Vue 3 前端，支持文件/URL 识别、实时流式结果展示与字幕导出
 
 ---
 
-## 快速开始
+## 下载与安装
+
+使用 OneASR 最简捷的方式是直接从 **[GitHub Releases](https://github.com/codeAndxv/OneASR/releases)** 下载对应平台的自包含独立安装包：
+
+| 平台 | 安装包 | 架构 | 算力加速支持 |
+| :--- | :--- | :--- | :--- |
+| **macOS** | `OneASR-macos-arm64.dmg` | Apple Silicon (M1/M2/M3/M4) | Metal Performance Shaders (MPS) 原生加速 |
+| **Windows** | `OneASR-windows-x64-setup.exe` | x86_64 | NVIDIA CUDA 12 独显加速 / CPU 自动回退 |
+| **Linux** | `oneasr-linux-amd64.tar.gz` | x86_64 | NVIDIA CUDA 12 独显加速 / CPU 自动回退 |
+
+*所有独立安装包均内置隔离 Python 3.12 运行时、算力加速版 PyTorch 以及静态 FFmpeg 可执行文件，用户电脑无需预装任何 Python、pip 或 CUDA 环境。*
+
+---
+
+## 快速开始（开发者源码运行）
 
 ### 环境要求
 
@@ -48,15 +63,64 @@ uv run uvicorn server.main:app --host 0.0.0.0 --port 8020
 
 服务运行在 `http://localhost:8020`，访问 `http://localhost:8020/docs` 查看交互式 API 文档。
 
-### 前端启动
+### 终端命令行工具 (`oneasr` CLI)
+
+OneASR 提供了类似 Ollama 的极客终端命令行工具，支持模型管理、状态监控与快捷转录测试：
 
 ```bash
-cd web
-npm install
-npm run dev
+# 查看所有可用模型、本地就绪状态与磁盘占用
+oneasr list
+
+# 一键拉取模型（带实时网速与进度条）
+oneasr pull sensevoice-small
+oneasr pull whisper-large-v3-turbo
+
+# 查看当前驻留在显存/内存中的活跃模型
+oneasr ps
+
+# 查看硬件加速驱动 (MPS/CUDA/CPU) 与存储路径信息
+oneasr info
+
+# 在终端直接测试转录音频文件
+oneasr run sensevoice-small /path/to/sample.wav
+
+# 删除本地权重以释放磁盘空间
+oneasr rm whisper-large-v3-turbo
+
+# 在前台启动守护服务进程
+oneasr serve --host 127.0.0.1 --port 8020
 ```
 
-前端运行在 `http://localhost:3020`，自动代理 API 请求到后端。
+### 原生桌面伴侣应用 (`OneASR.app`)
+
+完全对标 Ollama，OneASR 提供了纯原生、零界面的系统托盘伴侣。它安安静静常驻在 macOS 顶部菜单栏，自动守护管理后端进程，常驻内存仅占约 3~5MB：
+
+```bash
+cd desktop
+npm run build
+```
+
+打包产物 `OneASR.app` 与 `OneASR_<版本>_<架构>.dmg` 位于 `desktop/src-tauri/target/debug/bundle/`。
+
+### 客户端接入 (DuRT 与 OpenAI SDK)
+
+OneASR 默认在本地 `http://127.0.0.1:8020` 运行。任何兼容 OpenAI 协议的客户端（包括 DuRT 客户端、Python 脚本或自动化工具）均可无缝对接：
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="http://127.0.0.1:8020/v1",
+    api_key="sk-oneasr-v1-p_L3kXm9QZ8sT2vA4wE7rY1u"
+)
+
+with open("audio.wav", "rb") as f:
+    transcript = client.audio.transcriptions.create(
+        model="sensevoice-small",
+        file=f
+    )
+print(transcript.text)
+```
 
 ### 验证安装
 
