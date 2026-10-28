@@ -233,48 +233,6 @@ fn open_local_dir(target: String) -> Result<(), String> {
     Ok(())
 }
 
-fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
-    std::fs::create_dir_all(dst)?;
-    for entry in std::fs::read_dir(src)? {
-        let entry = entry?;
-        let file_type = entry.file_type()?;
-        let dest_child = dst.join(entry.file_name());
-        if file_type.is_dir() {
-            copy_dir_all(&entry.path(), &dest_child)?;
-        } else {
-            let _ = std::fs::copy(entry.path(), dest_child);
-        }
-    }
-    Ok(())
-}
-
-/// Automatically seed bundled starter models (e.g. whisper-tiny ~75MB) to ~/.oneasr/models
-/// on first application launch, fulfilling the zero-configuration out-of-the-box expectation.
-fn seed_bundled_models(app_handle: &tauri::AppHandle) {
-    if let Some(home) = dirs::home_dir() {
-        let models_dir = home.join(".oneasr").join("models");
-        let tiny_dir = models_dir.join("whisper-tiny");
-        if !tiny_dir.exists() {
-            if let Ok(res_dir) = app_handle.path().resource_dir() {
-                let cand1 = res_dir.join("resources").join("models").join("whisper-tiny");
-                let cand2 = res_dir.join("models").join("whisper-tiny");
-                let source = if cand1.exists() {
-                    Some(cand1)
-                } else if cand2.exists() {
-                    Some(cand2)
-                } else {
-                    None
-                };
-
-                if let Some(src) = source {
-                    eprintln!("[OneASR] Seeding bundled whisper-tiny model from {:?} to {:?}", src, tiny_dir);
-                    let _ = copy_dir_all(&src, &tiny_dir);
-                }
-            }
-        }
-    }
-}
-
 pub fn run() {
     let child_handle: Arc<Mutex<Option<Child>>> = Arc::new(Mutex::new(None));
     let child_for_tray = child_handle.clone();
@@ -289,9 +247,6 @@ pub fn run() {
 
             // 0. Ensure global CLI tool 'oneasr' is registered in PATH (Ollama pattern)
             ensure_cli_installed();
-
-            // 0.1 Seed bundled starter models to ~/.oneasr/models if first launch
-            seed_bundled_models(handle);
 
             // 1. Check if backend daemon is already running
             if !is_server_listening(backend_addr) {

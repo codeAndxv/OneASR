@@ -197,6 +197,15 @@ def cmd_serve(args: argparse.Namespace) -> int:
     host = args.host
     port = args.port
     print(f"Starting OneASR Engine daemon on {host}:{port} ...")
+    if getattr(args, "browser", False):
+        import threading
+        import webbrowser
+        def _open():
+            time.sleep(1.2)
+            url = f"http://{'127.0.0.1' if host == '0.0.0.0' else host}:{port}"
+            print(f"Opening web browser at {url} ...")
+            webbrowser.open(url)
+        threading.Thread(target=_open, daemon=True).start()
     uvicorn.run("server.main:app", host=host, port=port, log_level="info")
     return 0
 
@@ -293,6 +302,7 @@ def build_parser() -> argparse.ArgumentParser:
     serve_p = subparsers.add_parser("serve", help="Start the OneASR backend daemon")
     serve_p.add_argument("--host", default="127.0.0.1", help="Host interface to bind")
     serve_p.add_argument("--port", type=int, default=8020, help="Port to listen on")
+    serve_p.add_argument("--browser", "--open-browser", action="store_true", help="Automatically open web browser on startup")
 
     # run / transcribe
     run_p = subparsers.add_parser("run", aliases=["transcribe"], help="Transcribe audio file directly")

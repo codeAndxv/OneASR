@@ -20,8 +20,6 @@ async def list_models():
     """返回可用的模型列表及基础状态（兼容 OpenAI GET /v1/models）。"""
     providers = []
     for name, engine_config in app_config.providers.items():
-        if not getattr(engine_config, "enable", True):
-            continue
         rt = get_provider_runtime_status(name)
         providers.append({
             "id": name,
@@ -29,7 +27,7 @@ async def list_models():
             "created": int(time.time()),
             "owned_by": engine_config.type,
             "shutdown_date": None,
-            "enable": engine_config.enable,
+            "enable": getattr(engine_config, "enable", True),
             "loaded": rt["loaded"],
             "active_tasks": rt["active_tasks"],
             "keep_alive": rt["keep_alive"],
@@ -47,8 +45,8 @@ async def list_models():
 @router.get("/{model_id}")
 async def retrieve_model(model_id: str):
     """返回单个模型基础信息（兼容 OpenAI GET /v1/models/{model}）。"""
-    if model_id not in app_config.providers or not getattr(app_config.providers[model_id], "enable", True):
-        logger.warning("[models] 模型不存在或未启用: model_id=%s", model_id)
+    if model_id not in app_config.providers:
+        logger.warning("[models] 模型不存在: model_id=%s", model_id)
         raise OpenAIAPIException(
             status_code=404,
             message=f"The model '{model_id}' does not exist.",
@@ -65,7 +63,7 @@ async def retrieve_model(model_id: str):
         "created": int(time.time()),
         "owned_by": cfg.type,
         "shutdown_date": None,
-        "enable": cfg.enable,
+        "enable": getattr(cfg, "enable", True),
         "loaded": rt["loaded"],
         "active_tasks": rt["active_tasks"],
         "keep_alive": rt["keep_alive"],

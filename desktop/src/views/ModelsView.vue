@@ -92,6 +92,18 @@
 
         <span class="sep">|</span>
         <span>{{ t('modelsDiskOccupied') }}: <strong class="disk-size">{{ totalDiskSize }}</strong></span>
+        <button
+          class="refresh-btn"
+          :class="{ refreshing: isRefreshing }"
+          :disabled="isRefreshing"
+          :title="t('modelsRefreshTooltip')"
+          @click="handleManualRefresh"
+        >
+          <svg viewBox="0 0 24 24" class="refresh-svg" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+          </svg>
+          <span>{{ t('modelsRefreshBtn') }}</span>
+        </button>
         <button class="open-dir-btn" :title="t('modelsOpenDir')" @click="handleOpenDir">
           <svg viewBox="0 0 24 24" class="folder-svg" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
@@ -354,7 +366,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { useI18n } from '../i18n';
 import { apiClient } from '../api/client';
@@ -366,12 +378,28 @@ const selectedEngine = ref('all');
 const selectedStatus = ref('all');
 const searchQuery = ref('');
 const sortBy = ref('ready_first');
+const isRefreshing = ref(false);
 
 const currentDownloadSource = ref(null);
 const showNetworkModal = ref(false);
 const pendingDownloadModel = ref(null);
 const selectedNetworkSource = ref('modelscope');
 const isSavingNetwork = ref(false);
+
+async function handleManualRefresh() {
+  if (isRefreshing.value) return;
+  isRefreshing.value = true;
+  try {
+    await fetchBackendModels();
+    await fetchDownloadSource();
+  } catch (err) {
+    console.warn('[ModelsView] Refresh error:', err);
+  } finally {
+    setTimeout(() => {
+      isRefreshing.value = false;
+    }, 600);
+  }
+}
 
 function parseSizeToBytes(sizeStr) {
   if (!sizeStr) return 0;
@@ -384,6 +412,13 @@ function parseSizeToBytes(sizeStr) {
   return num;
 }
 
+const props = defineProps({
+  isOnline: {
+    type: Boolean,
+    default: false
+  }
+});
+
 const engineOptions = [
   { id: 'whisper', name: 'Faster-Whisper' },
   { id: 'funasr', name: 'FunASR' },
@@ -393,9 +428,10 @@ const engineOptions = [
 ];
 
 const modelsList = ref([
+  // 1. FunASR (3 models)
   {
     id: 'sensevoice-small',
-    name: 'SenseVoice-Small',
+    name: 'SenseVoice Small',
     engine: 'funasr',
     desc: '超极速端到端语音大模型，首字延迟 <150ms，原生支持中、英、日、韩、粤多语言与情感声音检测。',
     params: '50M',
@@ -408,6 +444,38 @@ const modelsList = ref([
     downloadPercent: 0,
     isBusy: false
   },
+  {
+    id: 'paraformer-zh',
+    name: 'Paraformer Large Chinese',
+    engine: 'funasr',
+    desc: '阿里达摩院工业级中文语音识别基座，配备专用 VAD 语音活动检测和 Punc 标点恢复模型。',
+    params: '220M',
+    vram: '~ 2GB',
+    langs: '中文普通话 / 英语',
+    size: '980 MB',
+    status: 'remote',
+    isLoaded: false,
+    isDownloading: false,
+    downloadPercent: 0,
+    isBusy: false
+  },
+  {
+    id: 'fun-asr-nano',
+    name: 'Fun-ASR Nano 0.8B',
+    engine: 'funasr',
+    desc: '阿里下一代轻量级 Audio-LLM，融合 SenseVoice 声学特征与千问语义理解，抗噪与专有名词识别更佳。',
+    params: '800M',
+    vram: '~ 2.5GB',
+    langs: '中 / 英 / 日 / 韩 / 粤',
+    size: '1.6 GB',
+    status: 'remote',
+    isLoaded: false,
+    isDownloading: false,
+    downloadPercent: 0,
+    isBusy: false
+  },
+
+  // 2. Faster-Whisper (16 models)
   {
     id: 'whisper-large-v3-turbo',
     name: 'Faster-Whisper Large V3 Turbo',
@@ -454,14 +522,14 @@ const modelsList = ref([
     isBusy: false
   },
   {
-    id: 'paraformer-zh',
-    name: 'FunASR Paraformer Large',
-    engine: 'funasr',
-    desc: '阿里达摩院工业级中文语音识别基座，配备专用 VAD 语音活动检测和 Punc 标点恢复模型。',
-    params: '220M',
-    vram: '~ 2GB',
-    langs: '中文普通话 / 英语',
-    size: '980 MB',
+    id: 'whisper-tiny',
+    name: 'Faster-Whisper Tiny',
+    engine: 'whisper',
+    desc: '超极速入门级多语言模型 (~75MB)，低功耗设备毫秒级响应。',
+    params: '39M',
+    vram: '< 300MB',
+    langs: '99+ 全球主流语言',
+    size: '75 MB',
     status: 'remote',
     isLoaded: false,
     isDownloading: false,
@@ -469,28 +537,195 @@ const modelsList = ref([
     isBusy: false
   },
   {
-    id: 'fun-asr-nano',
-    name: 'Fun-ASR Nano 0.8B',
-    engine: 'funasr',
-    desc: '阿里下一代轻量级 Audio-LLM，融合 SenseVoice 声学特征与千问语义理解，抗噪与专有名词识别更佳。',
-    params: '800M',
-    vram: '~ 2.5GB',
-    langs: '中 / 英 / 日 / 韩 / 粤',
-    size: '1.6 GB',
+    id: 'whisper-medium',
+    name: 'Faster-Whisper Medium',
+    engine: 'whisper',
+    desc: '高精度多语言转写基准模型 (~1.4GB)，音视频听抄与播客双语字幕精准度极佳。',
+    params: '769M',
+    vram: '~ 3.2GB',
+    langs: '99+ 全球主流语言',
+    size: '1.4 GB',
     status: 'remote',
     isLoaded: false,
     isDownloading: false,
     downloadPercent: 0,
     isBusy: false
   },
+  {
+    id: 'whisper-large-v1',
+    name: 'Faster-Whisper Large V1',
+    engine: 'whisper',
+    desc: 'Whisper 旗舰第一代全球多语言全量模型，工业级经典基座。',
+    params: '1550M',
+    vram: '~ 4.5GB',
+    langs: '99+ 全球主流语言',
+    size: '3.1 GB',
+    status: 'remote',
+    isLoaded: false,
+    isDownloading: false,
+    downloadPercent: 0,
+    isBusy: false
+  },
+  {
+    id: 'whisper-large-v2',
+    name: 'Faster-Whisper Large V2',
+    engine: 'whisper',
+    desc: 'Whisper 旗舰第二代全球多语言全量模型，增强多语言抗噪泛化。',
+    params: '1550M',
+    vram: '~ 4.5GB',
+    langs: '99+ 全球主流语言',
+    size: '3.1 GB',
+    status: 'remote',
+    isLoaded: false,
+    isDownloading: false,
+    downloadPercent: 0,
+    isBusy: false
+  },
+  {
+    id: 'whisper-large-v3',
+    name: 'Faster-Whisper Large V3',
+    engine: 'whisper',
+    desc: 'Whisper 旗舰第三代最高精度模型，升级 128 Mel 频带，全球语种识别率业界标杆。',
+    params: '1550M',
+    vram: '~ 4.5GB',
+    langs: '99+ 全球主流语言',
+    size: '3.1 GB',
+    status: 'remote',
+    isLoaded: false,
+    isDownloading: false,
+    downloadPercent: 0,
+    isBusy: false
+  },
+  {
+    id: 'whisper-tiny-en',
+    name: 'Faster-Whisper Tiny (EN)',
+    engine: 'whisper',
+    desc: '极速英文专用微型模型 (~75MB)，低延迟轻量英文转录。',
+    params: '39M',
+    vram: '< 300MB',
+    langs: '英语专用 (EN)',
+    size: '75 MB',
+    status: 'remote',
+    isLoaded: false,
+    isDownloading: false,
+    downloadPercent: 0,
+    isBusy: false
+  },
+  {
+    id: 'whisper-base-en',
+    name: 'Faster-Whisper Base (EN)',
+    engine: 'whisper',
+    desc: '轻量英文专用模型 (~145MB)，低资源占用与高吞吐。',
+    params: '74M',
+    vram: '< 500MB',
+    langs: '英语专用 (EN)',
+    size: '145 MB',
+    status: 'remote',
+    isLoaded: false,
+    isDownloading: false,
+    downloadPercent: 0,
+    isBusy: false
+  },
+  {
+    id: 'whisper-small-en',
+    name: 'Faster-Whisper Small (EN)',
+    engine: 'whisper',
+    desc: '高准确度英文专用模型 (~480MB)，适合日常英文会议与影音。',
+    params: '244M',
+    vram: '~ 1.2GB',
+    langs: '英语专用 (EN)',
+    size: '480 MB',
+    status: 'remote',
+    isLoaded: false,
+    isDownloading: false,
+    downloadPercent: 0,
+    isBusy: false
+  },
+  {
+    id: 'whisper-medium-en',
+    name: 'Faster-Whisper Medium (EN)',
+    engine: 'whisper',
+    desc: '专业生产级英文专用模型 (~1.4GB)，长音频高准确率解析。',
+    params: '769M',
+    vram: '~ 3.2GB',
+    langs: '英语专用 (EN)',
+    size: '1.4 GB',
+    status: 'remote',
+    isLoaded: false,
+    isDownloading: false,
+    downloadPercent: 0,
+    isBusy: false
+  },
+  {
+    id: 'distil-whisper-small-en',
+    name: 'Distil-Whisper Small (EN)',
+    engine: 'whisper',
+    desc: '蒸馏版英文专用模型 (~330MB)，推理速度提升 6 倍，极小精度损耗。',
+    params: '166M',
+    vram: '~ 1GB',
+    langs: '英语专用 (EN)',
+    size: '330 MB',
+    status: 'remote',
+    isLoaded: false,
+    isDownloading: false,
+    downloadPercent: 0,
+    isBusy: false
+  },
+  {
+    id: 'distil-whisper-medium-en',
+    name: 'Distil-Whisper Medium (EN)',
+    engine: 'whisper',
+    desc: '蒸馏版英文进阶模型 (~790MB)，兼顾极速吞吐与高质量英文字幕。',
+    params: '394M',
+    vram: '~ 1.8GB',
+    langs: '英语专用 (EN)',
+    size: '790 MB',
+    status: 'remote',
+    isLoaded: false,
+    isDownloading: false,
+    downloadPercent: 0,
+    isBusy: false
+  },
+  {
+    id: 'distil-whisper-large-v2',
+    name: 'Distil-Whisper Large V2',
+    engine: 'whisper',
+    desc: '基于 Large V2 的蒸馏多语言大模型 (~1.5GB)，高吞吐并发推理首选。',
+    params: '756M',
+    vram: '~ 3.2GB',
+    langs: '99+ 全球主流语言',
+    size: '1.5 GB',
+    status: 'remote',
+    isLoaded: false,
+    isDownloading: false,
+    downloadPercent: 0,
+    isBusy: false
+  },
+  {
+    id: 'distil-whisper-large-v3',
+    name: 'Distil-Whisper Large V3',
+    engine: 'whisper',
+    desc: '基于 Large V3 的最新蒸馏多语言旗舰模型 (~1.5GB)，极致速度与顶级准确率。',
+    params: '756M',
+    vram: '~ 3.2GB',
+    langs: '99+ 全球主流语言',
+    size: '1.5 GB',
+    status: 'remote',
+    isLoaded: false,
+    isDownloading: false,
+    downloadPercent: 0,
+    isBusy: false
+  },
+
+  // 3. FireRed ASR (3 models)
   {
     id: 'firered-asr',
     name: 'FireRed ASR Large',
     engine: 'firered',
-    desc: '开源大参数中文语音识别，抗噪能力与领域术语鲁棒性极佳，兼顾专业术语听抄。',
+    desc: '基于 sherpa-onnx 优化的高精度中英双语端到端 ASR 模型，低显存消耗。',
     params: '1.1B',
-    vram: '~ 4.5GB',
-    langs: '中文 / 英语 / 复杂口音',
+    vram: '~ 3GB',
+    langs: '中英双语',
     size: '1.1 GB',
     status: 'remote',
     isLoaded: false,
@@ -502,10 +737,10 @@ const modelsList = ref([
     id: 'firered2-aed',
     name: 'FireRedASR2 AED 1.1B',
     engine: 'firered',
-    desc: '小红书第二代工业级声学大模型，高抗噪、强口音鲁棒性，歌词与短视频字幕听写首选。',
+    desc: '小红书工业级 AED 语音大模型，针对嘈杂背景、歌词、重口音特别增强。',
     params: '1.1B',
-    vram: '~ 3.5GB',
-    langs: '中文 / 英语 / 地方口音',
+    vram: '~ 4GB',
+    langs: '中英双语 / 嘈杂环境',
     size: '2.2 GB',
     status: 'remote',
     isLoaded: false,
@@ -517,10 +752,10 @@ const modelsList = ref([
     id: 'firered2-llm',
     name: 'FireRedASR2 LLM 8.3B',
     engine: 'firered',
-    desc: '小红书旗舰级方言与中英混说大模型，支持 20+ 种中国方言口音直接听抄转成普通话。',
+    desc: '小红书旗舰级 8.3B Encoder-LLM 语音大模型，深度覆盖 20+ 种地方方言与混合夹杂。',
     params: '8.3B',
-    vram: '~ 12GB',
-    langs: '中文 / 20+ 方言 / 中英混说',
+    vram: '> 16GB',
+    langs: '中 / 英 / 20+ 方言方语',
     size: '16.0 GB',
     status: 'remote',
     isLoaded: false,
@@ -528,14 +763,16 @@ const modelsList = ref([
     downloadPercent: 0,
     isBusy: false
   },
+
+  // 4. Qwen ASR (2 models)
   {
     id: 'qwen3-asr-0.6b',
     name: 'Qwen3 ASR 0.6B',
     engine: 'qwen',
-    desc: '通义千问轻量级语音大模型，超低显存需求，适合入门级设备与 CPU 快速转录。',
-    params: '0.6B',
+    desc: '通义千问最新紧凑型 0.6B 语音模型，资源占用极小，响应敏捷。',
+    params: '600M',
     vram: '~ 2GB',
-    langs: '52+ 语言与泛音频',
+    langs: '多语言通用',
     size: '1.2 GB',
     status: 'remote',
     isLoaded: false,
@@ -547,17 +784,19 @@ const modelsList = ref([
     id: 'qwen-asr',
     name: 'Qwen3 ASR 1.7B',
     engine: 'qwen',
-    desc: '通义千问端到端多模态语音大模型，具备复杂的语音理解、音频问答与长文本听抄能力。',
+    desc: '通义千问端到端多模态语音大模型，具备复杂的语音理解、音频问答与强制时间对齐能力。',
     params: '1.7B',
     vram: '~ 6GB',
     langs: '中 / 英 / 泛音频',
-    size: '3.3 GB',
+    size: '3.4 GB',
     status: 'remote',
     isLoaded: false,
     isDownloading: false,
     downloadPercent: 0,
     isBusy: false
   },
+
+  // 5. Sherpa-ONNX (1 model)
   {
     id: 'xasr-zh-en',
     name: 'X-ASR Realtime Bilingual',
@@ -650,9 +889,31 @@ function getStatusCount(st) {
   return modelsList.value.length;
 }
 
+let syncTimer = null;
+
+watch(
+  () => props.isOnline,
+  (online) => {
+    if (online) {
+      fetchBackendModels();
+      fetchDownloadSource();
+    }
+  }
+);
+
 onMounted(async () => {
   await fetchBackendModels();
   await fetchDownloadSource();
+  syncTimer = setInterval(async () => {
+    await fetchBackendModels();
+  }, 4000);
+});
+
+onUnmounted(() => {
+  if (syncTimer) {
+    clearInterval(syncTimer);
+    syncTimer = null;
+  }
 });
 
 async function fetchDownloadSource() {
@@ -670,8 +931,9 @@ async function fetchDownloadSource() {
 async function fetchBackendModels() {
   try {
     const data = await apiClient.getModels();
-    if (data && data.data && Array.isArray(data.data)) {
-      data.data.forEach((backendModel) => {
+    const list = Array.isArray(data) ? data : (data?.data || data?.models || []);
+    if (list && list.length > 0) {
+      list.forEach((backendModel) => {
         const local = modelsList.value.find((m) => m.id === backendModel.id);
         if (local) {
           local.status = backendModel.status === 'ready' ? 'ready' : 'remote';
@@ -811,13 +1073,18 @@ async function handleDeleteModel(model) {
   }
 }
 
-function handleOpenDir() {
+async function handleOpenDir() {
   if (isTauri) {
     invoke('open_local_dir', { target: 'models' }).catch((err) => {
-      console.warn('Native open_local_dir failed:', err);
+      console.warn('Native open_local_dir failed, falling back to server open-path:', err);
+      apiClient.post('/v1/x/system/open-path', { path: '~/.oneasr/models' });
     });
   } else {
-    alert('OneASR 模型存放于服务器端: ~/.oneasr/models');
+    try {
+      await apiClient.post('/v1/x/system/open-path', { path: '~/.oneasr/models' });
+    } catch {
+      alert('OneASR 模型存放于服务器端: ~/.oneasr/models');
+    }
   }
 }
 </script>
@@ -977,6 +1244,49 @@ function handleOpenDir() {
 .disk-size {
   color: var(--text-primary);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.refresh-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 5px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.refresh-btn:hover {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+
+.refresh-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.refresh-svg {
+  width: 12px;
+  height: 12px;
+  transition: transform 0.2s ease;
+}
+
+.refresh-btn.refreshing .refresh-svg {
+  animation: spin-clockwise 0.7s linear infinite;
+}
+
+@keyframes spin-clockwise {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .open-dir-btn {

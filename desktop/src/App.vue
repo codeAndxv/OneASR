@@ -27,6 +27,7 @@
         />
         <ModelsView
           v-else-if="currentTab === 'models'"
+          :is-online="isServerOnline"
         />
         <HistoryView
           v-else-if="currentTab === 'history'"
