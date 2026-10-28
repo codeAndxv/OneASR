@@ -170,7 +170,7 @@ class AudioConverter:
             raise ValueError(f"暂不支持转换采样宽度为 {sampwidth} 字节的 WAV")
 
     # ═══════════════════════════════════════════════════════════════
-    # 4. 全格式音视频 FFmpeg 内存管道解码 (FFmpeg In-Memory Pipeline)
+    # 4. 全格式音视频 PyAV 原生内存解码 (PyAV In-Memory Engine)
     # ═══════════════════════════════════════════════════════════════
 
     @staticmethod
@@ -178,58 +178,71 @@ class AudioConverter:
         audio_input: bytes | str | Path,
         sample_rate: int = DEFAULT_SAMPLE_RATE,
     ) -> np.ndarray:
-        """通过 FFmpeg 内存管道，将任意音视频格式（MP4/MKV/MP3/M4A/FLAC/AAC 等）直接解码为 Float32 NumPy 数组。
+        """通过 PyAV 原生 C 库内存管道，将任意音视频格式（MP4/MKV/MP3/M4A/FLAC/AAC 等）直接解码为 Float32 NumPy 数组。
 
-        零磁盘临时文件 I/O，高性能管道流处理。
+        零磁盘临时文件 I/O，高性能零拷贝，100% 独立于系统外部 FFmpeg 命令，无环境损坏隐患。
         """
-        ffmpeg_cmd = [
-            "ffmpeg",
-            "-nostdin",
-            "-threads", "0",
-            "-loglevel", "error",
-        ]
-
-        if isinstance(audio_input, (str, Path)):
-            ffmpeg_cmd.extend(["-i", str(audio_input)])
-            input_bytes = None
-        else:
-            ffmpeg_cmd.extend(["-i", "pipe:0"])
-            input_bytes = audio_input
-
-        ffmpeg_cmd.extend([
-            "-f", "f32le",
-            "-acodec", "pcm_f32le",
-            "-ac", "1",
-            "-ar", str(sample_rate),
-            "pipe:1",
-        ])
-
         try:
-            process = subprocess.Popen(
-                ffmpeg_cmd,
-                stdin=subprocess.PIPE if input_bytes is not None else None,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            )
-            stdout_data, stderr_data = process.communicate(input=input_bytes)
-            if process.returncode != 0:
-                err_msg = stderr_data.decode("utf-8", errors="replace").strip()
-                raise RuntimeError(f"FFmpeg 解码失败 (code {process.returncode}): {err_msg}")
+            import av
+            import io
 
-            if not stdout_data:
+            if isinstance(audio_input, (str, Path)):
+                container = av.open(str(audio_input))
+            elif isinstance(audio_input, (bytes, bytearray)):
+                container = av.open(io.BytesIO(audio_input))
+            else:
+                container = av.open(audio_input)
+
+            # 寻找首选音频流
+            audio_stream = next((s for s in container.streams if s.type == "audio"), None)
+            if audio_stream is None:
+                container.close()
                 return np.empty(0, dtype=np.float32)
 
-            return np.frombuffer(stdout_data, dtype=np.float32).copy()
+            resampler = av.AudioResampler(format="fltp", layout="mono", rate=sample_rate)
+            chunks = []
 
-        except FileNotFoundError:
-            raise RuntimeError("系统未检测到 FFmpeg，请确保已安装 FFmpeg 并配置于 PATH 中。")
+            for frame in container.decode(audio_stream):
+                resampled = resampler.resample(frame)
+                if resampled:
+                    for r in resampled:
+                        chunks.append(r.to_ndarray()[0])
+
+            container.close()
+
+            if not chunks:
+                return np.empty(0, dtype=np.float32)
+
+            return np.concatenate(chunks).astype(np.float32, copy=False)
+
+        except Exception as pyav_err:
+            logger.warning("PyAV 解码遇到问题: %s，尝试 soundfile 回退模式", pyav_err)
+            try:
+                import soundfile as sf
+                import io
+
+                if isinstance(audio_input, (bytes, bytearray)):
+                    data, sr = sf.read(io.BytesIO(audio_input), dtype="float32")
+                else:
+                    data, sr = sf.read(str(audio_input), dtype="float32")
+
+                if data.ndim > 1:
+                    data = data.mean(axis=1)
+                if sr != sample_rate:
+                    from scipy.signal import resample_poly
+                    from math import gcd
+                    g = gcd(sample_rate, sr)
+                    data = resample_poly(data, sample_rate // g, sr // g).astype(np.float32)
+                return data
+            except Exception:
+                raise RuntimeError(f"音视频解码失败: {pyav_err}")
 
     @staticmethod
     def decode_to_pcm16_bytes(
         audio_input: bytes | str | Path,
         sample_rate: int = DEFAULT_SAMPLE_RATE,
     ) -> bytes:
-        """通过 FFmpeg 将任意音视频格式解码为裸 S16LE (16kHz mono) 字节数据。"""
+        """通过 PyAV 将任意音视频格式解码为裸 S16LE (16kHz mono) 字节数据。"""
         float32_np = AudioConverter.decode_to_pcm_float32(audio_input, sample_rate=sample_rate)
         return AudioConverter.float32_to_pcm16(float32_np)
 
@@ -240,24 +253,35 @@ class AudioConverter:
         sample_rate: int = DEFAULT_SAMPLE_RATE,
         channels: int = DEFAULT_CHANNELS,
     ) -> Path:
-        """将磁盘音视频文件转换为标准的 WAV 文件。"""
+        """将磁盘音视频文件转换为标准的 WAV 文件（采用 PyAV + soundfile 原生解码写盘，零外部子进程依赖）。"""
         input_path = Path(input_path)
         if output_path is None:
             output_path = input_path.with_suffix(".wav")
         else:
             output_path = Path(output_path)
 
-        subprocess.run(
-            [
-                "ffmpeg", "-y", "-i", str(input_path),
-                "-ar", str(sample_rate),
-                "-ac", str(channels),
-                "-f", "wav",
-                str(output_path),
-            ],
-            capture_output=True,
-            check=True,
-        )
+        # 1. 快速直通：若输入已是标准 16kHz 单声道 WAV，直接复用/拷贝
+        if input_path.suffix.lower() == ".wav":
+            try:
+                import soundfile as sf
+                info = sf.info(str(input_path))
+                if info.samplerate == sample_rate and info.channels == channels and info.format == "WAV":
+                    if input_path.resolve() != output_path.resolve():
+                        import shutil
+                        shutil.copy2(input_path, output_path)
+                    return output_path
+            except Exception:
+                pass
+
+        # 2. PyAV 内存高效提取音频流
+        float32_data = AudioConverter.decode_to_pcm_float32(input_path, sample_rate=sample_rate)
+        if len(float32_data) == 0:
+            raise RuntimeError(f"未能从音视频文件提取到有效音频流: {input_path}")
+
+        # 3. 写入标准 PCM_16 WAV
+        import soundfile as sf
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        sf.write(str(output_path), float32_data, sample_rate, subtype="PCM_16")
         return output_path
 
     # ═══════════════════════════════════════════════════════════════

@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from server.core.manifest import BUILTIN_MODELS, ModelManifest, get_manifest
-from server.core.paths import PROJECT_ROOT, get_models_dir
+from server.core.paths import get_models_dir
 
 
 @dataclass
@@ -23,7 +23,8 @@ class ModelScanResult:
     id: str
     name: str
     driver: str
-    repo: str
+    ms_repo: str
+    hf_repo: str
     categories: list[str]
     languages: list[str]
     status: str  # "ready", "downloading", "not_downloaded", "corrupted"
@@ -37,13 +38,8 @@ class ModelScanResult:
 
 
 def _get_search_paths() -> list[Path]:
-    """Return all directories to inspect for models, prioritizing ~/.oneasr/models."""
-    primary = get_models_dir()
-    legacy = PROJECT_ROOT / "data" / "models"
-    paths = [primary]
-    if legacy.exists() and legacy != primary:
-        paths.append(legacy)
-    return paths
+    """Return all directories to inspect for models (strictly ~/.oneasr/models or ONEASR_MODELS_DIR)."""
+    return [get_models_dir()]
 
 
 def _calc_dir_size(path: Path) -> int:
@@ -62,16 +58,37 @@ def _calc_dir_size(path: Path) -> int:
     return total
 
 
-def find_model_dir(model_id: str, repo: str) -> Path | None:
+def find_model_dir(model_id: str, ms_repo: str = "", hf_repo: str = "") -> Path | None:
     """Locate the physical directory of a model across configured search paths."""
     search_dirs = _get_search_paths()
-    repo_tail = repo.split("/")[-1] if "/" in repo else repo
+    ms_tail = ms_repo.split("/")[-1] if "/" in ms_repo else ms_repo
+    hf_tail = hf_repo.split("/")[-1] if "/" in hf_repo else hf_repo
 
     candidate_names = [
         model_id,
-        repo_tail,
+        ms_tail,
+        hf_tail,
         f"faster-whisper-{model_id}",
     ]
+    if model_id.startswith("whisper-"):
+        short = model_id.replace("whisper-", "")
+        candidate_names.extend([
+            f"faster-whisper-{short}",
+            short,
+        ])
+    elif model_id.startswith("distil-whisper-"):
+        short = model_id.replace("distil-whisper-", "")
+        candidate_names.extend([
+            f"faster-distil-whisper-{short}",
+            f"distil-whisper-{short}",
+        ])
+    if "-en" in model_id:
+        dotted = model_id.replace("-en", ".en")
+        candidate_names.extend([
+            dotted,
+            dotted.replace("whisper-", "faster-whisper-"),
+            dotted.replace("distil-whisper-", "faster-distil-whisper-"),
+        ])
     # Handle X-ASR legacy directory name
     if model_id == "xasr-zh-en":
         candidate_names.append("chunk-160ms-model")
@@ -119,7 +136,7 @@ def scan_all_models() -> dict[str, ModelScanResult]:
 
     # 1. Process all built-in catalog models
     for model_id, manifest in BUILTIN_MODELS.items():
-        found_dir = find_model_dir(model_id, manifest.repo)
+        found_dir = find_model_dir(model_id, manifest.ms_repo, manifest.hf_repo)
         if found_dir and found_dir.is_dir():
             if (found_dir / ".downloading").exists():
                 status = "downloading"
@@ -137,7 +154,8 @@ def scan_all_models() -> dict[str, ModelScanResult]:
             id=model_id,
             name=manifest.name,
             driver=manifest.driver,
-            repo=manifest.repo,
+            ms_repo=manifest.ms_repo,
+            hf_repo=manifest.hf_repo,
             categories=manifest.categories,
             languages=manifest.languages,
             status=status,
@@ -152,19 +170,28 @@ def scan_all_models() -> dict[str, ModelScanResult]:
 
     # 2. Discover custom models dropped manually into models directory
     search_dirs = _get_search_paths()
-    known_paths = {r.model_path for r in results.values() if r.model_path}
+    known_paths = {r.model_path.resolve() for r in results.values() if r.model_path}
 
     for base in search_dirs:
         if not base.exists():
             continue
         try:
             for entry in base.iterdir():
-                if not entry.is_dir() or entry in known_paths:
+                if not entry.is_dir() or entry.resolve() in known_paths or entry.name in results:
                     continue
                 # Determine driver based on contained files
                 has_bin = (entry / "model.bin").exists()
                 has_onnx = any(entry.glob("*.onnx"))
                 has_pt = (entry / "model.pt").exists()
+
+                # Filter out auxiliary non-ASR models (VAD, Punctuation, etc.)
+                entry_name_lower = entry.name.lower()
+                is_auxiliary = any(
+                    kw in entry_name_lower
+                    for kw in ("vad", "punc", "punctuation", "fsmn", "voice_activity", "text_postprocess")
+                )
+                if is_auxiliary:
+                    continue
 
                 driver = "whisper" if has_bin else ("funasr" if has_pt else ("xasr" if has_onnx else "unknown"))
                 if driver == "unknown":

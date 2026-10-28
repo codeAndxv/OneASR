@@ -6,14 +6,7 @@
     </div>
 
     <div class="header-right">
-      <!-- History Drawer Toggle -->
-      <button class="icon-btn history-btn no-drag" :class="{ active: isHistoryOpen }" :title="t('historyTitle')" @click="$emit('toggle-history')">
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12" cy="12" r="10"/>
-          <polyline points="12 6 12 12 16 14"/>
-        </svg>
-        <span v-if="historyCount > 0" class="history-badge">{{ historyCount }}</span>
-      </button>
+      <slot name="actions"></slot>
     </div>
   </header>
 </template>
@@ -30,18 +23,8 @@ defineProps({
   subtitle: {
     type: String,
     default: ''
-  },
-  isHistoryOpen: {
-    type: Boolean,
-    default: false
-  },
-  historyCount: {
-    type: Number,
-    default: 0
   }
 });
-
-defineEmits(['toggle-history']);
 
 const { t } = useI18n();
 

@@ -1,134 +1,93 @@
-"""测试 local-models 与 cloud-providers 配置解析、驱动解耦与云端多模型展平机制。"""
+"""测试 EngineConfig 配置解析、驱动解耦与云端/本地多模型驱动映射机制。"""
 
-import tempfile
-from pathlib import Path
 import pytest
-import yaml
 
-from cli.model import collect_all_specs
-from server.core.config import AppConfig, EngineConfig
+from server.core.config import EngineConfig
 
 pytestmark = pytest.mark.unit
 
 
-def test_local_models_and_cloud_providers_parsing():
-    sample_yaml = {
-        "api_key": "test-key",
-        "model_manager": {
-            "default_keep_alive": 300,
-            "max_loaded_models": 3,
-        },
-        "local-models": {
-            "my-stream": {
-                "enable": True,
-                "driver": "xasr",
-                "keep_alive": -1,
-                "load": {
-                    "model_name": "test/stream-repo",
-                    "sample_rate": 16000,
-                },
-                "capabilities": {
-                    "categories": ["RealtimeASR"],
-                    "languages": ["zh", "en"],
-                },
+def test_local_engine_config_parsing():
+    """验证本地引擎 EngineConfig 构造与字段解析。"""
+    stream_cfg = EngineConfig(
+        "my-stream",
+        {
+            "enable": True,
+            "driver": "xasr",
+            "keep_alive": -1,
+            "load": {
+                "model_name": "test/stream-repo",
+                "sample_rate": 16000,
             },
-            "my-whisper-large": {
-                "enable": True,
-                "driver": "whisper",
-                "keep_alive": 600,
-                "load": {
-                    "model_name": "Systran/faster-whisper-large-v3",
-                    "device": "cpu",
-                },
-                "capabilities": {
-                    "categories": ["FileASR"],
-                    "languages": ["zh", "en", "ja"],
-                },
+            "capabilities": {
+                "categories": ["RealtimeASR"],
+                "languages": ["zh", "en"],
             },
         },
-        "cloud-providers": {
-            "groq-cloud": {
-                "enable": True,
-                "driver": "openai",
-                "connection": {
-                    "base_url": "https://api.groq.com/openai/v1",
-                    "api_key": "gsk_secret_123",
-                    "timeout": 15,
-                },
-                "models": [
-                    {
-                        "id": "groq/whisper-large-v3",
-                        "remote_name": "whisper-large-v3",
-                        "categories": ["FileASR"],
-                    },
-                    {
-                        "id": "groq/whisper-turbo",
-                        "remote_name": "whisper-large-v3-turbo",
-                        "categories": ["FileASR"],
-                    },
-                ],
+        default_keep_alive=300,
+        is_cloud=False,
+    )
+    assert stream_cfg.name == "my-stream"
+    assert stream_cfg.driver == "xasr"
+    assert stream_cfg.engine_name == "xasr"
+    assert stream_cfg.is_cloud is False
+    assert stream_cfg.keep_alive == -1
+    assert "RealtimeASR" in stream_cfg.categories
+
+    whisper_cfg = EngineConfig(
+        "my-whisper-large",
+        {
+            "enable": True,
+            "driver": "whisper",
+            "keep_alive": 600,
+            "load": {
+                "model_name": "Systran/faster-whisper-large-v3",
+                "device": "cpu",
             },
-            "disabled-cloud": {
-                "enable": False,
-                "connection": {
-                    "api_key": "dummy",
-                },
-                "models": [{"id": "should-not-exist"}],
+            "capabilities": {
+                "categories": ["FileASR"],
+                "languages": ["zh", "en", "ja"],
             },
         },
-    }
+        default_keep_alive=300,
+        is_cloud=False,
+    )
+    assert whisper_cfg.name == "my-whisper-large"
+    assert whisper_cfg.driver == "whisper"
+    assert whisper_cfg.engine_name == "whisper"
+    assert whisper_cfg.is_cloud is False
+    assert whisper_cfg.keep_alive == 600
 
-    with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as f:
-        yaml.dump(sample_yaml, f)
-        cfg_path = Path(f.name)
 
-    try:
-        app_cfg = AppConfig(cfg_path)
-
-        # 1. 验证 local_models 与 providers 包含自定义 Model ID
-        assert "my-stream" in app_cfg.local_models
-        assert "my-whisper-large" in app_cfg.local_models
-        assert len(app_cfg.local_models) == 2
-
-        # 驱动名称解析
-        stream_cfg = app_cfg.local_models["my-stream"]
-        assert stream_cfg.driver == "xasr"
-        assert stream_cfg.engine_name == "xasr"
-        assert stream_cfg.is_cloud is False
-        assert stream_cfg.keep_alive == -1
-
-        whisper_cfg = app_cfg.local_models["my-whisper-large"]
-        assert whisper_cfg.driver == "whisper"
-        assert whisper_cfg.engine_name == "whisper"
-        assert whisper_cfg.is_cloud is False
-
-        # 2. 验证 cloud-providers 一 Key 多模型展平到 providers
-        assert "groq/whisper-large-v3" in app_cfg.providers
-        assert "groq/whisper-turbo" in app_cfg.providers
-        assert "should-not-exist" not in app_cfg.providers
-
-        groq_cfg = app_cfg.providers["groq/whisper-large-v3"]
-        assert groq_cfg.is_cloud is True
-        assert groq_cfg.type == "cloud"
-        assert groq_cfg.api_key == "gsk_secret_123"
-        assert groq_cfg.base_url == "https://api.groq.com/openai/v1"
-        assert groq_cfg.engine_name == "openai"
-        assert groq_cfg.model_name == "whisper-large-v3"
-
-        # 3. 验证短名查找
-        found = app_cfg.get_provider_config("whisper-turbo")
-        assert found.name == "groq/whisper-turbo"
-
-        # 4. 验证 CLI 只收集本地模型
-        specs = collect_all_specs(app_cfg)
-        spec_names = [s.provider_name for s in specs]
-        assert "my-stream" in spec_names
-        assert "my-whisper-large" in spec_names
-        assert "groq/whisper-large-v3" not in spec_names
-        assert "groq/whisper-turbo" not in spec_names
-
-    finally:
-        cfg_path.unlink(missing_ok=True)
+def test_cloud_engine_config_parsing():
+    """验证云端引擎 EngineConfig 构造与字段展平。"""
+    groq_cfg = EngineConfig(
+        "groq/whisper-large-v3",
+        {
+            "enable": True,
+            "driver": "openai",
+            "type": "cloud",
+            "provider": "groq-cloud",
+            "api_key": "gsk_secret_123",
+            "base_url": "https://api.groq.com/openai/v1",
+            "timeout": 15,
+            "model_name": "whisper-large-v3",
+            "remote_model": "whisper-large-v3",
+            "categories": ["FileASR"],
+            "languages": ["zh", "en"],
+            "keep_alive": -1,
+            "preload": False,
+        },
+        default_keep_alive=-1,
+        is_cloud=True,
+    )
+    assert groq_cfg.name == "groq/whisper-large-v3"
+    assert groq_cfg.is_cloud is True
+    assert groq_cfg.type == "cloud"
+    assert groq_cfg.api_key == "gsk_secret_123"
+    assert groq_cfg.base_url == "https://api.groq.com/openai/v1"
+    assert groq_cfg.engine_name == "openai"
+    assert groq_cfg.model_name == "whisper-large-v3"
 
 
 def test_driver_alias_mapping():

@@ -1,9 +1,8 @@
 """OneASR core configuration and dynamic engine settings.
 
-Operates with zero required configuration files (Ollama style).
+Operates with 100% zero configuration files (Ollama style).
 Combines environment variables, dynamic filesystem scanning (~/.oneasr/models),
-and an atomic settings.json store, while optionally supporting legacy YAML
-overrides when explicitly supplied.
+and an atomic settings.json store.
 """
 
 from __future__ import annotations
@@ -15,7 +14,6 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-import yaml
 from pydantic_settings import BaseSettings
 
 from server.core.manifest import BUILTIN_MODELS, get_manifest
@@ -44,6 +42,10 @@ WHISPER_SHORTHAND_MAP = {
     "large": "Systran/faster-whisper-large-v3",
     "distil-large-v2": "Systran/faster-distil-whisper-large-v2",
     "distil-large-v3": "Systran/faster-distil-whisper-large-v3",
+    "distil-small.en": "Systran/faster-distil-whisper-small.en",
+    "distil-medium.en": "Systran/faster-distil-whisper-medium.en",
+    "distil-small-en": "Systran/faster-distil-whisper-small.en",
+    "distil-medium-en": "Systran/faster-distil-whisper-medium.en",
     "large-v3-turbo": "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
     "turbo": "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
 }
@@ -101,8 +103,8 @@ class ModelManagerConfig:
         env_keep_alive = os.getenv("ONEASR_KEEP_ALIVE")
         raw_val = env_keep_alive if env_keep_alive is not None else data.get("default_keep_alive", data.get("keep_alive", 600))
         self.default_keep_alive: int = parse_keep_alive_seconds(raw_val, default=600)
-        raw_max = os.getenv("ONEASR_MAX_LOADED_MODELS") or data.get("max_loaded_models", 2)
-        self.max_loaded_models: int = int(raw_max) if raw_max is not None else 2
+        raw_max = os.getenv("ONEASR_MAX_LOADED_MODELS") or data.get("max_loaded_models", 1)
+        self.max_loaded_models: int = int(raw_max) if raw_max is not None else 1
         self.cleanup_interval: int = max(5, int(data.get("cleanup_interval", 30)))
 
 
@@ -182,16 +184,17 @@ class EngineConfig:
         # Path resolution for local models
         eng = (self.engine_name or name).lower()
         if not self.is_cloud:
+            models_dir = get_models_dir()
             if eng in ("whisper", "faster-whisper"):
                 if not self.model_path and self.model_name:
                     repo_id = infer_whisper_repo_id(self.model_name)
-                    self.model_path = f"data/models/{repo_id.split('/')[-1]}"
+                    self.model_path = str(models_dir / repo_id.split("/")[-1])
             elif eng == "qwen":
                 if not self.model_path and self.model_name:
-                    self.model_path = f"data/models/{self.model_name.strip().split('/')[-1]}"
+                    self.model_path = str(models_dir / self.model_name.strip().split("/")[-1])
                 if not self.forced_aligner_path and self.forced_aligner_name:
-                    self.forced_aligner_path = (
-                        f"data/models/{self.forced_aligner_name.strip().split('/')[-1]}"
+                    self.forced_aligner_path = str(
+                        models_dir / self.forced_aligner_name.strip().split("/")[-1]
                     )
             elif eng == "funasr":
                 if not self.model_path and self.model_name:
@@ -201,7 +204,7 @@ class EngineConfig:
                         if raw_m == "paraformer-zh"
                         else raw_m.split("/")[-1]
                     )
-                    self.model_path = f"data/models/{dir_name}"
+                    self.model_path = str(models_dir / dir_name)
                 if not self.vad_model_path and self.vad_model:
                     raw_v = self.vad_model.strip()
                     vad_dir = (
@@ -209,7 +212,7 @@ class EngineConfig:
                         if raw_v == "fsmn-vad"
                         else raw_v.split("/")[-1]
                     )
-                    self.vad_model_path = f"data/models/{vad_dir}"
+                    self.vad_model_path = str(models_dir / vad_dir)
                 if not self.punc_model_path and self.punc_model:
                     raw_p = self.punc_model.strip()
                     punc_dir = (
@@ -217,7 +220,7 @@ class EngineConfig:
                         if raw_p == "ct-punc"
                         else raw_p.split("/")[-1]
                     )
-                    self.punc_model_path = f"data/models/{punc_dir}"
+                    self.punc_model_path = str(models_dir / punc_dir)
             elif eng == "xasr":
                 has_explicit_xasr_files = any(
                     [self.tokens_path, self.encoder_path, self.decoder_path, self.joiner_path]
@@ -233,9 +236,9 @@ class EngineConfig:
                             "xasr-zh-en",
                             "chunk-160ms-model",
                         ):
-                            x_dir = "data/models/chunk-160ms-model"
+                            x_dir = str(models_dir / "chunk-160ms-model")
                         else:
-                            x_dir = f"data/models/{raw_x.split('/')[-1]}"
+                            x_dir = str(models_dir / raw_x.split("/")[-1])
                         self.model_path = x_dir
                     self.tokens_path = f"{x_dir}/tokens.txt"
                     self.encoder_path = f"{x_dir}/encoder-160ms.onnx"
@@ -249,7 +252,7 @@ class EngineConfig:
                         if "/" in raw_f
                         else "sherpa-onnx-fire-red-asr-large-zh_en-2025-02-16"
                     )
-                    self.model_path = f"data/models/{f_dir}"
+                    self.model_path = str(models_dir / f_dir)
 
         self.tokens = self.tokens_path
         self.encoder = self.encoder_path
@@ -270,11 +273,11 @@ class EngineConfig:
         is_cloud = self.is_cloud or self.type == "cloud" or self.engine_name == "openai"
 
         raw_preload = _get_val("preload", None)
-        self.preload = bool(is_realtime) if raw_preload is None else bool(raw_preload)
+        self.preload = False if raw_preload is None else bool(raw_preload)
 
         raw_keep_alive = _get_val("keep_alive", None)
         if raw_keep_alive is None:
-            self.keep_alive: int = -1 if (is_realtime or is_cloud) else default_keep_alive
+            self.keep_alive: int = -1 if is_cloud else default_keep_alive
         else:
             self.keep_alive = parse_keep_alive_seconds(raw_keep_alive, default=default_keep_alive)
 
@@ -297,11 +300,16 @@ class EngineConfig:
         self.sample_rate = _get_val("sample_rate", 16000)
 
     def resolve_path(self, path_str: str | None) -> Path | None:
-        """Resolve a relative path against PROJECT_ROOT or return an absolute path as-is."""
+        """Resolve a path against get_models_dir() or PROJECT_ROOT, or return absolute path."""
         if not path_str or not str(path_str).strip():
             return None
         p = Path(path_str.strip())
-        return p if p.is_absolute() else PROJECT_ROOT / p
+        if p.is_absolute():
+            return p
+        cand = get_models_dir() / p
+        if cand.exists():
+            return cand
+        return PROJECT_ROOT / p
 
 
 class VADConfig:
@@ -428,7 +436,7 @@ class YtDlpConfig:
 class AppConfig:
     """Central application configuration with Ollama-style zero-config runtime."""
 
-    def __init__(self, config_path: str | Path | None = None):
+    def __init__(self, *args: Any, **kwargs: Any):
         ensure_directories()
         self.model_dir = get_models_dir()
 
@@ -437,27 +445,7 @@ class AppConfig:
         self.local_models: dict[str, EngineConfig] = {}
         self.cloud_providers: dict[str, dict] = {}
 
-        # 1. Check if an explicit config file was requested, or fallback to config.yaml
-        explicit_file = Path(config_path) if config_path else None
-        if not explicit_file:
-            candidates = [
-                Path("config.yaml"),
-                Path(__file__).parent.parent.parent / "config.yaml",
-            ]
-            for c in candidates:
-                if c.is_file():
-                    explicit_file = c
-                    break
-
-        if explicit_file and explicit_file.is_file():
-            try:
-                with open(explicit_file, "r", encoding="utf-8") as f:
-                    self._data = yaml.safe_load(f) or {}
-                logger.info("Loaded configuration from file: %s", explicit_file)
-            except Exception as e:
-                logger.warning("Failed to parse config file %s: %s", explicit_file, e)
-
-        # 2. Check settings.json in ~/.oneasr
+        # 1. Check user settings in ~/.oneasr/settings.json
         settings_file = get_settings_path()
         user_settings: dict[str, Any] = {}
         if settings_file.is_file():
@@ -467,122 +455,30 @@ class AppConfig:
             except Exception as e:
                 logger.warning("Failed to parse user settings file %s: %s", settings_file, e)
 
-        # 3. Model manager lifecycle config
-        raw_mm = self._data.get("model_manager") or {}
-        if not raw_mm and "keep_alive" in user_settings:
+        # 2. Model manager lifecycle config
+        raw_mm: dict[str, Any] = {}
+        if "keep_alive" in user_settings:
             raw_mm["default_keep_alive"] = user_settings["keep_alive"]
         self.model_manager = ModelManagerConfig(raw_mm)
 
-        # 4. ASR Toolkit and yt-dlp config
-        self.asr_toolkit = ASRToolkitConfig(self._data.get("ASR-Toolkit", {}))
-        self.ytdlp = YtDlpConfig(self._data.get("yt-dlp", {}))
+        # 3. ASR Toolkit and yt-dlp config (pure defaults)
+        self.asr_toolkit = ASRToolkitConfig()
+        self.ytdlp = YtDlpConfig()
 
-        # 5. API Key resolution: Environment > explicit config > settings.json > default standard key
+        # 4. API Key resolution: Environment > settings.json > default standard key
         self.api_key = (
             os.getenv("ONEASR_API_KEY")
-            or self._data.get("api_key")
             or user_settings.get("api_key")
             or "sk-oneasr-v1-p_L3kXm9QZ8sT2vA4wE7rY1u"
         )
 
-        # 6. Parse legacy local-models and cloud-providers if present in _data
-        self._parse_yaml_providers()
-
-        # 7. Merge dynamic models from built-in manifest and disk scan
+        # 5. Populate models dynamically from built-in manifest and disk scan
         self.refresh_models()
-
-    def _parse_yaml_providers(self) -> None:
-        """Parse explicit local-models and cloud-providers from YAML if present."""
-        raw_local = (
-            self._data.get("local-models")
-            or self._data.get("Local-Models")
-            or self._data.get("local_models")
-            or {}
-        )
-        if isinstance(raw_local, dict):
-            for name, model_conf in raw_local.items():
-                if not isinstance(model_conf, dict):
-                    continue
-                cfg = EngineConfig(
-                    name,
-                    model_conf,
-                    self.model_dir,
-                    default_keep_alive=self.model_manager.default_keep_alive,
-                    is_cloud=False,
-                )
-                self.local_models[name] = cfg
-                self.providers[name] = cfg
-
-        raw_cloud = (
-            self._data.get("cloud-providers")
-            or self._data.get("Cloud-Providers")
-            or self._data.get("cloud_providers")
-            or {}
-        )
-        if isinstance(raw_cloud, dict):
-            for prov_name, prov_conf in raw_cloud.items():
-                if not isinstance(prov_conf, dict):
-                    continue
-                self.cloud_providers[prov_name] = prov_conf
-                if not prov_conf.get("enable", True):
-                    continue
-
-                driver = prov_conf.get("driver") or prov_conf.get("engine") or "openai"
-                conn = prov_conf.get("connection", {}) if isinstance(prov_conf.get("connection"), dict) else prov_conf
-                api_key = conn.get("api_key") or prov_conf.get("api_key", "")
-                base_url = conn.get("base_url") or prov_conf.get("base_url", "")
-                timeout = conn.get("timeout") or prov_conf.get("timeout", 30)
-                proxy = conn.get("proxy") or prov_conf.get("proxy", "")
-
-                for m in prov_conf.get("models", []):
-                    if isinstance(m, str):
-                        m_id = m
-                        m_remote = m
-                        m_cats = ["FileASR"]
-                        m_langs = []
-                    elif isinstance(m, dict):
-                        m_id = m.get("id") or m.get("name")
-                        m_remote = m.get("remote_name") or m.get("remote_model") or m_id
-                        m_cats = m.get("categories", ["FileASR"])
-                        m_langs = m.get("languages", [])
-                    else:
-                        continue
-
-                    if not m_id:
-                        continue
-
-                    cfg = EngineConfig(
-                        m_id,
-                        {
-                            "enable": True,
-                            "driver": driver,
-                            "type": "cloud",
-                            "provider": prov_name,
-                            "api_key": api_key,
-                            "base_url": base_url,
-                            "timeout": timeout,
-                            "proxy": proxy,
-                            "model_name": m_remote,
-                            "remote_model": m_remote,
-                            "categories": m_cats,
-                            "languages": m_langs,
-                            "keep_alive": -1,
-                            "preload": False,
-                        },
-                        self.model_dir,
-                        default_keep_alive=-1,
-                        is_cloud=True,
-                    )
-                    self.providers[m_id] = cfg
 
     def refresh_models(self) -> None:
         """Scan disk and built-in manifest to dynamically update providers without restart."""
         scanned = scan_all_models()
         for model_id, res in scanned.items():
-            # If already explicitly defined in YAML, do not overwrite
-            if model_id in self.local_models and self._data:
-                continue
-
             is_ready = res.status == "ready"
             model_path_str = str(res.model_path) if res.model_path else ""
 
@@ -590,7 +486,7 @@ class AppConfig:
                 "enable": is_ready,
                 "driver": res.driver,
                 "type": "local",
-                "model_name": res.repo,
+                "model_name": res.ms_repo,
                 "model_path": model_path_str,
                 "categories": res.categories,
                 "languages": res.languages,
@@ -614,8 +510,7 @@ class AppConfig:
                 default_keep_alive=self.model_manager.default_keep_alive,
                 is_cloud=False,
             )
-            if not self._data:
-                self.local_models[model_id] = cfg
+            self.local_models[model_id] = cfg
             self.providers[model_id] = cfg
 
     def get_provider_config(self, name: str) -> EngineConfig:

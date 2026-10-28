@@ -20,7 +20,7 @@
       </div>
     </div>
 
-    <!-- Navigation List (3 Core Tabs) -->
+    <!-- Navigation List (4 Core Tabs) -->
     <nav class="nav-list no-drag">
       <button
         v-for="item in navItems"
@@ -31,6 +31,7 @@
       >
         <span class="nav-icon" v-html="item.icon"></span>
         <span class="nav-label">{{ t(item.labelKey) }}</span>
+        <span v-if="item.id === 'history' && historyCount > 0" class="nav-badge">{{ historyCount }}</span>
       </button>
     </nav>
 
@@ -75,6 +76,10 @@ const props = defineProps({
   isOnline: {
     type: Boolean,
     default: false
+  },
+  historyCount: {
+    type: Number,
+    default: 0
   }
 });
 
@@ -109,6 +114,11 @@ const navItems = [
     id: 'models',
     labelKey: 'navModels',
     icon: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>`
+  },
+  {
+    id: 'history',
+    labelKey: 'navHistory',
+    icon: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`
   }
 ];
 </script>
@@ -218,6 +228,23 @@ const navItems = [
   background: var(--accent-emerald-subtle);
   color: var(--accent-emerald);
   font-weight: 600;
+}
+
+.nav-badge {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-subtle);
+}
+
+.nav-item.active .nav-badge {
+  background: var(--accent-emerald-subtle);
+  color: var(--accent-emerald);
+  border-color: rgba(16, 185, 129, 0.25);
 }
 
 .nav-icon {

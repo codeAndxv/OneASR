@@ -4,14 +4,14 @@
     # 1. 查看所有模型状态（启用状态、本地路径、就绪状态、占用空间）
     uv run python -m cli.model list
 
-    # 2. 一键下载 config.yaml 中所有已启用 (enable: true) 且本地缺失的模型
+    # 2. 一键下载内置清单中所有常用/已启用 (enable: true) 且本地缺失的模型
     uv run python -m cli.model pull
 
     # 3. 下载指定的一个或多个 Provider 模型（无视 enable 状态）
     uv run python -m cli.model pull qwen
     uv run python -m cli.model pull xasr faster-whisper
 
-    # 4. 下载 config.yaml 中配置的全部本地模型
+    # 4. 下载内置清单中支持的全部本地模型
     uv run python -m cli.model pull --all
 
     # 5. 指定下载源 / 强制重下 / 连带下载 Qwen ForcedAligner
@@ -193,7 +193,7 @@ def resolve_provider_specs(
     cfg: EngineConfig,
     include_aligner: bool = False,
 ) -> list[ModelArtifactSpec]:
-    """根据 config.yaml 中的单个 Provider 配置解析出对应的模型下载规格列表。"""
+    """根据单个 Provider/模型配置解析出对应的模型下载规格列表。"""
     eng = (cfg.engine_name or cfg.name).lower()
     if cfg.type == "cloud" or getattr(cfg, "is_cloud", False) or eng in CLOUD_ENGINES:
         return []
@@ -568,7 +568,7 @@ def collect_all_specs(
     app_cfg: AppConfig,
     include_aligner: bool = False,
 ) -> list[ModelArtifactSpec]:
-    """收集 config.yaml 中所有本地 Provider 的模型规格。"""
+    """收集所有内置与本地 Provider 的模型规格。"""
     all_specs: list[ModelArtifactSpec] = []
     local_dict = getattr(app_cfg, "local_models", app_cfg.providers)
     for prov_cfg in local_dict.values():
@@ -577,8 +577,8 @@ def collect_all_specs(
 
 
 def cmd_list(args: argparse.Namespace) -> int:
-    """列出 config.yaml 中所有本地模型的状态与磁盘占用。"""
-    app_cfg = AppConfig(args.config)
+    """列出所有支持与已下载本地模型的状态与磁盘占用。"""
+    app_cfg = AppConfig()
     specs = collect_all_specs(app_cfg, include_aligner=True)
 
     print("=" * 125)
@@ -611,7 +611,7 @@ def cmd_list(args: argparse.Namespace) -> int:
 
 def cmd_check(args: argparse.Namespace) -> int:
     """校验模型完整性（默认校验所有 enable=True 的本地模型，或通过 --all 校验全部）。"""
-    app_cfg = AppConfig(args.config)
+    app_cfg = AppConfig()
     specs = collect_all_specs(app_cfg, include_aligner=False)
 
     if args.providers:
@@ -644,8 +644,8 @@ def cmd_check(args: argparse.Namespace) -> int:
 
 
 def cmd_pull(args: argparse.Namespace) -> int:
-    """根据指定参数下载模型到 config.yaml 配置的目录。"""
-    app_cfg = AppConfig(args.config)
+    """根据指定参数下载模型到本地模型目录。"""
+    app_cfg = AppConfig()
     specs = collect_all_specs(app_cfg, include_aligner=args.include_aligner)
 
     if args.providers:
@@ -665,11 +665,11 @@ def cmd_pull(args: argparse.Namespace) -> int:
     elif args.all:
         selected_specs = specs
     else:
-        # 默认仅拉取 config.yaml 中 enable: true 的本地模型
+        # 默认仅拉取内置清单中 enable: true 的本地模型
         selected_specs = [s for s in specs if s.enable]
 
     if not selected_specs:
-        print("[INFO] 没有需要下载的已启用本地模型。如需下载未启用的模型，请指定名称或使用 `--all`。")
+        print("[INFO] 没有需要下载的已启用本地模型。如需下载其他模型，请指定名称或使用 `--all`。")
         return 0
 
     success_count = 0
@@ -690,12 +690,6 @@ def build_parser() -> argparse.ArgumentParser:
         prog="python -m cli.model",
         description="OneASR 本地模型下载、状态查询与完整性校验工具",
     )
-    parser.add_argument(
-        "-c",
-        "--config",
-        default=None,
-        help="指定 config.yaml 路径（默认使用项目根目录 config.yaml）",
-    )
 
     subparsers = parser.add_subparsers(dest="subcommand", required=True)
 
@@ -705,7 +699,7 @@ def build_parser() -> argparse.ArgumentParser:
     # 2. pull 子命令
     pull_parser = subparsers.add_parser(
         "pull",
-        help="下载模型到 config.yaml 配置的目录（默认下载所有 enable: true 的模型）",
+        help="下载模型到本地模型目录（默认下载所有常用/已启用模型）",
     )
     pull_parser.add_argument(
         "providers",
@@ -715,7 +709,7 @@ def build_parser() -> argparse.ArgumentParser:
     pull_parser.add_argument(
         "--all",
         action="store_true",
-        help="下载 config.yaml 中配置的全部本地模型（包含 enable: false 的模型）",
+        help="下载内置清单中支持的全部本地模型",
     )
     pull_parser.add_argument(
         "--source",

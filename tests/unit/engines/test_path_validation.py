@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from server.core.config import EngineConfig, PROJECT_ROOT
+from server.core.paths import get_models_dir
 from server.engines.funasr_engine import FunASREngine
 from server.engines.qwen_engine import QwenEngine
 from server.engines.whisper_engine import WhisperEngine
@@ -13,11 +14,12 @@ pytestmark = pytest.mark.unit
 
 
 def test_engine_config_auto_derives_paths_from_model_name():
-    """当未显式配置 *_path 时，EngineConfig 必须根据 model_name 自动推导 data/models/<repo_name> 路径。"""
+    """当未显式配置 *_path 时，EngineConfig 必须根据 model_name 自动推导 get_models_dir()/<repo_name> 路径。"""
+    models_dir = get_models_dir()
     # 1. Faster-Whisper
     w_cfg = EngineConfig("faster-whisper", {"engine": "faster-whisper", "load": {"model_name": "Systran/faster-whisper-medium"}})
-    assert w_cfg.model_path == "data/models/faster-whisper-medium"
-    assert w_cfg.resolve_path(w_cfg.model_path) == PROJECT_ROOT / "data/models/faster-whisper-medium"
+    assert w_cfg.model_path == str(models_dir / "faster-whisper-medium")
+    assert w_cfg.resolve_path(w_cfg.model_path) == models_dir / "faster-whisper-medium"
 
     # 2. Qwen + ForcedAligner
     q_cfg = EngineConfig(
@@ -30,8 +32,8 @@ def test_engine_config_auto_derives_paths_from_model_name():
             },
         },
     )
-    assert q_cfg.model_path == "data/models/Qwen3-ASR-1.7B"
-    assert q_cfg.forced_aligner_path == "data/models/Qwen3-ForcedAligner-0.6B"
+    assert q_cfg.model_path == str(models_dir / "Qwen3-ASR-1.7B")
+    assert q_cfg.forced_aligner_path == str(models_dir / "Qwen3-ForcedAligner-0.6B")
 
     # 3. FunASR + VAD
     f_cfg = EngineConfig(
@@ -44,15 +46,15 @@ def test_engine_config_auto_derives_paths_from_model_name():
             },
         },
     )
-    assert f_cfg.model_path == "data/models/SenseVoiceSmall"
-    assert f_cfg.vad_model_path == "data/models/speech_fsmn_vad_zh-cn-16k-common-pytorch"
+    assert f_cfg.model_path == str(models_dir / "SenseVoiceSmall")
+    assert f_cfg.vad_model_path == str(models_dir / "speech_fsmn_vad_zh-cn-16k-common-pytorch")
 
     # 4. X-ASR
     x_cfg = EngineConfig("xasr", {"engine": "xasr", "load": {"model_name": "Gilgamesh-J/X-ASR-zh-en"}})
-    assert x_cfg.tokens_path == "data/models/chunk-160ms-model/tokens.txt"
-    assert x_cfg.encoder_path == "data/models/chunk-160ms-model/encoder-160ms.onnx"
-    assert x_cfg.decoder_path == "data/models/chunk-160ms-model/decoder-160ms.onnx"
-    assert x_cfg.joiner_path == "data/models/chunk-160ms-model/joiner-160ms.onnx"
+    assert x_cfg.tokens_path == str(models_dir / "chunk-160ms-model/tokens.txt")
+    assert x_cfg.encoder_path == str(models_dir / "chunk-160ms-model/encoder-160ms.onnx")
+    assert x_cfg.decoder_path == str(models_dir / "chunk-160ms-model/decoder-160ms.onnx")
+    assert x_cfg.joiner_path == str(models_dir / "chunk-160ms-model/joiner-160ms.onnx")
 
 
 def test_engine_config_explicit_paths():
@@ -84,7 +86,7 @@ def test_whisper_nonexistent_model_raises():
     err_text = str(exc_info.value)
     assert "配置的模型路径不存在" in err_text
     assert "uv run python -m cli.model pull whisper-test" in err_text
-    assert "data/models/faster-whisper-non-existent-xyz" in err_text
+    assert "faster-whisper-non-existent-xyz" in err_text
 
 
 def test_xasr_missing_paths_raises():
@@ -117,7 +119,7 @@ def test_xasr_nonexistent_model_raises():
 
     err_text = str(exc_info.value)
     assert "模型文件不存在" in err_text
-    assert "data/models/non-existent-xasr-xyz/tokens.txt" in err_text
+    assert "non-existent-xasr-xyz/tokens.txt" in err_text
     assert "uv run python -m cli.model pull xasr-test" in err_text
 
 
@@ -136,7 +138,7 @@ def test_qwen_nonexistent_model_raises():
     err_text = str(exc_info.value)
     assert "配置的模型路径不存在" in err_text
     assert "uv run python -m cli.model pull qwen-test" in err_text
-    assert "data/models/Qwen3-ASR-NonExistent-99B" in err_text
+    assert "Qwen3-ASR-NonExistent-99B" in err_text
 
 
 def test_qwen_nonexistent_forced_aligner_path_raises(tmp_path):
@@ -156,7 +158,7 @@ def test_qwen_nonexistent_forced_aligner_path_raises(tmp_path):
     err_text = str(exc_info.value)
     assert "ForcedAligner 对齐模型路径不存在" in err_text
     assert "uv run python -m cli.model pull qwen-test --include-aligner" in err_text
-    assert "data/models/Qwen3-ForcedAligner-NonExistent" in err_text
+    assert "Qwen3-ForcedAligner-NonExistent" in err_text
 
 
 def test_funasr_nonexistent_model_raises():
@@ -174,7 +176,7 @@ def test_funasr_nonexistent_model_raises():
     err_text = str(exc_info.value)
     assert "配置的模型路径不存在" in err_text
     assert "uv run python -m cli.model pull funasr-test" in err_text
-    assert "data/models/NonExistentFunASRModel" in err_text
+    assert "NonExistentFunASRModel" in err_text
 
 
 def test_whisper_valid_local_model_path_passes_validation(tmp_path):

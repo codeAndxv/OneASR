@@ -230,12 +230,16 @@ async def health():
     return {"status": "ok"}
 
 
-# ── 前端 Web UI 静态文件挂载（若存在构建产物）──────────────────
+# ── 前端 Web UI 静态文件挂载（优先从 desktop/dist 挂载）──────────────────
 from pathlib import Path
 from fastapi.staticfiles import StaticFiles
 
-_dist_dir = Path(__file__).parent.parent / "web" / "dist"
-if _dist_dir.exists():
+_project_root = Path(__file__).parent.parent
+_dist_dir = _project_root / "desktop" / "dist"
+if not _dist_dir.exists():
+    _dist_dir = _project_root / "web" / "dist"
+
+if _dist_dir.exists() and (_dist_dir / "index.html").exists():
     app.mount("/", StaticFiles(directory=str(_dist_dir), html=True), name="static_web")
 
 

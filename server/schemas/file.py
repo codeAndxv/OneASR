@@ -14,6 +14,11 @@ class FileUploadResponse(BaseModel):
     message: str = Field(default="File uploaded successfully")
 
 
+class LocalFileImportRequest(BaseModel):
+    """本地文件直接导入请求（用于本地桌面端与本地路径导入，避免 HTTP 传输与磁盘二次复制）"""
+    file_path: str = Field(..., description="本地文件绝对路径")
+
+
 class FileInfo(BaseModel):
     """文件信息"""
     file_id: str = Field(..., description="文件UUID")

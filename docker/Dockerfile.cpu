@@ -3,10 +3,10 @@
 # ============================================================
 FROM node:20-alpine AS web-builder
 
-WORKDIR /web
-COPY web/package*.json ./
+WORKDIR /desktop
+COPY desktop/package*.json ./
 RUN npm ci
-COPY web/ ./
+COPY desktop/ ./
 RUN npm run build
 
 # ============================================================
@@ -33,7 +33,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # 复制后端代码与前端构建产物
 COPY server/ ./server/
 COPY cli/ ./cli/
-COPY --from=web-builder /web/dist ./web/dist
+COPY --from=web-builder /desktop/dist ./desktop/dist
 
 # 创建持久化挂载目录占位
 RUN mkdir -p /app/data/models /app/data/uploads /app/data/downloads /app/data/database

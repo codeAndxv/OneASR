@@ -22,7 +22,7 @@ import uuid
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from server.api.auth import verify_ws_api_key
+from server.api.auth import check_ws_handshake_auth, verify_api_key, verify_ws_api_key
 from server.engines.registry import get_engine
 from server.services.record_service import save_streaming_record
 from server.utils.audio_converter import AudioConverter
@@ -282,15 +282,17 @@ async def realtime_transcription(ws: WebSocket):
         logger.warning("接受 WebSocket 连接失败: %s", e)
         return
 
-    if not verify_ws_api_key(ws):
-        logger.warning("[realtime] WebSocket 鉴权失败: client=%s", ws.client)
+    has_cred, is_valid = check_ws_handshake_auth(ws)
+    if has_cred and not is_valid:
+        logger.warning("[realtime] 握手凭证无效: client=%s", ws.client)
         try:
-            await ws.send_json({"type": "error", "error": {"code": "invalid_api_key", "message": "Invalid API key"}})
-            await ws.close()
+            await ws.send_json({"type": "error", "error": {"code": "invalid_api_key", "message": "Incorrect API key provided"}})
+            await ws.close(code=1008)
         except Exception:
             pass
         return
 
+    is_authenticated = is_valid
     session = SessionState()
     processor = None
     eng = None
@@ -299,8 +301,8 @@ async def realtime_transcription(ws: WebSocket):
     record_id = str(uuid.uuid4())
 
     logger.info(
-        "[realtime] WebSocket 连接已建立: client=%s, session_id=%s, record_id=%s",
-        ws.client, session.session_id, record_id,
+        "[realtime] WebSocket 连接已建立: client=%s, session_id=%s, record_id=%s, auth_at_handshake=%s",
+        ws.client, session.session_id, record_id, is_authenticated,
     )
 
     async def _send_event(event: dict):
@@ -329,9 +331,23 @@ async def realtime_transcription(ws: WebSocket):
         },
     })
 
-    async def _handle_session_update(data: dict):
-        nonlocal processor, eng, results_task
+    async def _handle_session_update(data: dict) -> bool:
+        nonlocal processor, eng, results_task, is_authenticated
         sess_cfg = data.get("session", {})
+
+        # 首帧应用层鉴权：若握手阶段未鉴权，则在此处检查 session.update 携带的 api_key
+        if not is_authenticated:
+            key = sess_cfg.get("api_key") or data.get("api_key")
+            if not key or not verify_api_key(key):
+                logger.warning("[realtime] 首帧 session.update 鉴权失败: client=%s", ws.client)
+                await _send_error("invalid_api_key", "Incorrect API key provided in session.update")
+                try:
+                    await ws.close(code=1008)
+                except Exception:
+                    pass
+                return False
+            is_authenticated = True
+            logger.info("[realtime] 首帧 session.update 鉴权通过: session_id=%s", session.session_id)
 
         audio_input = sess_cfg.get("audio", {}).get("input", {})
         format_cfg = audio_input.get("format", {})
@@ -353,19 +369,19 @@ async def realtime_transcription(ws: WebSocket):
             eng = get_engine(engine_name)
         except Exception as e:
             await _send_error("engine_error", f"Failed to load engine: {e}")
-            return
+            return False
 
         # ── X-ASR 原生流式模式 ──
         if hasattr(eng, "create_stream_session"):
             await _xasr_session(ws, eng, session, _send_event, _send_error)
-            return
+            return True
 
         # ── 本地处理器模式 ──
         try:
             processor = await asyncio.to_thread(eng.create_audio_processor, language=session.language, pcm_input=True)
         except Exception as e:
             await _send_error("processor_error", f"Failed to create AudioProcessor: {e}")
-            return
+            return False
 
         session.state = SessionState.CONFIGURED
         await processor.create_tasks()
@@ -389,6 +405,7 @@ async def realtime_transcription(ws: WebSocket):
                 },
             },
         })
+        return True
 
     async def _forward_results(_ignored_gen):
         """直接从 AudioProcessor 读取状态（标准 delta/completed 事件推送）。"""
@@ -453,6 +470,43 @@ async def realtime_transcription(ws: WebSocket):
             logger.exception("Realtime 结果处理异常: %s", e)
 
     try:
+        # 若握手阶段未鉴权，则首包必须在 5 秒内到达并完成 session.update 鉴权
+        if not is_authenticated:
+            try:
+                raw_first = await asyncio.wait_for(ws.receive_text(), timeout=5.0)
+            except asyncio.TimeoutError:
+                logger.warning("[realtime] 连接超时未收到鉴权首包: client=%s", ws.client)
+                await _send_error("timeout", "Authentication timeout")
+                try:
+                    await ws.close(code=1008)
+                except Exception:
+                    pass
+                return
+
+            try:
+                first_event = json.loads(raw_first)
+            except json.JSONDecodeError:
+                await _send_error("invalid_message", "Failed to parse JSON message")
+                try:
+                    await ws.close(code=1008)
+                except Exception:
+                    pass
+                return
+
+            if first_event.get("type") != "session.update":
+                await _send_error("invalid_state", "First message must be session.update containing api_key")
+                try:
+                    await ws.close(code=1008)
+                except Exception:
+                    pass
+                return
+
+            auth_ok = await _handle_session_update(first_event)
+            if not auth_ok:
+                return
+            if eng is not None and hasattr(eng, "create_stream_session"):
+                return
+
         while True:
             raw = await ws.receive_text()
             try:

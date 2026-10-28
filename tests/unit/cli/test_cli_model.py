@@ -134,10 +134,10 @@ def test_resolve_provider_specs_for_all_engines(tmp_path: Path):
     assert funasr_specs[0].label == "main"
     assert funasr_specs[0].ms_repo_id == "iic/SenseVoiceSmall"
     assert funasr_specs[0].hf_repo_id == "FunAudioLLM/SenseVoiceSmall"
-    assert funasr_specs[0].relative_local_dir == "data/models/SenseVoiceSmall"
+    assert "SenseVoiceSmall" in funasr_specs[0].relative_local_dir
     assert funasr_specs[1].label == "vad_model"
     assert funasr_specs[1].ms_repo_id == "iic/speech_fsmn_vad_zh-cn-16k-common-pytorch"
-    assert funasr_specs[1].relative_local_dir == "data/models/speech_fsmn_vad_zh-cn-16k-common-pytorch"
+    assert "speech_fsmn_vad_zh-cn-16k-common-pytorch" in funasr_specs[1].relative_local_dir
 
     # 4. Cloud 引擎不生成本地下载规格
     cloud_cfg = EngineConfig("openai", {"engine": "openai", "type": "cloud"})

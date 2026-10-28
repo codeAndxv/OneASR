@@ -8,6 +8,7 @@ integration without requiring external CLI dependencies.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import shutil
@@ -19,7 +20,7 @@ from typing import Any, AsyncGenerator
 
 from server.core.config import app_config
 from server.core.manifest import ModelManifest, get_manifest
-from server.core.paths import get_models_dir
+from server.core.paths import get_models_dir, get_settings_path
 from server.core.scanner import verify_model_integrity
 
 logger = logging.getLogger(__name__)
@@ -124,9 +125,26 @@ class ModelDownloader:
             download_dest = target_dir
             allow_patterns = None
 
-        candidate_sources = (
-            ["modelscope", "hf-mirror", "huggingface"] if source == "auto" else [source]
-        )
+        # Resolve preferred source from settings.json if source is auto
+        preferred_source = "auto"
+        settings_file = get_settings_path()
+        if settings_file.is_file():
+            try:
+                with open(settings_file, "r", encoding="utf-8") as f:
+                    preferred_source = (json.load(f) or {}).get("download_source", "auto")
+            except Exception:
+                pass
+
+        active_source = source if source != "auto" else preferred_source
+
+        if active_source == "huggingface":
+            candidate_sources = ["huggingface", "hf-mirror", "modelscope"]
+        elif active_source == "hf-mirror":
+            candidate_sources = ["hf-mirror", "huggingface", "modelscope"]
+        elif active_source == "modelscope":
+            candidate_sources = ["modelscope", "hf-mirror", "huggingface"]
+        else:
+            candidate_sources = ["modelscope", "hf-mirror", "huggingface"]
 
         last_error = None
         success = False
@@ -174,7 +192,7 @@ class ModelDownloader:
                         from modelscope import snapshot_download as ms_download
 
                         ms_download(
-                            model_id=manifest.repo,
+                            model_id=manifest.ms_repo,
                             local_dir=str(download_dest),
                             allow_patterns=allow_patterns,
                         )
@@ -183,7 +201,7 @@ class ModelDownloader:
 
                         endpoint = "https://hf-mirror.com" if src == "hf-mirror" else os.getenv("HF_ENDPOINT")
                         hf_download(
-                            repo_id=manifest.repo,
+                            repo_id=manifest.hf_repo,
                             local_dir=str(download_dest),
                             allow_patterns=allow_patterns,
                             endpoint=endpoint,

@@ -226,7 +226,19 @@ class SherpaOnnxEngine(ASREngine):
         temperature: float | None = None,
         **kwargs,
     ) -> tuple[str, list[Segment]]:
-        raise NotImplementedError("sherpa-onnx 实时引擎仅支持流式识别，不支持文件转录")
+        """转录整段音频数据，提供文件与 HTTP POST 兼容直通。"""
+        self.load()
+        pcm_bytes = AudioConverter.decode_to_pcm16_bytes(audio_data, sample_rate=self.sample_rate)
+        if not pcm_bytes:
+            return "", []
+
+        session = self.create_stream_session(input_sample_rate=self.sample_rate)
+        session.accept_audio(pcm_bytes, input_sample_rate=self.sample_rate)
+        session.decode()
+        text = session.finalize().strip()
+        duration = len(pcm_bytes) / 2.0 / self.sample_rate
+        seg = Segment(id=0, start=0.0, end=round(duration, 2), text=text)
+        return text, [seg]
 
     async def transcribe_file_stream(
         self,
@@ -236,8 +248,16 @@ class SherpaOnnxEngine(ASREngine):
         temperature: float | None = None,
         **kwargs,
     ) -> AsyncIterator[Segment]:
-        raise NotImplementedError("sherpa-onnx 实时引擎仅支持流式识别，不支持文件转录")
-        yield  # pragma: no cover
+        """流式转录整段音频数据。"""
+        text, segments = await self.transcribe_file(
+            audio_data,
+            language=language,
+            prompt=prompt,
+            temperature=temperature,
+            **kwargs,
+        )
+        for seg in segments:
+            yield seg
 
     async def transcribe_stream(self, audio_chunk: bytes) -> str | None:
         raise NotImplementedError("请使用 create_stream_session() 进行流式识别")

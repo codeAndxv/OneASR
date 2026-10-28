@@ -16,6 +16,7 @@ from server.schemas.file import (
     FileInfo,
     FileListResponse,
     FileUploadResponse,
+    LocalFileImportRequest,
 )
 
 logger = logging.getLogger(__name__)
@@ -159,6 +160,72 @@ async def upload_file(
         raise HTTPException(status_code=500, detail=f"File upload failed: {e}")
 
 
+@router.post("/import-local", response_model=FileUploadResponse)
+async def import_local_file(req: LocalFileImportRequest):
+    """从本地文件绝对路径快速导入文件（面向桌面端，无需网络/HTTP拷贝，零内存损耗）。"""
+    from pathlib import Path
+    import uuid as _uuid
+
+    p = Path(req.file_path).resolve()
+    if not p.is_file():
+        raise HTTPException(status_code=404, detail=f"Local file not found: {req.file_path}")
+    if not _validate_file_format(p.name):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file format. Supported formats: {', '.join(sorted(SUPPORTED_FORMATS))}",
+        )
+    actual_size = p.stat().st_size
+    max_size = 2 * 1024 * 1024 * 1024
+    if actual_size > max_size:
+        raise HTTPException(status_code=400, detail="File size exceeds limit (maximum 2GB)")
+
+    # 快速流式计算 MD5
+    hasher = hashlib.md5()
+    with open(p, "rb") as f:
+        while chunk := f.read(1024 * 1024):
+            hasher.update(chunk)
+    actual_md5 = hasher.hexdigest()
+
+    async with async_session() as session:
+        stmt = select(UploadedFile).where(
+            UploadedFile.file_md5 == actual_md5,
+            UploadedFile.file_size == actual_size,
+        )
+        result = await session.execute(stmt)
+        existing = result.scalar_one_or_none()
+        if existing:
+            return FileUploadResponse(
+                file_id=existing.file_id,
+                filename=existing.filename,
+                file_size=existing.file_size,
+                file_md5=actual_md5,
+                duplicate=True,
+                message="File already registered (instant match)",
+            )
+
+        file_id = str(_uuid.uuid4())
+        record = UploadedFile(
+            file_id=file_id,
+            filename=p.name,
+            file_size=actual_size,
+            file_md5=actual_md5,
+            storage_path=str(p),
+            content_type="application/octet-stream",
+        )
+        session.add(record)
+        await session.commit()
+
+        logger.info("[x-files] 本地文件注册成功: %s -> file_id=%s, size=%.2fMB", p.name, file_id, actual_size / 1024 / 1024)
+        return FileUploadResponse(
+            file_id=file_id,
+            filename=p.name,
+            file_size=actual_size,
+            file_md5=actual_md5,
+            duplicate=False,
+            message="Local file registered successfully",
+        )
+
+
 # ── 查询 ────────────────────────────────────────────────────────────
 
 @router.get("", response_model=FileListResponse)
@@ -221,7 +288,7 @@ async def delete_file(file_id: str):
 
         from pathlib import Path
         disk_path = Path(record.storage_path)
-        if disk_path.exists():
+        if disk_path.exists() and "data/uploads" in str(disk_path.resolve()):
             disk_path.unlink()
 
         await session.delete(record)

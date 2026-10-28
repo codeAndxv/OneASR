@@ -27,7 +27,9 @@ class UpdateSettingsRequest(BaseModel):
     port: int | None = Field(None, description="Port number (e.g. 8020)")
     default_model: str | None = Field(None, description="Default ASR model identifier")
     keep_alive: int | None = Field(None, description="Model residency timeout in seconds (-1 for permanent)")
+    keep_alive_timeout: int | None = Field(None, description="Alias for keep_alive")
     api_key: str | None = Field(None, description="Optional API key for client authentication")
+    download_source: str | None = Field(None, description="Preferred model download source ('modelscope', 'huggingface', 'hf-mirror', 'auto')")
 
 
 def _detect_accelerator() -> dict[str, Any]:
@@ -106,9 +108,23 @@ async def get_system_info():
 @router.get("/settings")
 async def get_system_settings():
     """Return active server settings and current preferences."""
+    settings_file = get_settings_path()
+    file_settings: dict[str, Any] = {}
+    if settings_file.is_file():
+        try:
+            with open(settings_file, "r", encoding="utf-8") as f:
+                file_settings = json.load(f) or {}
+        except Exception:
+            pass
+
     return {
+        "host": file_settings.get("host", "127.0.0.1"),
+        "port": file_settings.get("port", 8020),
         "api_key": app_config.api_key,
+        "keep_alive": app_config.model_manager.default_keep_alive,
+        "keep_alive_timeout": app_config.model_manager.default_keep_alive,
         "default_keep_alive": app_config.model_manager.default_keep_alive,
+        "download_source": file_settings.get("download_source"),
         "models_dir": str(get_models_dir()),
         "settings_file": str(get_settings_path()),
     }
@@ -124,9 +140,12 @@ async def update_system_settings(req: UpdateSettingsRequest):
         updates["port"] = req.port
     if req.default_model is not None:
         updates["default_model"] = req.default_model
-    if req.keep_alive is not None:
-        updates["keep_alive"] = req.keep_alive
-        app_config.model_manager.default_keep_alive = req.keep_alive
+    if req.download_source is not None:
+        updates["download_source"] = req.download_source
+    ka = req.keep_alive if req.keep_alive is not None else req.keep_alive_timeout
+    if ka is not None:
+        updates["keep_alive"] = ka
+        app_config.model_manager.default_keep_alive = ka
     if req.api_key is not None:
         updates["api_key"] = req.api_key
         app_config.api_key = req.api_key

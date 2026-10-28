@@ -4,6 +4,7 @@
     <Sidebar
       :current-tab="currentTab"
       :is-online="isServerOnline"
+      :history-count="historyItems.length"
       @select-tab="handleSelectTab"
       @open-settings="isSettingsOpen = true"
     />
@@ -13,9 +14,6 @@
       <Header
         :title="currentTabTitle"
         :subtitle="currentTabSubtitle"
-        :is-history-open="isHistoryOpen"
-        :history-count="historyItems.length"
-        @toggle-history="isHistoryOpen = !isHistoryOpen"
       />
 
       <div class="view-container">
@@ -30,16 +28,14 @@
         <ModelsView
           v-else-if="currentTab === 'models'"
         />
+        <HistoryView
+          v-else-if="currentTab === 'history'"
+          :items="historyItems"
+          @delete-item="deleteHistoryItem"
+          @clear-all="clearHistory"
+        />
       </div>
     </main>
-
-    <!-- History Drawer (Slide-out) -->
-    <HistoryDrawer
-      :is-open="isHistoryOpen"
-      :items="historyItems"
-      @close="isHistoryOpen = false"
-      @clear="clearHistory"
-    />
 
     <!-- Preferences / Settings Modal -->
     <SettingsModal
@@ -55,16 +51,15 @@ import { useI18n } from './i18n';
 import { apiClient } from './api/client';
 import Sidebar from './components/Sidebar.vue';
 import Header from './components/Header.vue';
-import HistoryDrawer from './components/HistoryDrawer.vue';
 import SettingsModal from './components/SettingsModal.vue';
 import DictateView from './views/DictateView.vue';
 import FilesView from './views/FilesView.vue';
 import ModelsView from './views/ModelsView.vue';
+import HistoryView from './views/HistoryView.vue';
 
 const { t } = useI18n();
 
-const currentTab = ref('dictate');
-const isHistoryOpen = ref(false);
+const currentTab = ref(localStorage.getItem('oneasr_current_tab') || 'models');
 const isSettingsOpen = ref(false);
 const isServerOnline = ref(false);
 const historyItems = ref([]);
@@ -72,7 +67,8 @@ const historyItems = ref([]);
 const tabMeta = {
   dictate: { titleKey: 'dictateTitle', subtitleKey: 'dictateSubtitle' },
   files: { titleKey: 'filesTitle', subtitleKey: 'filesSubtitle' },
-  models: { titleKey: 'modelsTitle', subtitleKey: 'modelsSubtitle' }
+  models: { titleKey: 'modelsTitle', subtitleKey: 'modelsSubtitle' },
+  history: { titleKey: 'historyTitle', subtitleKey: 'historySubtitle' }
 };
 
 const currentTabTitle = computed(() => {
@@ -87,6 +83,7 @@ const currentTabSubtitle = computed(() => {
 
 function handleSelectTab(tabId) {
   currentTab.value = tabId;
+  localStorage.setItem('oneasr_current_tab', tabId);
 }
 
 function handleGlobalKeydown(e) {
@@ -101,6 +98,11 @@ function addHistoryItem(item) {
   if (historyItems.value.length > 50) {
     historyItems.value.pop();
   }
+  saveHistoryToStorage();
+}
+
+function deleteHistoryItem(id) {
+  historyItems.value = historyItems.value.filter((i) => i.id !== id);
   saveHistoryToStorage();
 }
 

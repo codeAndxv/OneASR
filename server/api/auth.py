@@ -25,7 +25,7 @@ async def get_api_key(authorization: Optional[str] = Header(None)) -> str:
     if not authorization.startswith("Bearer "):
         raise OpenAIAPIException(
             status_code=401,
-            message="You must provide a valid API key in the Authorization header using 'Bearer <token>' format.",
+            message="You must provide a valid API key in the Authorization header using 'Bearer <api_key>' format.",
             error_type="authentication_error",
             param=None,
             code="invalid_api_key",
@@ -42,16 +42,23 @@ async def get_api_key(authorization: Optional[str] = Header(None)) -> str:
     return key
 
 
-def verify_ws_api_key(ws: WebSocket) -> bool:
-    """验证 WebSocket 连接的 API Key（支持查询参数和 Authorization header）。"""
-    # 查询参数
-    key = ws.query_params.get("api_key", "")
-    if key and verify_api_key(key):
-        return True
-    # Header: Authorization: Bearer
+def check_ws_handshake_auth(ws: WebSocket) -> tuple[bool, bool]:
+    """检查 WebSocket 握手阶段是否携带凭证及凭证是否有效。
+    返回: (has_credential, is_valid)
+    """
     auth_header = ws.headers.get("authorization", "")
+    key = ""
     if auth_header.startswith("Bearer "):
-        bearer_key = auth_header[7:].strip()
-        if verify_api_key(bearer_key):
-            return True
-    return False
+        key = auth_header[7:].strip()
+    elif "api_key" in ws.query_params:
+        key = ws.query_params.get("api_key", "")
+
+    if not key:
+        return False, False
+    return True, verify_api_key(key)
+
+
+def verify_ws_api_key(ws: WebSocket) -> bool:
+    """验证 WebSocket 握手阶段的 API Key 是否有效。"""
+    has_cred, is_valid = check_ws_handshake_auth(ws)
+    return has_cred and is_valid

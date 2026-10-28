@@ -310,7 +310,7 @@ def main():
     copy_clean_tree(project_root / "server", output_dir / "server")
     copy_clean_tree(project_root / "cli", output_dir / "cli")
 
-    for f in ["pyproject.toml", "config.yaml"]:
+    for f in ["pyproject.toml"]:
         src_f = project_root / f
         if src_f.exists():
             shutil.copy2(src_f, output_dir / f)

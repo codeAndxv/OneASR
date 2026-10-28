@@ -173,7 +173,7 @@ def main():
             # Sync server, cli, configs
             copy_clean_tree(project_root / "server", resources_dir / "server")
             copy_clean_tree(project_root / "cli", resources_dir / "cli")
-            for f in ["pyproject.toml", "config.yaml"]:
+            for f in ["pyproject.toml"]:
                 src_f = project_root / f
                 if src_f.exists():
                     shutil.copy2(src_f, resources_dir / f)

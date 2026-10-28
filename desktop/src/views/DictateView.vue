@@ -12,6 +12,19 @@
         </select>
       </div>
 
+      <!-- Language Selector -->
+      <div class="config-item">
+        <label class="config-label">语言识别</label>
+        <select v-model="selectedLanguage" class="custom-select" :disabled="isRecording || isTranscribing">
+          <option value="auto">自动识别语言 (Auto Detect)</option>
+          <option value="zh">中文普通话 (Chinese)</option>
+          <option value="en">英语 (English)</option>
+          <option value="yue">粤语 (Cantonese)</option>
+          <option value="ja">日语 (Japanese)</option>
+          <option value="ko">韩语 (Korean)</option>
+        </select>
+      </div>
+
       <!-- Microphone Selector -->
       <div class="config-item">
         <label class="config-label">{{ t('selectMicrophone') }}</label>
@@ -58,7 +71,7 @@
         <div class="canvas-actions">
           <button
             class="action-btn"
-            :disabled="!transcribedText"
+            :disabled="!transcribedText && finalizedSentences.length === 0"
             :title="t('copyText')"
             @click="copyResult"
           >
@@ -66,7 +79,23 @@
           </button>
           <button
             class="action-btn"
-            :disabled="!transcribedText"
+            :disabled="finalizedSentences.length === 0"
+            :title="t('exportSrt')"
+            @click="exportFile('srt')"
+          >
+            {{ t('exportSrt') }}
+          </button>
+          <button
+            class="action-btn"
+            :disabled="finalizedSentences.length === 0"
+            :title="t('exportVtt')"
+            @click="exportFile('vtt')"
+          >
+            {{ t('exportVtt') }}
+          </button>
+          <button
+            class="action-btn"
+            :disabled="!transcribedText && finalizedSentences.length === 0"
             :title="t('clearText')"
             @click="clearText"
           >
@@ -77,7 +106,7 @@
 
       <!-- Scrollable Text Body -->
       <div class="canvas-body" ref="canvasBody">
-        <div v-if="!transcribedText && !isRecording && !isTranscribing" class="placeholder-box">
+        <div v-if="!transcribedText && finalizedSentences.length === 0 && !isRecording && !isTranscribing" class="placeholder-box">
           <svg viewBox="0 0 24 24" class="placeholder-icon" :class="{ 'error-icon': !!errorMessage }" fill="none" stroke="currentColor" stroke-width="1.6">
             <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/>
             <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
@@ -90,9 +119,33 @@
           </template>
         </div>
 
-        <div v-else class="text-display">
-          <span class="typed-text">{{ transcribedText }}</span>
-          <span v-if="isRecording || isTranscribing" class="typing-cursor"></span>
+        <div v-else class="dictate-stream">
+          <!-- Segmented Sentences with Timestamps -->
+          <div
+            v-for="(seg, idx) in finalizedSentences"
+            :key="seg.id || idx"
+            class="dictate-row"
+          >
+            <div class="timestamp-badge">
+              {{ formatTime(seg.start) }} → {{ formatTime(seg.end) }}
+            </div>
+            <div class="dictate-text">{{ seg.text }}</div>
+          </div>
+
+          <!-- Active Live Streaming Sentence -->
+          <div
+            v-if="liveSentencePreview || (isRecording && finalizedSentences.length === 0)"
+            class="dictate-row live-row"
+          >
+            <div class="timestamp-badge live-badge">
+              <span class="live-pulse-dot"></span>
+              {{ formatTime(currentLiveStart) }} → {{ formatTime(durationSec) }}
+            </div>
+            <div class="dictate-text live-text">
+              {{ liveSentencePreview }}
+              <span v-if="isRecording || isTranscribing" class="typing-cursor"></span>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -156,6 +209,7 @@ const emit = defineEmits(['add-history']);
 const { t } = useI18n();
 
 const selectedModel = ref('sensevoice-small');
+const selectedLanguage = ref('auto');
 const selectedMicId = ref('');
 const microphones = ref([]);
 const isRecording = ref(false);
@@ -171,12 +225,132 @@ const canvasBody = ref(null);
 
 const waveBars = ref([4, 4, 4, 4, 4, 4, 4, 4]);
 
-const modelOptions = [
-  { id: 'sensevoice-small', name: 'SenseVoice-Small (极速轻量 · 推荐)' },
-  { id: 'whisper-large-v3-turbo', name: 'Whisper-Large-v3-Turbo (高精度 · 多语言)' },
-  { id: 'funasr-paraformer', name: 'FunASR Paraformer (中文工业级)' },
-  { id: 'firered-asr', name: 'FireRed-ASR (大参数高鲁棒)' }
-];
+const modelOptions = ref([
+  { id: 'sensevoice-small', name: 'SenseVoice-Small (极速轻量 · 推荐)' }
+]);
+
+let realtimeWs = null;
+const finalizedSentences = ref([]);
+const liveSentencePreview = ref('');
+
+function connectRealtimeWebSocket() {
+  return new Promise((resolve) => {
+    try {
+      const apiKey = localStorage.getItem('oneasr_api_key') || 'sk-oneasr-v1-p_L3kXm9QZ8sT2vA4wE7rY1u';
+      // 动态自适应 WebSocket 地址（支持本地与远程配置）
+      const wsUrl = `${apiClient.getWsBaseUrl()}/v1/x/realtime`;
+      const ws = new WebSocket(wsUrl);
+
+      ws.onopen = () => {
+        const updateMsg = {
+          type: 'session.update',
+          session: {
+            api_key: apiKey, // 首帧在 JSON 消息体中传递 api_key
+            audio: {
+              input: {
+                format: { type: 'audio/pcm', rate: 16000 },
+                transcription: {
+                  model: selectedModel.value,
+                  language: selectedLanguage.value !== 'auto' ? selectedLanguage.value : null
+                }
+              }
+            }
+          }
+        };
+        ws.send(JSON.stringify(updateMsg));
+        resolve(ws);
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === 'conversation.item.input_audio_transcription.delta') {
+            const preview = (msg.text || msg.delta || '').trim();
+            liveSentencePreview.value = preview;
+            const finalizedText = finalizedSentences.value.map((s) => s.text).join(' ');
+            transcribedText.value = (finalizedText + (preview ? (finalizedText ? ' ' : '') + preview : '')).trim();
+            scrollToBottom();
+          } else if (
+            msg.type === 'conversation.item.input_audio_transcription.sentence' ||
+            msg.type === 'conversation.item.input_audio_transcription.completed'
+          ) {
+            const text = (msg.text || msg.transcript || '').trim();
+            if (text) {
+              const itemId = msg.item_id || `item_${finalizedSentences.value.length}`;
+              const prevEnd = finalizedSentences.value.length > 0 ? finalizedSentences.value[finalizedSentences.value.length - 1].end : 0;
+              const start = typeof msg.start === 'number' ? msg.start : prevEnd;
+              const end = typeof msg.end === 'number' ? msg.end : (durationSec.value || start);
+
+              const existingIdx = finalizedSentences.value.findIndex((s) => s.id === itemId);
+              if (existingIdx >= 0) {
+                // Update in-place to prevent duplicate push when both sentence and completed are received
+                finalizedSentences.value[existingIdx] = {
+                  id: itemId,
+                  start: finalizedSentences.value[existingIdx].start,
+                  end: Math.max(finalizedSentences.value[existingIdx].end, end),
+                  text: text || finalizedSentences.value[existingIdx].text
+                };
+              } else {
+                finalizedSentences.value.push({ id: itemId, start, end, text });
+              }
+
+              liveSentencePreview.value = '';
+              transcribedText.value = finalizedSentences.value.map((s) => s.text).join(' ');
+              scrollToBottom();
+            }
+          } else if (msg.type === 'error') {
+            console.warn('[Dictate WS] Server error:', msg.error);
+          }
+        } catch (e) {
+          console.debug('[Dictate WS] parse error:', e);
+        }
+      };
+
+      ws.onerror = (err) => {
+        console.warn('[Dictate WS] Connection notice (will use standard fallback if needed):', err);
+        resolve(null);
+      };
+
+      ws.onclose = () => {
+        realtimeWs = null;
+      };
+    } catch (e) {
+      console.warn('[Dictate WS] Init error:', e);
+      resolve(null);
+    }
+  });
+}
+
+async function loadAvailableModels() {
+  try {
+    const data = await apiClient.getModels();
+    const allModels = data.data || data.models || [];
+    if (Array.isArray(allModels)) {
+      // Realtime dictation only accepts models with RealtimeASR capability (e.g. SenseVoice, X-ASR)
+      const ready = allModels.filter(
+        (m) => m.status === 'ready' && Array.isArray(m.categories) && m.categories.includes('RealtimeASR')
+      );
+      if (ready.length > 0) {
+        modelOptions.value = ready.map((m) => ({
+          id: m.id,
+          name: `${m.name || m.id}${m.loaded ? ' (● 内存驻留)' : ''}`,
+          isLoaded: !!m.loaded
+        }));
+        const loadedModel = modelOptions.value.find((m) => m.isLoaded);
+        const senseVoice = modelOptions.value.find((m) => m.id === 'sensevoice-small');
+        if (loadedModel) {
+          selectedModel.value = loadedModel.id;
+        } else if (senseVoice) {
+          selectedModel.value = senseVoice.id;
+        } else if (!modelOptions.value.some((m) => m.id === selectedModel.value)) {
+          selectedModel.value = modelOptions.value[0].id;
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[DictateView] Failed to load ready models:', err);
+  }
+}
 
 let audioEngine = null;
 let timerInterval = null;
@@ -209,6 +383,7 @@ const currentStatusText = computed(() => {
 onMounted(async () => {
   audioEngine = new AudioEngine();
   await refreshMicrophones();
+  await loadAvailableModels();
 
   if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
     navigator.mediaDevices.addEventListener('devicechange', refreshMicrophones);
@@ -218,6 +393,10 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  if (realtimeWs) {
+    try { realtimeWs.close(); } catch (e) {}
+    realtimeWs = null;
+  }
   if (isRecording.value) {
     audioEngine.stopRecording();
   }
@@ -256,10 +435,32 @@ async function startRecording() {
     durationSec.value = 0;
     latencyMs.value = 0;
     rtf.value = '0.00';
+    finalizedSentences.value = [];
+    liveSentencePreview.value = '';
 
-    await audioEngine.startRecording(selectedMicId.value, (vol) => {
-      volume.value = vol;
-    });
+    // 1. 尝试连接真流式 WebSocket (/v1/x/realtime)
+    realtimeWs = await connectRealtimeWebSocket();
+
+    // 2. 启动麦克风录音，并流式投递 Float32 PCM16 切片
+    await audioEngine.startRecording(
+      selectedMicId.value,
+      (vol) => {
+        volume.value = vol;
+      },
+      (float32Chunk) => {
+        if (realtimeWs && realtimeWs.readyState === WebSocket.OPEN) {
+          const b64 = audioEngine.float32ToPcm16Base64(float32Chunk);
+          if (b64) {
+            realtimeWs.send(
+              JSON.stringify({
+                type: 'input_audio_buffer.append',
+                audio: b64
+              })
+            );
+          }
+        }
+      }
+    );
 
     isRecording.value = true;
     timerInterval = setInterval(() => {
@@ -300,31 +501,110 @@ async function stopAndTranscribe() {
   isRecording.value = false;
   isTranscribing.value = true;
 
+  // 1. 若 WebSocket 处于开启状态，发送 commit 最终定稿
+  if (realtimeWs && realtimeWs.readyState === WebSocket.OPEN) {
+    try {
+      realtimeWs.send(JSON.stringify({ type: 'input_audio_buffer.commit' }));
+    } catch (e) {}
+    setTimeout(() => {
+      if (realtimeWs) {
+        try { realtimeWs.close(); } catch (e) {}
+        realtimeWs = null;
+      }
+    }, 400);
+  }
+
   try {
     const wavBlob = await audioEngine.stopRecording();
-    if (wavBlob) {
-      const result = await apiClient.transcribeAudio(wavBlob, selectedModel.value);
-      transcribedText.value = result.text;
-      latencyMs.value = result.latencyMs;
-      rtf.value = result.rtf;
+    const lang = selectedLanguage.value !== 'auto' ? selectedLanguage.value : '';
 
+    // 2. 若 WS 模式未产出文本（如离线模型、WS 降级），则走标准文件转写接口兜底
+    if (wavBlob && !transcribedText.value) {
+      const result = await apiClient.transcribeAudio(wavBlob, selectedModel.value, lang);
+      transcribedText.value = result.text || '';
+      latencyMs.value = result.latencyMs || 0;
+      rtf.value = result.rtf || '0.00';
+      if (result.segments && result.segments.length > 0) {
+        finalizedSentences.value = result.segments.map((seg, i) => ({
+          id: `seg_${i}`,
+          start: typeof seg.start === 'number' ? seg.start : 0,
+          end: typeof seg.end === 'number' ? seg.end : 0,
+          text: seg.text || ''
+        }));
+      } else if (result.text) {
+        finalizedSentences.value = [
+          {
+            id: 'seg_0',
+            start: 0,
+            end: durationSec.value || 0,
+            text: result.text
+          }
+        ];
+      }
+    }
+
+    if (transcribedText.value) {
       emit('add-history', {
         id: Date.now().toString(),
         type: 'dictate',
-        text: result.text,
+        text: transcribedText.value,
+        segments: [...finalizedSentences.value],
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         model: selectedModel.value,
         duration: durationSec.value,
-        latency: result.latencyMs
+        latency: latencyMs.value
       });
     }
   } catch (err) {
     console.error('Transcription error:', err);
-    transcribedText.value = `[转录失败: ${err.message}]`;
+    errorMessage.value = `[转录失败: ${err.message}]`;
   } finally {
     isTranscribing.value = false;
     volume.value = 0;
   }
+}
+
+const currentLiveStart = computed(() => {
+  if (finalizedSentences.value.length > 0) {
+    return finalizedSentences.value[finalizedSentences.value.length - 1].end;
+  }
+  return 0;
+});
+
+function formatTime(seconds = 0) {
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  const ms = Math.floor((seconds % 1) * 100);
+  return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}.${String(ms).padStart(2, '0')}`;
+}
+
+function scrollToBottom() {
+  if (canvasBody.value) {
+    canvasBody.value.scrollTop = canvasBody.value.scrollHeight;
+  }
+}
+
+function exportFile(format = 'srt') {
+  if (finalizedSentences.value.length === 0) return;
+  let content = '';
+  if (format === 'srt') {
+    content = finalizedSentences.value
+      .map((seg, i) => `${i + 1}\n${formatTime(seg.start)} --> ${formatTime(seg.end)}\n${seg.text}\n`)
+      .join('\n');
+  } else if (format === 'vtt') {
+    content =
+      'WEBVTT\n\n' +
+      finalizedSentences.value
+        .map((seg, i) => `${i + 1}\n${formatTime(seg.start)} --> ${formatTime(seg.end)}\n${seg.text}\n`)
+        .join('\n');
+  }
+  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `dictate_${Date.now()}.${format}`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 function copyResult() {
@@ -338,6 +618,8 @@ function copyResult() {
 
 function clearText() {
   transcribedText.value = '';
+  finalizedSentences.value = [];
+  liveSentencePreview.value = '';
 }
 </script>
 
@@ -580,20 +862,81 @@ function clearText() {
   color: var(--text-muted);
 }
 
-.text-display {
-  font-size: 15px;
-  line-height: 1.75;
-  letter-spacing: 0.2px;
+.dictate-stream {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dictate-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.dictate-row:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.dictate-row.live-row {
+  border-color: rgba(16, 185, 129, 0.25);
+  background: rgba(16, 185, 129, 0.03);
+}
+
+.timestamp-badge {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.05);
+  padding: 2px 8px;
+  border-radius: 5px;
+  border: 1px solid var(--border-subtle);
+  white-space: nowrap;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  user-select: none;
+}
+
+.timestamp-badge.live-badge {
+  color: var(--accent-emerald);
+  background: var(--accent-emerald-subtle);
+  border-color: rgba(16, 185, 129, 0.3);
+}
+
+.live-pulse-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: var(--accent-emerald);
+  box-shadow: 0 0 6px rgba(16, 185, 129, 0.6);
+  animation: pulse-dot 1.2s infinite;
+}
+
+.dictate-text {
+  font-size: 14px;
+  line-height: 1.6;
   color: var(--text-primary);
+  word-break: break-word;
   user-select: text;
   -webkit-user-select: text;
-  word-break: break-word;
+  flex: 1;
+}
+
+.dictate-text.live-text {
+  color: var(--text-primary);
 }
 
 .typing-cursor {
   display: inline-block;
   width: 2px;
-  height: 18px;
+  height: 16px;
   background-color: var(--accent-emerald);
   margin-left: 3px;
   vertical-align: middle;

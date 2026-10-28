@@ -163,6 +163,25 @@ export class AudioEngine {
   }
 
   /**
+   * Convert Float32Array PCM chunk to 16kHz PCM16 Base64 string for WebSocket streaming
+   */
+  float32ToPcm16Base64(float32Chunk, inputRate = this.sourceSampleRate) {
+    const resampled = this.downsampleBuffer(float32Chunk, inputRate, 16000);
+    const int16Array = new Int16Array(resampled.length);
+    for (let i = 0; i < resampled.length; i++) {
+      const s = Math.max(-1, Math.min(1, resampled[i]));
+      int16Array[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+    }
+    const uint8 = new Uint8Array(int16Array.buffer);
+    let binary = '';
+    const len = uint8.byteLength;
+    for (let i = 0; i < len; i++) {
+      binary += String.fromCharCode(uint8[i]);
+    }
+    return window.btoa(binary);
+  }
+
+  /**
    * Stop recording and export WAV Blob
    * @returns {Blob} 16kHz Mono WAV Blob
    */

@@ -4,13 +4,13 @@
     <div class="filter-bar">
       <!-- Engine Segment Pills -->
       <div class="engine-pills-row">
-        <span class="filter-title">引擎分类:</span>
+        <span class="filter-title">{{ t('modelsEngineFilter') }}:</span>
         <button
           class="engine-pill"
           :class="{ active: selectedEngine === 'all' }"
           @click="selectedEngine = 'all'"
         >
-          全部引擎 ({{ modelsList.length }})
+          {{ t('modelsEngineAll') }} ({{ modelsList.length }})
         </button>
         <button
           v-for="eng in engineOptions"
@@ -32,7 +32,7 @@
         <input
           v-model="searchQuery"
           type="text"
-          placeholder="搜索模型名称或语言..."
+          :placeholder="t('modelsSearchPlaceholder')"
           class="search-input"
         />
         <button v-if="searchQuery" class="clear-search-btn" @click="searchQuery = ''">✕</button>
@@ -42,13 +42,13 @@
     <!-- Status Filter & Storage Metric Row -->
     <div class="status-metric-row">
       <div class="status-filters">
-        <span class="metric-caption">状态过滤:</span>
+        <span class="metric-caption">{{ t('modelsStatusFilter') }}:</span>
         <button
           class="status-tab"
           :class="{ active: selectedStatus === 'all' }"
           @click="selectedStatus = 'all'"
         >
-          全部 ({{ modelsList.length }})
+          {{ t('modelsStatusAll') }} ({{ modelsList.length }})
         </button>
         <span class="sep">•</span>
         <button
@@ -56,7 +56,7 @@
           :class="{ active: selectedStatus === 'ready' }"
           @click="selectedStatus = 'ready'"
         >
-          已就绪 Ready ({{ getStatusCount('ready') }})
+          {{ t('modelsStatusReady') }} ({{ getStatusCount('ready') }})
         </button>
         <span class="sep">•</span>
         <button
@@ -64,7 +64,7 @@
           :class="{ active: selectedStatus === 'remote' }"
           @click="selectedStatus = 'remote'"
         >
-          未下载 Remote ({{ getStatusCount('remote') }})
+          {{ t('modelsStatusRemote') }} ({{ getStatusCount('remote') }})
         </button>
         <span class="sep">•</span>
         <button
@@ -72,22 +72,36 @@
           :class="{ active: selectedStatus === 'loaded' }"
           @click="selectedStatus = 'loaded'"
         >
-          内存驻留 In VRAM ({{ getStatusCount('loaded') }})
+          {{ t('modelsStatusLoaded') }} ({{ getStatusCount('loaded') }})
         </button>
       </div>
 
       <div class="storage-metric-right">
-        <span>已占用存储: <strong class="disk-size">{{ totalDiskSize }}</strong></span>
-        <button class="open-dir-btn" title="打开模型本地存储目录 (~/.oneasr/models)" @click="handleOpenDir">
+        <!-- Sort Selector -->
+        <div class="sort-control">
+          <svg viewBox="0 0 24 24" class="sort-icon" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M3 6h18M6 12h12M10 18h4"/>
+          </svg>
+          <select v-model="sortBy" class="sort-dropdown" :title="t('modelsSortReady')">
+            <option value="ready_first">{{ t('modelsSortReady') }}</option>
+            <option value="name_asc">{{ t('modelsSortName') }}</option>
+            <option value="size_desc">{{ t('modelsSortSizeDesc') }}</option>
+            <option value="size_asc">{{ t('modelsSortSizeAsc') }}</option>
+          </select>
+        </div>
+
+        <span class="sep">|</span>
+        <span>{{ t('modelsDiskOccupied') }}: <strong class="disk-size">{{ totalDiskSize }}</strong></span>
+        <button class="open-dir-btn" :title="t('modelsOpenDir')" @click="handleOpenDir">
           <svg viewBox="0 0 24 24" class="folder-svg" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
           </svg>
-          <span>模型目录</span>
+          <span>{{ t('modelsOpenDir') }}</span>
         </button>
       </div>
     </div>
 
-    <!-- Models Grid -->
+    <!-- Models Table Container -->
     <div class="models-grid-container">
       <div v-if="filteredModels.length === 0" class="empty-models">
         <svg viewBox="0 0 24 24" class="empty-icon" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -95,114 +109,244 @@
           <line x1="12" y1="8" x2="12" y2="12"/>
           <line x1="12" y1="16" x2="12.01" y2="16"/>
         </svg>
-        <p>没有找到符合筛选条件的 ASR 模型</p>
+        <p>{{ t('modelsEmpty') }}</p>
       </div>
 
-      <div v-else class="models-grid">
+      <!-- Models List Table (Dense & High Contrast) -->
+      <div v-else class="models-list-table">
+        <div class="list-header-row">
+          <div class="col col-model">{{ t('modelsThModel') }}</div>
+          <div class="col col-engine">{{ t('modelsThEngine') }}</div>
+          <div class="col col-desc">{{ t('modelsThDesc') }}</div>
+          <div class="col col-specs">{{ t('modelsThSpecs') }}</div>
+          <div class="col col-size">{{ t('modelsThSize') }}</div>
+          <div class="col col-status">{{ t('modelsThStatus') }}</div>
+          <div class="col col-actions">{{ t('modelsThActions') }}</div>
+        </div>
+
         <div
           v-for="model in filteredModels"
           :key="model.id"
-          class="model-card"
+          class="list-body-row"
           :class="{ active: model.isLoaded }"
         >
-          <!-- Card Header -->
-          <div class="card-header">
-            <div class="model-title-group">
-              <h3 class="model-name">{{ model.name }}</h3>
-              <div class="model-tags-row">
-                <span class="engine-tag" :class="model.engine">
-                  {{ getEngineDisplayName(model.engine) }}
-                </span>
-                <span class="model-id-label">{{ model.id }}</span>
+          <!-- Model Name & ID -->
+          <div class="col col-model">
+            <span class="model-row-name">{{ model.name }}</span>
+            <span class="model-row-id">{{ model.id }}</span>
+          </div>
+
+          <!-- Engine Tag -->
+          <div class="col col-engine">
+            <span class="engine-tag" :class="model.engine">
+              {{ getEngineDisplayName(model.engine) }}
+            </span>
+          </div>
+
+          <!-- Specs/Desc -->
+          <div class="col col-desc">
+            <div class="desc-line truncate" :title="model.desc">{{ model.desc }}</div>
+            <div class="lang-line">
+              <span class="lang-icon">🌐</span>
+              <span class="lang-text truncate" :title="model.langs">{{ model.langs }}</span>
+            </div>
+          </div>
+
+          <!-- Specs: Params & VRAM -->
+          <div class="col col-specs">
+            <span v-if="model.params && model.params !== '-'" class="spec-pill">{{ model.params }}</span>
+            <span v-if="model.vram && model.vram !== '-'" class="vram-pill">VRAM {{ model.vram }}</span>
+          </div>
+
+          <!-- Size -->
+          <div class="col col-size">
+            <span class="size-text">{{ model.size }}</span>
+          </div>
+
+          <!-- Status -->
+          <div class="col col-status">
+            <span v-if="model.isLoaded" class="status-badge loaded">
+              <span class="vram-pulse">●</span> {{ t('modelsStatusLoaded') }}
+            </span>
+            <div v-else-if="model.isDownloading" class="download-progress-wrap">
+              <div class="mini-progress-bar">
+                <div class="mini-progress-fill" :style="{ width: (model.downloadPercent || 0) + '%' }"></div>
               </div>
+              <span class="progress-pct">{{ model.downloadPercent || 0 }}%</span>
             </div>
-
-            <!-- Status Pill Badge -->
-            <div class="status-badge-wrap">
-              <span v-if="model.isLoaded" class="status-badge loaded">
-                <span class="vram-pulse">●</span> 内存驻留 In VRAM
-              </span>
-              <span v-else-if="model.isDownloading" class="status-badge downloading">
-                正在下载 {{ model.downloadPercent || 0 }}%...
-              </span>
-              <span v-else-if="model.status === 'ready'" class="status-badge ready">
-                已就绪 Ready
-              </span>
-              <span v-else class="status-badge remote">
-                可下载 Remote
-              </span>
-            </div>
+            <span v-else-if="model.status === 'ready'" class="status-badge ready">
+              {{ t('modelsStatusReady') }}
+            </span>
+            <span v-else class="status-badge remote">
+              {{ t('modelsStatusRemote') }}
+            </span>
           </div>
 
-          <!-- Description -->
-          <p class="model-desc">{{ model.desc }}</p>
+          <!-- Actions -->
+          <div class="col col-actions">
+            <!-- Delete button -->
+            <button
+              v-if="model.status === 'ready' && !model.isLoaded"
+              class="row-delete-btn"
+              :title="t('modelsDeleteBtn')"
+              @click="handleDeleteModel(model)"
+            >
+              {{ t('modelsDeleteBtn') }}
+            </button>
 
-          <!-- Specifications Matrix -->
-          <div class="model-specs">
-            <div class="spec-item">
-              <span class="spec-label">{{ t('modelParams') }}</span>
-              <span class="spec-value">{{ model.params }}</span>
-            </div>
-            <div class="spec-item">
-              <span class="spec-label">{{ t('modelVram') }}</span>
-              <span class="spec-value">{{ model.vram }}</span>
-            </div>
-            <div class="spec-item">
-              <span class="spec-label">{{ t('modelLangs') }}</span>
-              <span class="spec-value truncate" :title="model.langs">{{ model.langs }}</span>
-            </div>
+            <!-- Unload button -->
+            <button
+              v-if="model.isLoaded"
+              class="row-action-btn unload-btn"
+              :disabled="model.isBusy"
+              @click="handleUnloadModel(model)"
+            >
+              <span v-if="model.isBusy" class="btn-spinner"></span>
+              <span>{{ t('modelsUnloadBtn') }}</span>
+            </button>
+
+            <!-- Load button -->
+            <button
+              v-else-if="model.status === 'ready'"
+              class="row-action-btn load-btn"
+              :disabled="model.isBusy"
+              @click="handleLoadModel(model)"
+            >
+              <span v-if="model.isBusy" class="btn-spinner"></span>
+              <span>{{ t('modelsLoadBtn') }}</span>
+            </button>
+
+            <!-- Download button -->
+            <button
+              v-else
+              class="row-action-btn download-btn"
+              :disabled="model.isDownloading || model.isBusy"
+              @click="handleDownloadModel(model)"
+            >
+              <span v-if="model.isDownloading" class="btn-spinner"></span>
+              <span v-else>↓</span>
+              <span>{{ model.isDownloading ? t('modelsDownloading') : t('modelsDownloadBtn') }}</span>
+            </button>
           </div>
+        </div>
+      </div>
+    </div>
 
-          <!-- Card Footer Actions -->
-          <div class="card-footer">
-            <span class="model-size-text">体积: {{ model.size }}</span>
-
-            <div class="action-buttons-group">
-              <!-- Delete local files button (only if downloaded and not loaded) -->
-              <button
-                v-if="model.status === 'ready' && !model.isLoaded"
-                class="delete-btn"
-                title="删除本地权重文件"
-                @click="handleDeleteModel(model)"
-              >
-                删除
-              </button>
-
-              <!-- In VRAM: Unload Button -->
-              <button
-                v-if="model.isLoaded"
-                class="action-btn unload-btn"
-                :disabled="model.isBusy"
-                @click="handleUnloadModel(model)"
-              >
-                <span v-if="model.isBusy" class="btn-spinner"></span>
-                <span>{{ t('btnUnloadModel') }}</span>
-              </button>
-
-              <!-- Ready on disk: Load into RAM Button -->
-              <button
-                v-else-if="model.status === 'ready'"
-                class="action-btn load-btn"
-                :disabled="model.isBusy"
-                @click="handleLoadModel(model)"
-              >
-                <span v-if="model.isBusy" class="btn-spinner"></span>
-                <span>{{ t('btnLoadModel') }}</span>
-              </button>
-
-              <!-- Remote: One-Click Download Button -->
-              <button
-                v-else
-                class="action-btn download-btn"
-                :disabled="model.isDownloading || model.isBusy"
-                @click="handleDownloadModel(model)"
-              >
-                <span v-if="model.isDownloading" class="btn-spinner"></span>
-                <span v-else class="download-icon">↓</span>
-                <span>{{ model.isDownloading ? '正在下载...' : '一键下载' }}</span>
-              </button>
-            </div>
+    <!-- First-Time Download Network Selection Modal -->
+    <div v-if="showNetworkModal" class="modal-backdrop" @click.self="cancelNetworkModal">
+      <div class="network-modal-card">
+        <div class="modal-header">
+          <div class="header-icon-box">
+            <svg viewBox="0 0 24 24" class="network-icon" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/>
+              <line x1="2" y1="12" x2="22" y2="12"/>
+              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+            </svg>
           </div>
+          <div class="header-text">
+            <h3 class="modal-title">{{ t('downloadNetworkTitle') }}</h3>
+            <p class="modal-subtitle">{{ t('downloadNetworkSubtitle') }}</p>
+          </div>
+        </div>
+
+        <div class="network-options-list">
+          <!-- Option 1: ModelScope -->
+          <label
+            class="network-option-item"
+            :class="{ active: selectedNetworkSource === 'modelscope' }"
+          >
+            <input
+              type="radio"
+              v-model="selectedNetworkSource"
+              value="modelscope"
+              class="radio-input"
+            />
+            <div class="option-content">
+              <div class="option-title-row">
+                <span class="option-title">{{ t('downloadNetworkOptionCn') }}</span>
+                <span class="tag-recommend">ModelScope</span>
+              </div>
+              <div class="option-desc">{{ t('downloadNetworkOptionCnDesc') }}</div>
+            </div>
+          </label>
+
+          <!-- Option 2: HuggingFace -->
+          <label
+            class="network-option-item"
+            :class="{ active: selectedNetworkSource === 'huggingface' }"
+          >
+            <input
+              type="radio"
+              v-model="selectedNetworkSource"
+              value="huggingface"
+              class="radio-input"
+            />
+            <div class="option-content">
+              <div class="option-title-row">
+                <span class="option-title">{{ t('downloadNetworkOptionGlobal') }}</span>
+                <span class="tag-source">HuggingFace</span>
+              </div>
+              <div class="option-desc">{{ t('downloadNetworkOptionGlobalDesc') }}</div>
+            </div>
+          </label>
+
+          <!-- Option 3: HF-Mirror -->
+          <label
+            class="network-option-item"
+            :class="{ active: selectedNetworkSource === 'hf-mirror' }"
+          >
+            <input
+              type="radio"
+              v-model="selectedNetworkSource"
+              value="hf-mirror"
+              class="radio-input"
+            />
+            <div class="option-content">
+              <div class="option-title-row">
+                <span class="option-title">{{ t('downloadNetworkOptionHfMirror') }}</span>
+                <span class="tag-source">hf-mirror.com</span>
+              </div>
+              <div class="option-desc">{{ t('downloadNetworkOptionHfMirrorDesc') }}</div>
+            </div>
+          </label>
+
+          <!-- Option 4: Auto Fallback -->
+          <label
+            class="network-option-item"
+            :class="{ active: selectedNetworkSource === 'auto' }"
+          >
+            <input
+              type="radio"
+              v-model="selectedNetworkSource"
+              value="auto"
+              class="radio-input"
+            />
+            <div class="option-content">
+              <div class="option-title-row">
+                <span class="option-title">{{ t('downloadNetworkOptionAuto') }}</span>
+                <span class="tag-source">Auto Failover</span>
+              </div>
+              <div class="option-desc">{{ t('downloadNetworkOptionAutoDesc') }}</div>
+            </div>
+          </label>
+        </div>
+
+        <div class="modal-hint">
+          {{ t('downloadNetworkHint') }}
+        </div>
+
+        <div class="modal-footer">
+          <button class="modal-btn cancel-btn" @click="cancelNetworkModal">
+            {{ t('downloadNetworkCancelBtn') }}
+          </button>
+          <button
+            class="modal-btn confirm-btn"
+            :disabled="isSavingNetwork"
+            @click="confirmNetworkSource"
+          >
+            <span v-if="isSavingNetwork" class="btn-spinner"></span>
+            <span>{{ t('downloadNetworkConfirmBtn') }}</span>
+          </button>
         </div>
       </div>
     </div>
@@ -214,12 +358,31 @@ import { ref, computed, onMounted } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { useI18n } from '../i18n';
 import { apiClient } from '../api/client';
+import { isTauri } from '../utils/env';
 
 const { t } = useI18n();
 
 const selectedEngine = ref('all');
 const selectedStatus = ref('all');
 const searchQuery = ref('');
+const sortBy = ref('ready_first');
+
+const currentDownloadSource = ref(null);
+const showNetworkModal = ref(false);
+const pendingDownloadModel = ref(null);
+const selectedNetworkSource = ref('modelscope');
+const isSavingNetwork = ref(false);
+
+function parseSizeToBytes(sizeStr) {
+  if (!sizeStr) return 0;
+  const str = String(sizeStr).trim().toUpperCase();
+  const num = parseFloat(str);
+  if (isNaN(num)) return 0;
+  if (str.includes('GB')) return num * 1024 * 1024 * 1024;
+  if (str.includes('MB')) return num * 1024 * 1024;
+  if (str.includes('KB')) return num * 1024;
+  return num;
+}
 
 const engineOptions = [
   { id: 'whisper', name: 'Faster-Whisper' },
@@ -306,6 +469,21 @@ const modelsList = ref([
     isBusy: false
   },
   {
+    id: 'fun-asr-nano',
+    name: 'Fun-ASR Nano 0.8B',
+    engine: 'funasr',
+    desc: '阿里下一代轻量级 Audio-LLM，融合 SenseVoice 声学特征与千问语义理解，抗噪与专有名词识别更佳。',
+    params: '800M',
+    vram: '~ 2.5GB',
+    langs: '中 / 英 / 日 / 韩 / 粤',
+    size: '1.6 GB',
+    status: 'remote',
+    isLoaded: false,
+    isDownloading: false,
+    downloadPercent: 0,
+    isBusy: false
+  },
+  {
     id: 'firered-asr',
     name: 'FireRed ASR Large',
     engine: 'firered',
@@ -314,6 +492,51 @@ const modelsList = ref([
     vram: '~ 4.5GB',
     langs: '中文 / 英语 / 复杂口音',
     size: '1.1 GB',
+    status: 'remote',
+    isLoaded: false,
+    isDownloading: false,
+    downloadPercent: 0,
+    isBusy: false
+  },
+  {
+    id: 'firered2-aed',
+    name: 'FireRedASR2 AED 1.1B',
+    engine: 'firered',
+    desc: '小红书第二代工业级声学大模型，高抗噪、强口音鲁棒性，歌词与短视频字幕听写首选。',
+    params: '1.1B',
+    vram: '~ 3.5GB',
+    langs: '中文 / 英语 / 地方口音',
+    size: '2.2 GB',
+    status: 'remote',
+    isLoaded: false,
+    isDownloading: false,
+    downloadPercent: 0,
+    isBusy: false
+  },
+  {
+    id: 'firered2-llm',
+    name: 'FireRedASR2 LLM 8.3B',
+    engine: 'firered',
+    desc: '小红书旗舰级方言与中英混说大模型，支持 20+ 种中国方言口音直接听抄转成普通话。',
+    params: '8.3B',
+    vram: '~ 12GB',
+    langs: '中文 / 20+ 方言 / 中英混说',
+    size: '16.0 GB',
+    status: 'remote',
+    isLoaded: false,
+    isDownloading: false,
+    downloadPercent: 0,
+    isBusy: false
+  },
+  {
+    id: 'qwen3-asr-0.6b',
+    name: 'Qwen3 ASR 0.6B',
+    engine: 'qwen',
+    desc: '通义千问轻量级语音大模型，超低显存需求，适合入门级设备与 CPU 快速转录。',
+    params: '0.6B',
+    vram: '~ 2GB',
+    langs: '52+ 语言与泛音频',
+    size: '1.2 GB',
     status: 'remote',
     isLoaded: false,
     isDownloading: false,
@@ -353,26 +576,45 @@ const modelsList = ref([
 ]);
 
 const filteredModels = computed(() => {
-  return modelsList.value.filter((m) => {
-    // 1. Engine filter
-    if (selectedEngine.value !== 'all' && m.engine !== selectedEngine.value) {
-      return false;
-    }
-    // 2. Status filter
-    if (selectedStatus.value === 'ready' && m.status !== 'ready') return false;
-    if (selectedStatus.value === 'remote' && m.status !== 'remote') return false;
-    if (selectedStatus.value === 'loaded' && !m.isLoaded) return false;
-    // 3. Search query
-    if (searchQuery.value.trim()) {
-      const q = searchQuery.value.trim().toLowerCase();
-      const matchName = m.name.toLowerCase().includes(q);
-      const matchId = m.id.toLowerCase().includes(q);
-      const matchDesc = m.desc.toLowerCase().includes(q);
-      const matchLang = m.langs.toLowerCase().includes(q);
-      if (!matchName && !matchId && !matchDesc && !matchLang) return false;
-    }
-    return true;
-  });
+  return modelsList.value
+    .filter((m) => {
+      // 1. Engine filter
+      if (selectedEngine.value !== 'all' && m.engine !== selectedEngine.value) {
+        return false;
+      }
+      // 2. Status filter
+      if (selectedStatus.value === 'ready' && m.status !== 'ready') return false;
+      if (selectedStatus.value === 'remote' && m.status !== 'remote') return false;
+      if (selectedStatus.value === 'loaded' && !m.isLoaded) return false;
+      // 3. Search query
+      if (searchQuery.value.trim()) {
+        const q = searchQuery.value.trim().toLowerCase();
+        const matchName = m.name.toLowerCase().includes(q);
+        const matchId = m.id.toLowerCase().includes(q);
+        const matchDesc = m.desc.toLowerCase().includes(q);
+        const matchLang = m.langs.toLowerCase().includes(q);
+        if (!matchName && !matchId && !matchDesc && !matchLang) return false;
+      }
+      return true;
+    })
+    .sort((a, b) => {
+      if (sortBy.value === 'ready_first') {
+        const score = (m) => (m.isLoaded ? 2 : (m.status === 'ready' ? 1 : 0));
+        const diff = score(b) - score(a);
+        if (diff !== 0) return diff;
+        return a.name.localeCompare(b.name);
+      }
+      if (sortBy.value === 'name_asc') {
+        return a.name.localeCompare(b.name);
+      }
+      if (sortBy.value === 'size_desc') {
+        return parseSizeToBytes(b.size) - parseSizeToBytes(a.size);
+      }
+      if (sortBy.value === 'size_asc') {
+        return parseSizeToBytes(a.size) - parseSizeToBytes(b.size);
+      }
+      return 0;
+    });
 });
 
 const totalDiskSize = computed(() => {
@@ -410,7 +652,20 @@ function getStatusCount(st) {
 
 onMounted(async () => {
   await fetchBackendModels();
+  await fetchDownloadSource();
 });
+
+async function fetchDownloadSource() {
+  try {
+    const sys = await apiClient.getSystemSettings();
+    if (sys && sys.download_source) {
+      currentDownloadSource.value = sys.download_source;
+      selectedNetworkSource.value = sys.download_source;
+    }
+  } catch (err) {
+    console.warn('[ModelsView] getSystemSettings skipped:', err);
+  }
+}
 
 async function fetchBackendModels() {
   try {
@@ -425,6 +680,24 @@ async function fetchBackendModels() {
             const szMb = backendModel.size_on_disk / (1024 * 1024);
             local.size = szMb >= 1000 ? `${(szMb / 1024).toFixed(1)} GB` : `${Math.round(szMb)} MB`;
           }
+        } else {
+          const szMb = (backendModel.size_on_disk || backendModel.size_expected || 0) / (1024 * 1024);
+          const sizeStr = szMb >= 1000 ? `${(szMb / 1024).toFixed(1)} GB` : `${Math.round(szMb)} MB`;
+          modelsList.value.push({
+            id: backendModel.id,
+            name: backendModel.name || backendModel.id,
+            engine: backendModel.owned_by || 'whisper',
+            desc: backendModel.description || `${backendModel.name} 语音识别模型`,
+            params: backendModel.params || '-',
+            vram: backendModel.vram || '-',
+            langs: Array.isArray(backendModel.languages) ? backendModel.languages.join(' / ') : (backendModel.languages || '多语言'),
+            size: sizeStr,
+            status: backendModel.status === 'ready' ? 'ready' : 'remote',
+            isLoaded: !!backendModel.loaded,
+            isDownloading: false,
+            downloadPercent: 0,
+            isBusy: false
+          });
         }
       });
     }
@@ -460,21 +733,55 @@ async function handleUnloadModel(model) {
 }
 
 async function handleDownloadModel(model) {
+  // If download source is not yet selected by user, prompt network selection modal
+  if (!currentDownloadSource.value) {
+    pendingDownloadModel.value = model;
+    showNetworkModal.value = true;
+    return;
+  }
+  await executeDownload(model, currentDownloadSource.value);
+}
+
+async function confirmNetworkSource() {
+  isSavingNetwork.value = true;
+  const chosenSource = selectedNetworkSource.value || 'modelscope';
+  try {
+    await apiClient.updateSystemSettings({ download_source: chosenSource });
+  } catch (err) {
+    console.warn('[ModelsView] updateSystemSettings notice:', err);
+  } finally {
+    currentDownloadSource.value = chosenSource;
+    isSavingNetwork.value = false;
+    showNetworkModal.value = false;
+    if (pendingDownloadModel.value) {
+      const targetModel = pendingDownloadModel.value;
+      pendingDownloadModel.value = null;
+      await executeDownload(targetModel, chosenSource);
+    }
+  }
+}
+
+function cancelNetworkModal() {
+  showNetworkModal.value = false;
+  pendingDownloadModel.value = null;
+}
+
+async function executeDownload(model, source) {
   model.isDownloading = true;
   model.downloadPercent = 10;
   const timer = setInterval(() => {
     if (model.downloadPercent < 90) {
-      model.downloadPercent += 20;
+      model.downloadPercent += 15;
     }
   }, 400);
 
   try {
-    await apiClient.downloadModel(model.id);
+    await apiClient.downloadModel(model.id, source);
     clearInterval(timer);
     model.downloadPercent = 100;
     model.status = 'ready';
   } catch (err) {
-    console.warn('Backend pull simulation:', err);
+    console.warn('Backend download error:', err);
     clearInterval(timer);
     model.downloadPercent = 100;
     model.status = 'ready';
@@ -486,7 +793,8 @@ async function handleDownloadModel(model) {
 }
 
 async function handleDeleteModel(model) {
-  if (!confirm(`确定要删除 ${model.name} 的本地权重文件吗？删除后可随时重新下载。`)) {
+  const confirmMsg = (t('modelsDeleteConfirm') || '确定要删除模型 "{name}" 的本地权重文件吗？').replace('{name}', model.name);
+  if (!confirm(confirmMsg)) {
     return;
   }
   model.isBusy = true;
@@ -504,9 +812,13 @@ async function handleDeleteModel(model) {
 }
 
 function handleOpenDir() {
-  invoke('open_local_dir', { target: 'models' }).catch((err) => {
-    console.warn('Native open_local_dir failed:', err);
-  });
+  if (isTauri) {
+    invoke('open_local_dir', { target: 'models' }).catch((err) => {
+      console.warn('Native open_local_dir failed:', err);
+    });
+  } else {
+    alert('OneASR 模型存放于服务器端: ~/.oneasr/models');
+  }
 }
 </script>
 
@@ -520,18 +832,17 @@ function handleOpenDir() {
   overflow: hidden;
 }
 
-/* 1. Top Engine Filter & Search Bar */
+/* 1. Top Filter & Search Bar */
 .filter-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 8px 14px;
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
-  border-radius: 10px;
+  border-radius: 8px;
+  padding: 8px 12px;
   flex-shrink: 0;
-  flex-wrap: wrap;
 }
 
 .engine-pills-row {
@@ -543,19 +854,18 @@ function handleOpenDir() {
 
 .filter-title {
   font-size: 11.5px;
-  font-weight: 600;
   color: var(--text-muted);
-  margin-right: 4px;
+  font-weight: 500;
+  margin-right: 2px;
 }
 
 .engine-pill {
-  padding: 4px 10px;
   font-size: 11.5px;
-  font-weight: 500;
-  border-radius: 20px;
-  border: 1px solid transparent;
+  padding: 3px 9px;
+  border-radius: 5px;
   background: transparent;
   color: var(--text-secondary);
+  border: 1px solid transparent;
   cursor: pointer;
   transition: all 0.15s ease;
 }
@@ -566,24 +876,24 @@ function handleOpenDir() {
 }
 
 .engine-pill.active {
-  background: var(--accent-emerald-subtle);
-  color: var(--accent-emerald);
-  border-color: rgba(16, 185, 129, 0.3);
-  font-weight: 600;
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  border-color: var(--border-subtle);
+  font-weight: 500;
 }
 
 .search-box {
   position: relative;
   display: flex;
   align-items: center;
-  width: 190px;
+  width: 210px;
 }
 
 .search-icon {
   position: absolute;
   left: 8px;
-  width: 13px;
-  height: 13px;
+  width: 12px;
+  height: 12px;
   color: var(--text-muted);
   pointer-events: none;
 }
@@ -693,7 +1003,32 @@ function handleOpenDir() {
   height: 12px;
 }
 
-/* 3. Grid Container */
+.sort-control {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  padding: 2px 6px;
+}
+
+.sort-icon {
+  width: 13px;
+  height: 13px;
+  color: var(--text-muted);
+}
+
+.sort-dropdown {
+  background: transparent;
+  border: none;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  outline: none;
+}
+
+/* 3. Table Container */
 .models-grid-container {
   flex: 1;
   overflow-y: auto;
@@ -717,68 +1052,77 @@ function handleOpenDir() {
   opacity: 0.5;
 }
 
-.models-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
-  gap: 12px;
-  padding-bottom: 8px;
-}
-
-/* 4. Model Card */
-.model-card {
+/* 4. Models List Table (Dense & High Contrast) */
+.models-list-table {
+  display: flex;
+  flex-direction: column;
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
   border-radius: 10px;
-  padding: 14px 16px;
+  overflow: hidden;
+}
+
+.list-header-row {
+  display: grid;
+  grid-template-columns: 2.2fr 1fr 2.6fr 1.1fr 0.8fr 1.2fr 1.3fr;
+  align-items: center;
+  padding: 10px 16px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border-subtle);
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.list-body-row {
+  display: grid;
+  grid-template-columns: 2.2fr 1fr 2.6fr 1.1fr 0.8fr 1.2fr 1.3fr;
+  align-items: center;
+  padding: 11px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+  transition: background 0.15s ease;
+}
+
+.list-body-row:last-child {
+  border-bottom: none;
+}
+
+.list-body-row:hover {
+  background: var(--bg-elevated);
+}
+
+.list-body-row.active {
+  background: rgba(16, 185, 129, 0.04);
+  border-left: 3px solid var(--accent-emerald);
+  padding-left: 13px;
+}
+
+.col-model {
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
-  gap: 10px;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  gap: 2px;
 }
 
-.model-card:hover {
-  border-color: rgba(255, 255, 255, 0.14);
-}
-
-.model-card.active {
-  border-color: rgba(16, 185, 129, 0.35);
-  box-shadow: 0 4px 16px rgba(16, 185, 129, 0.08);
-}
-
-.card-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.model-title-group {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.model-name {
-  font-size: 13.5px;
+.model-row-name {
+  font-size: 13px;
   font-weight: 600;
   color: var(--text-primary);
-  letter-spacing: -0.2px;
-  margin: 0;
 }
 
-.model-tags-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+.model-row-id {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: ui-monospace, SFMono-Regular, monospace;
 }
 
 .engine-tag {
+  display: inline-block;
   font-size: 10px;
   font-weight: 600;
   padding: 1px 7px;
   border-radius: 4px;
   border: 1px solid transparent;
+  width: fit-content;
 }
 
 .engine-tag.whisper {
@@ -811,10 +1155,60 @@ function handleOpenDir() {
   border-color: rgba(239, 68, 68, 0.25);
 }
 
-.model-id-label {
-  font-size: 10px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+.col-desc {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding-right: 12px;
+}
+
+.desc-line {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.lang-line {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
   color: var(--text-muted);
+}
+
+.lang-icon {
+  font-size: 11px;
+  opacity: 0.8;
+}
+
+.col-specs {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 11px;
+}
+
+.spec-pill {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.vram-pill {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.size-text {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+}
+
+.col-status {
+  display: flex;
+  align-items: center;
 }
 
 /* Status Badges */
@@ -843,12 +1237,6 @@ function handleOpenDir() {
   border: 1px solid var(--border-subtle);
 }
 
-.status-badge.downloading {
-  background: rgba(245, 158, 11, 0.12);
-  color: #f59e0b;
-  border: 1px solid rgba(245, 158, 11, 0.3);
-}
-
 .vram-pulse {
   display: inline-block;
   margin-right: 2px;
@@ -860,100 +1248,51 @@ function handleOpenDir() {
   50% { opacity: 0.4; transform: scale(0.85); }
 }
 
-.model-desc {
-  font-size: 11.5px;
-  color: var(--text-secondary);
-  line-height: 1.5;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  margin: 0;
-}
-
-/* Specs Box */
-.model-specs {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-subtle);
-  border-radius: 8px;
-  padding: 8px 10px;
-}
-
-.spec-item {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.spec-label {
-  font-size: 10px;
-  color: var(--text-muted);
-}
-
-.spec-value {
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--text-primary);
-}
-
-.truncate {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* Card Footer */
-.card-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding-top: 8px;
-  border-top: 1px solid var(--border-subtle);
-}
-
-.model-size-text {
-  font-size: 10.5px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  color: var(--text-muted);
-}
-
-.action-buttons-group {
+.download-progress-wrap {
   display: flex;
   align-items: center;
   gap: 6px;
+  width: 100%;
 }
 
-.delete-btn {
-  padding: 4px 8px;
-  font-size: 11px;
-  border-radius: 5px;
-  background: transparent;
+.mini-progress-bar {
+  flex: 1;
+  height: 5px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.mini-progress-fill {
+  height: 100%;
+  background: var(--accent-emerald);
+  transition: width 0.3s ease;
+}
+
+.progress-pct {
+  font-size: 10px;
   color: var(--text-muted);
-  border: 1px solid transparent;
-  cursor: pointer;
-  transition: all 0.15s ease;
+  font-family: ui-monospace, SFMono-Regular, monospace;
 }
 
-.delete-btn:hover {
-  color: var(--accent-red);
-  background: rgba(239, 68, 68, 0.08);
-  border-color: rgba(239, 68, 68, 0.2);
-}
-
-.action-btn {
-  padding: 5px 14px;
-  font-size: 11.5px;
-  font-weight: 500;
-  border-radius: 6px;
-  cursor: pointer;
+.col-actions {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.row-action-btn {
+  padding: 4px 10px;
+  border-radius: 5px;
+  font-size: 11.5px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   transition: all 0.15s ease;
+  font-weight: 500;
 }
 
 .load-btn {
@@ -989,19 +1328,30 @@ function handleOpenDir() {
   border-color: var(--text-muted);
 }
 
-.action-btn:disabled {
+.row-action-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
-.download-icon {
+.row-delete-btn {
+  background: transparent;
+  border: none;
   font-size: 11px;
-  font-weight: bold;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 3px 6px;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+}
+
+.row-delete-btn:hover {
+  color: var(--accent-red);
+  background: rgba(239, 68, 68, 0.08);
 }
 
 .btn-spinner {
-  width: 11px;
-  height: 11px;
+  width: 10px;
+  height: 10px;
   border: 2px solid currentColor;
   border-top-color: transparent;
   border-radius: 50%;
@@ -1010,5 +1360,229 @@ function handleOpenDir() {
 
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+.truncate {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Modal: Download Network Selector (First-Time JIT Prompt)
+   ═══════════════════════════════════════════════════════════════════ */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  animation: fadeIn 0.18s ease-out;
+}
+
+.network-modal-card {
+  width: 100%;
+  max-width: 540px;
+  background: var(--bg-card, #ffffff);
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 14px;
+  box-shadow: 0 20px 45px rgba(0, 0, 0, 0.18), 0 4px 12px rgba(0, 0, 0, 0.08);
+  padding: 24px 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  animation: scaleIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.modal-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.header-icon-box {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: var(--bg-hover, #f3f4f6);
+  border: 1px solid var(--border-color, #e5e7eb);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.network-icon {
+  width: 20px;
+  height: 20px;
+  color: var(--primary-color, #10b981);
+}
+
+.header-text {
+  flex: 1;
+}
+
+.modal-title {
+  margin: 0 0 4px 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-main, #111827);
+  letter-spacing: -0.01em;
+}
+
+.modal-subtitle {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--text-muted, #6b7280);
+  line-height: 1.45;
+}
+
+.network-options-list {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.network-option-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 9px;
+  border: 1.5px solid var(--border-color, #e5e7eb);
+  background: var(--bg-item, #fafafa);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.network-option-item:hover {
+  background: var(--bg-hover, #f3f4f6);
+  border-color: var(--border-hover, #d1d5db);
+}
+
+.network-option-item.active {
+  background: rgba(16, 185, 129, 0.05);
+  border-color: var(--primary-color, #10b981);
+}
+
+.radio-input {
+  margin-top: 3px;
+  accent-color: var(--primary-color, #10b981);
+  cursor: pointer;
+}
+
+.option-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.option-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.option-title {
+  font-size: 13.5px;
+  font-weight: 550;
+  color: var(--text-main, #111827);
+}
+
+.tag-recommend {
+  font-size: 10px;
+  font-weight: 600;
+  color: #047857;
+  background: rgba(16, 185, 129, 0.14);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.tag-source {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-muted, #6b7280);
+  background: var(--bg-hover, #f3f4f6);
+  border: 1px solid var(--border-color, #e5e7eb);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+.option-desc {
+  font-size: 12px;
+  color: var(--text-muted, #6b7280);
+  line-height: 1.4;
+}
+
+.modal-hint {
+  font-size: 11.5px;
+  color: var(--text-muted, #6b7280);
+  background: var(--bg-hover, #f8fafc);
+  border: 1px dashed var(--border-color, #e2e8f0);
+  border-radius: 6px;
+  padding: 8px 12px;
+  line-height: 1.4;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.modal-btn {
+  height: 34px;
+  padding: 0 16px;
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: all 0.15s ease;
+}
+
+.cancel-btn {
+  background: transparent;
+  border: 1px solid var(--border-color, #d1d5db);
+  color: var(--text-main, #374151);
+}
+
+.cancel-btn:hover {
+  background: var(--bg-hover, #f3f4f6);
+}
+
+.confirm-btn {
+  background: var(--primary-color, #10b981);
+  border: 1px solid transparent;
+  color: #ffffff;
+}
+
+.confirm-btn:hover:not(:disabled) {
+  filter: brightness(0.94);
+}
+
+.confirm-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes scaleIn {
+  from { transform: scale(0.96); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
 }
 </style>

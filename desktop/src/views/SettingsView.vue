@@ -56,6 +56,42 @@
         
         <div class="setting-row">
           <div class="row-info">
+            <span class="row-label">{{ t('apiBaseLabel') }}</span>
+            <span class="row-desc">{{ t('apiBaseDesc') }}</span>
+          </div>
+          <div class="row-control url-control-wrap">
+            <div class="url-input-group">
+              <input
+                v-model="apiBaseInput"
+                type="text"
+                class="url-input"
+                :placeholder="defaultPlaceholder"
+                @change="handleApiBaseChange"
+              />
+              <button
+                class="secondary-btn ping-btn"
+                :disabled="isPinging"
+                @click="testApiConnection"
+              >
+                <span v-if="isPinging" class="btn-spinner"></span>
+                <span v-else>{{ t('apiTestPing') }}</span>
+              </button>
+              <button
+                v-if="hasCustomApiBase"
+                class="secondary-btn reset-btn"
+                @click="resetApiBase"
+              >
+                {{ t('apiResetDefault') }}
+              </button>
+            </div>
+            <span v-if="pingStatus" class="ping-badge" :class="pingStatus.ok ? 'success' : 'error'">
+              {{ pingStatus.message }}
+            </span>
+          </div>
+        </div>
+
+        <div class="setting-row">
+          <div class="row-info">
             <span class="row-label">{{ t('lanAccessLabel') }}</span>
             <span class="row-desc">{{ isLanExposed ? t('lanExposed') : t('lanLocalOnly') }}</span>
           </div>
@@ -75,6 +111,21 @@
             <span class="mono-badge">8020</span>
           </div>
         </div>
+
+        <div class="setting-row">
+          <div class="row-info">
+            <span class="row-label">{{ t('downloadNetworkSettingsLabel') }}</span>
+            <span class="row-desc">{{ t('downloadNetworkSettingsDesc') }}</span>
+          </div>
+          <div class="row-control">
+            <select v-model="downloadSource" class="custom-select" @change="saveSettings">
+              <option value="modelscope">{{ t('downloadNetworkOptionCn') }}</option>
+              <option value="huggingface">{{ t('downloadNetworkOptionGlobal') }}</option>
+              <option value="hf-mirror">{{ t('downloadNetworkOptionHfMirror') }}</option>
+              <option value="auto">{{ t('downloadNetworkOptionAuto') }}</option>
+            </select>
+          </div>
+        </div>
       </div>
 
       <!-- Section 4: Lifecycle Strategy -->
@@ -88,11 +139,12 @@
           </div>
           <div class="row-control">
             <select v-model="keepAliveTimeout" class="custom-select" @change="saveSettings">
+              <option value="0">{{ t('keepAliveImmediate') }}</option>
               <option value="60">{{ t('keepAlive1Min') }}</option>
               <option value="300">{{ t('keepAlive5Min') }}</option>
               <option value="900">{{ t('keepAlive15Min') }}</option>
               <option value="1800">{{ t('keepAlive30Min') }}</option>
-              <option value="0">{{ t('keepAliveNever') }}</option>
+              <option value="-1">{{ t('keepAliveNever') }}</option>
             </select>
           </div>
         </div>
@@ -141,9 +193,15 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { useI18n } from '../i18n';
-import { apiClient } from '../api/client';
+import {
+  apiClient,
+  getApiBaseUrl,
+  getDefaultApiBaseUrl,
+  setApiBaseUrl,
+  resetApiBaseUrl
+} from '../api/client';
 import { currentTheme, setTheme } from '../utils/theme';
 
 const { locale, setLocale, t } = useI18n();
@@ -151,6 +209,42 @@ const { locale, setLocale, t } = useI18n();
 const selectedTheme = ref(currentTheme.value);
 const isLanExposed = ref(false);
 const keepAliveTimeout = ref('300');
+const downloadSource = ref('modelscope');
+
+const apiBaseInput = ref(localStorage.getItem('oneasr_api_base') || '');
+const defaultPlaceholder = computed(() => `默认: ${getDefaultApiBaseUrl()}`);
+const hasCustomApiBase = computed(() => Boolean(apiBaseInput.value && apiBaseInput.value.trim()));
+const isPinging = ref(false);
+const pingStatus = ref(null);
+
+function handleApiBaseChange() {
+  if (apiBaseInput.value && apiBaseInput.value.trim()) {
+    setApiBaseUrl(apiBaseInput.value.trim());
+  } else {
+    resetApiBaseUrl();
+  }
+  pingStatus.value = null;
+}
+
+function resetApiBase() {
+  apiBaseInput.value = '';
+  resetApiBaseUrl();
+  pingStatus.value = null;
+}
+
+async function testApiConnection() {
+  isPinging.value = true;
+  pingStatus.value = null;
+  const target = (apiBaseInput.value && apiBaseInput.value.trim()) || getDefaultApiBaseUrl();
+  const res = await apiClient.testConnection(target);
+  isPinging.value = false;
+  if (res.ok) {
+    const chip = res.data?.system?.chip ? ` · ${res.data.system.chip}` : '';
+    pingStatus.value = { ok: true, message: `${t('apiPingSuccess')}${chip}` };
+  } else {
+    pingStatus.value = { ok: false, message: `${t('apiPingFailed')}: ${res.error || res.status}` };
+  }
+}
 
 function handleThemeChange() {
   setTheme(selectedTheme.value);
@@ -161,8 +255,12 @@ onMounted(async () => {
     const sys = await apiClient.getSystemSettings();
     if (sys) {
       isLanExposed.value = sys.host === '0.0.0.0';
-      if (sys.keep_alive_timeout !== undefined) {
-        keepAliveTimeout.value = String(sys.keep_alive_timeout);
+      const val = sys.keep_alive ?? sys.default_keep_alive ?? sys.keep_alive_timeout;
+      if (val !== undefined && val !== null) {
+        keepAliveTimeout.value = String(val);
+      }
+      if (sys.download_source) {
+        downloadSource.value = sys.download_source;
       }
     }
   } catch (err) {
@@ -177,9 +275,12 @@ async function toggleLan() {
 
 async function saveSettings() {
   try {
+    const kaVal = parseInt(keepAliveTimeout.value, 10);
     await apiClient.updateSystemSettings({
       host: isLanExposed.value ? '0.0.0.0' : '127.0.0.1',
-      keep_alive_timeout: parseInt(keepAliveTimeout.value, 10)
+      keep_alive: kaVal,
+      keep_alive_timeout: kaVal,
+      download_source: downloadSource.value
     });
   } catch (err) {
     console.error('Save settings error:', err);
@@ -344,5 +445,74 @@ function openLogs() {
 
 .toggle-btn.active .toggle-slider {
   transform: translateX(16px);
+}
+
+.url-control-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  flex: 1;
+}
+
+.url-input-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  justify-content: flex-end;
+}
+
+.url-input {
+  width: 220px;
+  background: var(--bg-app);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  font-size: 11.5px;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  padding: 4px 8px;
+  border-radius: 6px;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.url-input:focus {
+  border-color: var(--border-focus);
+}
+
+.ping-btn, .reset-btn {
+  white-space: nowrap;
+  padding: 4px 8px;
+}
+
+.ping-badge {
+  font-size: 10.5px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  line-height: 1.2;
+}
+
+.ping-badge.success {
+  background: rgba(16, 185, 129, 0.12);
+  color: #10b981;
+}
+
+.ping-badge.error {
+  background: rgba(239, 68, 68, 0.12);
+  color: #ef4444;
+}
+
+.btn-spinner {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 </style>

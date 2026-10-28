@@ -20,11 +20,7 @@ build/
 .idea
 .claude/
 
-# Web
-web/node_modules/
-web/dist/
-.vite/
-*-workspace
+# Runtime data & workspaces
 /uploads/
 /data/
 /models/
@@ -32,9 +28,11 @@ web/dist/
 /downloads/
 tests/uploads/
 tests/.cache/
+*-workspace
 
-# Desktop (Tauri)
+# Desktop & Web UI
 desktop/node_modules/
+desktop/dist/
 desktop/src-tauri/target/
 desktop/src-tauri/resources/*
 !desktop/src-tauri/resources/.placeholder/

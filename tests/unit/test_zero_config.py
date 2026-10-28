@@ -19,7 +19,7 @@ def test_zero_config_initialization(tmp_path, monkeypatch):
     monkeypatch.setenv("ONEASR_HOME", str(fake_home))
     monkeypatch.setenv("ONEASR_API_KEY", "env-secret-key")
 
-    app_cfg = AppConfig(config_path=None)
+    app_cfg = AppConfig()
 
     # 1. Directory creation
     assert fake_home.exists()
@@ -47,7 +47,7 @@ def test_atomic_settings_persistence(tmp_path, monkeypatch):
     fake_home = tmp_path / "fake_home"
     monkeypatch.setenv("ONEASR_HOME", str(fake_home))
 
-    app_cfg = AppConfig(config_path=None)
+    app_cfg = AppConfig()
     app_cfg.save_settings({"port": 8899, "default_model": "whisper-large-v3-turbo"})
 
     settings_file = get_settings_path()
@@ -71,5 +71,5 @@ def test_manifest_definitions():
     xasr = get_manifest("xasr-zh-en")
     assert xasr is not None
     assert xasr.driver == "xasr"
-    assert xasr.preload is True
-    assert xasr.keep_alive == -1
+    assert xasr.preload is False
+    assert xasr.keep_alive == 600

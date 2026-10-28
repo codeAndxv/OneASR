@@ -158,3 +158,42 @@ class TestFileInfo:
         response = client.get("/v1/x/files/nonexistent-id", headers=auth_headers)
         assert response.status_code == 404
         assert "File not found" in response.json()["detail"] or "文件不存在" in response.json()["detail"]
+
+
+class TestImportLocalFile:
+    """本地文件直接导入测试"""
+
+    def test_import_local_file_success(self, client, auth_headers, tmp_path):
+        sample = tmp_path / "recording.mp3"
+        sample.write_bytes(b"ID3_fake_audio_stream_data_12345")
+
+        resp = client.post(
+            "/v1/x/files/import-local",
+            headers=auth_headers,
+            json={"file_path": str(sample)},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["filename"] == "recording.mp3"
+        assert data["file_size"] == len(b"ID3_fake_audio_stream_data_12345")
+        assert data["duplicate"] is False
+        assert "file_id" in data
+
+        # 二次导入相同文件触发秒传匹配
+        resp2 = client.post(
+            "/v1/x/files/import-local",
+            headers=auth_headers,
+            json={"file_path": str(sample)},
+        )
+        assert resp2.status_code == 200
+        data2 = resp2.json()
+        assert data2["duplicate"] is True
+        assert data2["file_id"] == data["file_id"]
+
+    def test_import_local_file_not_found(self, client, auth_headers):
+        resp = client.post(
+            "/v1/x/files/import-local",
+            headers=auth_headers,
+            json={"file_path": "/nonexistent/fake/file.mp3"},
+        )
+        assert resp.status_code == 404
