@@ -5,9 +5,16 @@ export const DEFAULT_LOCAL_API_BASE = 'http://127.0.0.1:8020';
 export const DEFAULT_API_KEY = 'sk-oneasr-v1-p_L3kXm9QZ8sT2vA4wE7rY1u';
 
 export function getDefaultApiBaseUrl() {
+  if (isTauri) {
+    return DEFAULT_LOCAL_API_BASE;
+  }
   if (typeof window !== 'undefined' && window.location) {
     const origin = window.location.origin;
-    // When running in pure web browser (not tauri:// or file://), default to current host:port
+    // When running in Vite dev server (port 8021), route API requests to local backend 8020
+    if (origin && origin.includes(':8021')) {
+      return DEFAULT_LOCAL_API_BASE;
+    }
+    // When running in pure web browser hosted by backend or reverse proxy, default to current host:port
     if (
       origin &&
       (origin.startsWith('http://') || origin.startsWith('https://')) &&
@@ -72,6 +79,36 @@ export class OneASRClient {
       Authorization: `Bearer ${key}`,
       ...customHeaders
     };
+  }
+
+  async get(path) {
+    try {
+      const res = await fetch(`${this.baseUrl}${path}`, {
+        headers: this.getHeaders()
+      });
+      if (res.ok) {
+        return await res.json();
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  async post(path, body = {}) {
+    try {
+      const res = await fetch(`${this.baseUrl}${path}`, {
+        method: 'POST',
+        headers: this.getHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify(body)
+      });
+      if (res.ok) {
+        return await res.json();
+      }
+      return null;
+    } catch {
+      return null;
+    }
   }
 
   async checkHealth() {

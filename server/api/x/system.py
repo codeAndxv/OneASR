@@ -28,8 +28,11 @@ class UpdateSettingsRequest(BaseModel):
     default_model: str | None = Field(None, description="Default ASR model identifier")
     keep_alive: int | None = Field(None, description="Model residency timeout in seconds (-1 for permanent)")
     keep_alive_timeout: int | None = Field(None, description="Alias for keep_alive")
+    max_loaded_models: int | None = Field(None, description="Maximum concurrent loaded models in memory (LRU)")
     api_key: str | None = Field(None, description="Optional API key for client authentication")
     download_source: str | None = Field(None, description="Preferred model download source ('modelscope', 'huggingface', 'hf-mirror', 'auto')")
+    vad_threshold: float | None = Field(None, description="VAD speech detection sensitivity threshold (0.1 - 0.9)")
+    target_chunk_duration: float | None = Field(None, description="Long audio target chunk duration in seconds (3.0 - 15.0)")
 
 
 def _detect_accelerator() -> dict[str, Any]:
@@ -124,7 +127,10 @@ async def get_system_settings():
         "keep_alive": app_config.model_manager.default_keep_alive,
         "keep_alive_timeout": app_config.model_manager.default_keep_alive,
         "default_keep_alive": app_config.model_manager.default_keep_alive,
+        "max_loaded_models": app_config.model_manager.max_loaded_models,
         "download_source": file_settings.get("download_source"),
+        "vad_threshold": getattr(app_config.asr_toolkit.vad, "threshold", 0.5),
+        "target_chunk_duration": getattr(app_config.asr_toolkit.chunking, "target_chunk_duration", 6.0),
         "models_dir": str(get_models_dir()),
         "settings_file": str(get_settings_path()),
     }
@@ -146,9 +152,20 @@ async def update_system_settings(req: UpdateSettingsRequest):
     if ka is not None:
         updates["keep_alive"] = ka
         app_config.model_manager.default_keep_alive = ka
+    if req.max_loaded_models is not None:
+        updates["max_loaded_models"] = req.max_loaded_models
+        app_config.model_manager.max_loaded_models = req.max_loaded_models
     if req.api_key is not None:
         updates["api_key"] = req.api_key
         app_config.api_key = req.api_key
+    if req.vad_threshold is not None:
+        updates["vad_threshold"] = req.vad_threshold
+        if hasattr(app_config.asr_toolkit, "vad"):
+            app_config.asr_toolkit.vad.threshold = req.vad_threshold
+    if req.target_chunk_duration is not None:
+        updates["target_chunk_duration"] = req.target_chunk_duration
+        if hasattr(app_config.asr_toolkit, "chunking"):
+            app_config.asr_toolkit.chunking.target_chunk_duration = req.target_chunk_duration
 
     app_config.save_settings(updates)
     return {

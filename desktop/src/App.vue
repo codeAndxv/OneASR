@@ -4,9 +4,12 @@
     <Sidebar
       :current-tab="currentTab"
       :is-online="isServerOnline"
+      :is-starting="isServerStarting"
+      :has-checked="hasInitialCheckCompleted"
       :history-count="historyItems.length"
       @select-tab="handleSelectTab"
       @open-settings="isSettingsOpen = true"
+      @start-service="handleStartService"
     />
 
     <!-- Main Content Area -->
@@ -50,6 +53,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useI18n } from './i18n';
 import { apiClient } from './api/client';
+import { isTauri } from './utils/env';
 import Sidebar from './components/Sidebar.vue';
 import Header from './components/Header.vue';
 import SettingsModal from './components/SettingsModal.vue';
@@ -63,6 +67,8 @@ const { t } = useI18n();
 const currentTab = ref(localStorage.getItem('oneasr_current_tab') || 'models');
 const isSettingsOpen = ref(false);
 const isServerOnline = ref(false);
+const isServerStarting = ref(false);
+const hasInitialCheckCompleted = ref(false);
 const historyItems = ref([]);
 
 const tabMeta = {
@@ -131,8 +137,19 @@ onMounted(async () => {
     console.warn('Could not load history:', err);
   }
 
-  // Poll server health
-  checkHealth();
+  // Graceful initial health check: allows background daemon to boot before showing manual start button
+  checkHealth().finally(() => {
+    if (!isServerOnline.value) {
+      setTimeout(() => {
+        checkHealth().finally(() => {
+          hasInitialCheckCompleted.value = true;
+        });
+      }, 1500);
+    } else {
+      hasInitialCheckCompleted.value = true;
+    }
+  });
+
   healthInterval = setInterval(checkHealth, 3000);
 });
 
@@ -146,6 +163,34 @@ onUnmounted(() => {
 async function checkHealth() {
   const info = await apiClient.checkHealth();
   isServerOnline.value = !!(info && (info.status === 'ok' || info.online));
+}
+
+async function handleStartService() {
+  if (isServerStarting.value) return;
+  isServerStarting.value = true;
+
+  if (isTauri) {
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      await invoke('start_backend');
+    } catch (err) {
+      console.error('[OneASR] Failed to invoke start_backend:', err);
+    }
+  } else {
+    console.warn('[OneASR] Web client mode; retrying backend connection...');
+  }
+
+  // Rapid polling for service availability
+  let attempts = 0;
+  const maxAttempts = 15; // 15 * 350ms = 5.25s
+  const pollTimer = setInterval(async () => {
+    attempts++;
+    await checkHealth();
+    if (isServerOnline.value || attempts >= maxAttempts) {
+      clearInterval(pollTimer);
+      isServerStarting.value = false;
+    }
+  }, 350);
 }
 </script>
 

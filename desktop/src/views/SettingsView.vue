@@ -114,6 +114,54 @@
 
         <div class="setting-row">
           <div class="row-info">
+            <span class="row-label">{{ t('apiKeyLabel') }}</span>
+            <span class="row-desc">{{ t('apiKeyDesc') }}</span>
+          </div>
+          <div class="row-control api-key-control-wrap">
+            <div class="api-key-input-group">
+              <div class="api-key-input-wrapper">
+                <input
+                  v-model="apiKeyInput"
+                  :type="showApiKey ? 'text' : 'password'"
+                  class="api-key-input"
+                  :placeholder="t('apiKeyPlaceholder')"
+                  @change="handleApiKeyChange"
+                />
+                <button
+                  type="button"
+                  class="eye-toggle-btn"
+                  :title="showApiKey ? t('btnHideKey') : t('btnShowKey')"
+                  @click="showApiKey = !showApiKey"
+                >
+                  <svg v-if="showApiKey" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+                    <line x1="1" y1="1" x2="23" y2="23"/>
+                  </svg>
+                  <svg v-else viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                    <circle cx="12" cy="12" r="3"/>
+                  </svg>
+                </button>
+              </div>
+              <button
+                class="secondary-btn"
+                :disabled="!apiKeyInput"
+                @click="copyApiKey"
+              >
+                {{ apiKeyCopied ? t('btnCopied') : t('btnCopy') }}
+              </button>
+              <button
+                class="secondary-btn"
+                @click="regenerateApiKey"
+              >
+                {{ t('btnRegenerateKey') }}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="setting-row">
+          <div class="row-info">
             <span class="row-label">{{ t('downloadNetworkSettingsLabel') }}</span>
             <span class="row-desc">{{ t('downloadNetworkSettingsDesc') }}</span>
           </div>
@@ -135,7 +183,7 @@
         <div class="setting-row">
           <div class="row-info">
             <span class="row-label">{{ t('keepAliveLabel') }}</span>
-            <span class="row-desc">无请求时自动释放模型占用的显存与内存</span>
+            <span class="row-desc">{{ locale === 'zh-CN' ? '无请求时自动释放模型占用的显存与内存' : 'Auto-release idle model GPU/CPU memory' }}</span>
           </div>
           <div class="row-control">
             <select v-model="keepAliveTimeout" class="custom-select" @change="saveSettings">
@@ -145,6 +193,22 @@
               <option value="900">{{ t('keepAlive15Min') }}</option>
               <option value="1800">{{ t('keepAlive30Min') }}</option>
               <option value="-1">{{ t('keepAliveNever') }}</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="setting-row">
+          <div class="row-info">
+            <span class="row-label">{{ t('maxLoadedModelsLabel') }}</span>
+            <span class="row-desc">{{ t('maxLoadedModelsDesc') }}</span>
+          </div>
+          <div class="row-control">
+            <select v-model.number="maxLoadedModels" class="custom-select" @change="saveSettings">
+              <option :value="1">1</option>
+              <option :value="2">2 {{ locale === 'zh-CN' ? '(推荐)' : '(Default)' }}</option>
+              <option :value="3">3</option>
+              <option :value="4">4</option>
+              <option :value="5">5</option>
             </select>
           </div>
         </div>
@@ -160,7 +224,7 @@
             <span class="row-desc">Metal Performance Shaders (Apple Silicon)</span>
           </div>
           <div class="row-control">
-            <span class="status-pill active">Apple MPS 开启</span>
+            <span class="status-pill active">Apple MPS</span>
           </div>
         </div>
 
@@ -171,7 +235,7 @@
           </div>
           <div class="row-control">
             <button class="secondary-btn" @click="openDocs">
-              浏览 API
+              {{ t('apiDocsBtn') }}
             </button>
           </div>
         </div>
@@ -187,6 +251,65 @@
             </button>
           </div>
         </div>
+      </div>
+
+      <!-- Section 6: Advanced Toolkit & VAD (Collapsible) -->
+      <div class="settings-group advanced-group">
+        <details class="advanced-details">
+          <summary class="advanced-summary">
+            <div class="summary-left">
+              <span class="group-title">{{ t('sectionAdvancedToolkit') }}</span>
+              <span class="summary-desc">{{ t('sectionAdvancedToolkitDesc') }}</span>
+            </div>
+            <span class="summary-chevron">▾</span>
+          </summary>
+          
+          <div class="advanced-content">
+            <div class="setting-row">
+              <div class="row-info">
+                <span class="row-label">{{ t('vadThresholdLabel') }}</span>
+                <span class="row-desc">{{ t('vadThresholdDesc') }}</span>
+              </div>
+              <div class="row-control slider-control">
+                <input
+                  v-model.number="vadThreshold"
+                  type="range"
+                  min="0.10"
+                  max="0.90"
+                  step="0.05"
+                  class="range-slider"
+                  @change="saveSettings"
+                />
+                <span class="mono-badge slider-badge">{{ vadThreshold.toFixed(2) }}</span>
+              </div>
+            </div>
+
+            <div class="setting-row">
+              <div class="row-info">
+                <span class="row-label">{{ t('targetChunkLabel') }}</span>
+                <span class="row-desc">{{ t('targetChunkDesc') }}</span>
+              </div>
+              <div class="row-control slider-control">
+                <input
+                  v-model.number="targetChunkDuration"
+                  type="range"
+                  min="3.0"
+                  max="15.0"
+                  step="0.5"
+                  class="range-slider"
+                  @change="saveSettings"
+                />
+                <span class="mono-badge slider-badge">{{ targetChunkDuration.toFixed(1) }}s</span>
+              </div>
+            </div>
+
+            <div class="advanced-actions">
+              <button class="secondary-btn" @click="resetAdvancedDefaults">
+                {{ t('btnResetDefaults') }}
+              </button>
+            </div>
+          </div>
+        </details>
       </div>
     </div>
   </div>
@@ -210,12 +333,74 @@ const selectedTheme = ref(currentTheme.value);
 const isLanExposed = ref(false);
 const keepAliveTimeout = ref('300');
 const downloadSource = ref('modelscope');
+const maxLoadedModels = ref(2);
+const vadThreshold = ref(0.50);
+const targetChunkDuration = ref(6.0);
+
+const apiKeyInput = ref(localStorage.getItem('oneasr_api_key') || '');
+const apiKeyCopied = ref(false);
+const showApiKey = ref(false);
 
 const apiBaseInput = ref(localStorage.getItem('oneasr_api_base') || '');
 const defaultPlaceholder = computed(() => `默认: ${getDefaultApiBaseUrl()}`);
 const hasCustomApiBase = computed(() => Boolean(apiBaseInput.value && apiBaseInput.value.trim()));
 const isPinging = ref(false);
 const pingStatus = ref(null);
+
+function generateRandomKey() {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  let result = 'sk-oneasr-v1-';
+  const array = new Uint8Array(24);
+  if (typeof window !== 'undefined' && window.crypto && window.crypto.getRandomValues) {
+    window.crypto.getRandomValues(array);
+    for (let i = 0; i < array.length; i++) {
+      result += chars[array[i] % chars.length];
+    }
+  } else {
+    for (let i = 0; i < 24; i++) {
+      result += chars[Math.floor(Math.random() * chars.length)];
+    }
+  }
+  return result;
+}
+
+async function regenerateApiKey() {
+  const newKey = generateRandomKey();
+  apiKeyInput.value = newKey;
+  localStorage.setItem('oneasr_api_key', newKey);
+  await saveSettings();
+}
+
+async function handleApiKeyChange() {
+  const val = apiKeyInput.value.trim();
+  apiKeyInput.value = val;
+  if (val) {
+    localStorage.setItem('oneasr_api_key', val);
+  } else {
+    localStorage.removeItem('oneasr_api_key');
+  }
+  await saveSettings();
+}
+
+async function copyApiKey() {
+  if (!apiKeyInput.value) return;
+  try {
+    await navigator.clipboard.writeText(apiKeyInput.value);
+    apiKeyCopied.value = true;
+    setTimeout(() => {
+      apiKeyCopied.value = false;
+    }, 2000);
+  } catch (err) {
+    console.warn('Copy failed:', err);
+  }
+}
+
+async function resetAdvancedDefaults() {
+  vadThreshold.value = 0.50;
+  targetChunkDuration.value = 6.0;
+  maxLoadedModels.value = 2;
+  await saveSettings();
+}
 
 function handleApiBaseChange() {
   if (apiBaseInput.value && apiBaseInput.value.trim()) {
@@ -262,6 +447,23 @@ onMounted(async () => {
       if (sys.download_source) {
         downloadSource.value = sys.download_source;
       }
+      if (sys.api_key !== undefined && sys.api_key !== null) {
+        apiKeyInput.value = sys.api_key;
+        if (sys.api_key) {
+          localStorage.setItem('oneasr_api_key', sys.api_key);
+        } else {
+          localStorage.removeItem('oneasr_api_key');
+        }
+      }
+      if (sys.max_loaded_models !== undefined && sys.max_loaded_models !== null) {
+        maxLoadedModels.value = Number(sys.max_loaded_models);
+      }
+      if (sys.vad_threshold !== undefined && sys.vad_threshold !== null) {
+        vadThreshold.value = Number(sys.vad_threshold);
+      }
+      if (sys.target_chunk_duration !== undefined && sys.target_chunk_duration !== null) {
+        targetChunkDuration.value = Number(sys.target_chunk_duration);
+      }
     }
   } catch (err) {
     console.warn('Could not load system settings:', err);
@@ -276,12 +478,21 @@ async function toggleLan() {
 async function saveSettings() {
   try {
     const kaVal = parseInt(keepAliveTimeout.value, 10);
+    const keyVal = apiKeyInput.value.trim() || null;
     await apiClient.updateSystemSettings({
       host: isLanExposed.value ? '0.0.0.0' : '127.0.0.1',
       keep_alive: kaVal,
       keep_alive_timeout: kaVal,
-      download_source: downloadSource.value
+      download_source: downloadSource.value,
+      api_key: keyVal,
+      max_loaded_models: Number(maxLoadedModels.value),
+      vad_threshold: Number(vadThreshold.value),
+      target_chunk_duration: Number(targetChunkDuration.value)
     });
+  } catch (err) {
+    console.error('Save settings error:', err);
+  }
+}
   } catch (err) {
     console.error('Save settings error:', err);
   }
@@ -514,5 +725,131 @@ function openLogs() {
 
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+.api-key-control-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex: 1;
+}
+
+.api-key-input-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  justify-content: flex-end;
+}
+
+.api-key-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.api-key-input {
+  width: 210px;
+  background: var(--bg-app);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  padding: 4px 26px 4px 8px;
+  border-radius: 6px;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.eye-toggle-btn {
+  position: absolute;
+  right: 6px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  border-radius: 4px;
+  transition: color 0.15s ease;
+}
+
+.eye-toggle-btn:hover {
+  color: var(--text-primary);
+}
+
+.api-key-input:focus {
+  border-color: var(--border-focus);
+}
+
+.slider-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.range-slider {
+  width: 130px;
+  accent-color: var(--text-primary);
+  cursor: pointer;
+}
+
+.slider-badge {
+  min-width: 44px;
+  text-align: center;
+}
+
+.advanced-details summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.advanced-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.advanced-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  user-select: none;
+}
+
+.summary-left {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.summary-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.summary-chevron {
+  font-size: 12px;
+  color: var(--text-muted);
+  transition: transform 0.2s ease;
+}
+
+.advanced-details[open] .summary-chevron {
+  transform: rotate(180deg);
+}
+
+.advanced-content {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.advanced-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 4px;
 }
 </style>

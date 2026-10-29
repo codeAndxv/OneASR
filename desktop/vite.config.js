@@ -6,7 +6,7 @@ export default defineConfig({
   plugins: [vue()],
   clearScreen: false,
   server: {
-    port: 1420,
+    port: 8021,
     strictPort: true,
   },
   build: {

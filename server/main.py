@@ -244,6 +244,8 @@ if _dist_dir.exists() and (_dist_dir / "index.html").exists():
 
 
 if __name__ == "__main__":
+    import sys
     import uvicorn
-    uvicorn.run("server.main:app", host="127.0.0.1", port=8020, log_level="info")
+    reload_enabled = "--reload" in sys.argv
+    uvicorn.run("server.main:app", host="127.0.0.1", port=8020, log_level="info", reload=reload_enabled)
 

@@ -4,10 +4,9 @@ OneASR Standalone Bundle Preparation Script
 
 Assembles a fully self-contained runtime environment containing:
 1. Isolated CPython 3.12 runtime (from python-build-standalone via uv).
-2. Production Python dependencies (PyTorch with MPS/CUDA, FunASR, ONNX, FastAPI, etc.).
-3. Static ffmpeg binary.
-4. OneASR server and CLI source code.
-5. Unified 'oneasr' command launcher script.
+2. Production Python dependencies (PyTorch with MPS/CUDA, FunASR, ONNX, PyAV, FastAPI, etc.).
+3. OneASR server and CLI source code.
+4. Unified 'oneasr' command launcher script.
 
 Target outputs can be packaged by Tauri (desktop/src-tauri/resources) or tarred for Linux CLI.
 """
@@ -169,41 +168,6 @@ def install_python_dependencies(
     ])
 
 
-def bundle_ffmpeg(target_bin_dir: Path, target_os: str):
-    """
-    Copies or provisions a static ffmpeg executable into target_bin_dir.
-    """
-    target_bin_dir.mkdir(parents=True, exist_ok=True)
-    exe_name = "ffmpeg.exe" if target_os == "windows" else "ffmpeg"
-    dest_path = target_bin_dir / exe_name
-
-    # Check if host system has ffmpeg
-    host_ffmpeg = shutil.which("ffmpeg")
-    if host_ffmpeg:
-        log(f"Found host ffmpeg at {host_ffmpeg}, copying to {dest_path}...")
-        shutil.copy2(host_ffmpeg, dest_path)
-        dest_path.chmod(0o755)
-        return
-
-    # If on Windows and host ffmpeg not found, download BtbN/yt-dlp static build
-    if target_os == "windows":
-        url = "https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
-        log(f"Host ffmpeg not found. Downloading static Windows ffmpeg from {url}...")
-        zip_temp = target_bin_dir / "ffmpeg_win.zip"
-        urllib.request.urlretrieve(url, zip_temp)
-        with zipfile.ZipFile(zip_temp, "r") as z:
-            for file_info in z.infolist():
-                if file_info.filename.endswith("bin/ffmpeg.exe"):
-                    with z.open(file_info) as src_f, open(dest_path, "wb") as dst_f:
-                        shutil.copyfileobj(src_f, dst_f)
-                    break
-        if zip_temp.exists():
-            zip_temp.unlink()
-        log(f"Static ffmpeg extracted to {dest_path}")
-    else:
-        log("Warning: host ffmpeg binary not found; please ensure ffmpeg is available on PATH.")
-
-
 def create_cli_launcher(target_root: Path, target_os: str):
     """
     Creates a wrapper launcher script for running 'oneasr' directly from the bundle.
@@ -302,10 +266,7 @@ def main():
         req_file = project_root / "requirements.txt"
         install_python_dependencies(py_bin, req_file, torch_backend, target_os)
 
-    # 3. Static ffmpeg
-    bundle_ffmpeg(output_dir / "bin", target_os)
-
-    # 4. Copy OneASR code
+    # 3. Copy OneASR code (Audio/video decoding is 100% powered by self-contained 'av' wheel)
     log("Copying OneASR application code...")
     copy_clean_tree(project_root / "server", output_dir / "server")
     copy_clean_tree(project_root / "cli", output_dir / "cli")

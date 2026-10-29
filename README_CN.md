@@ -10,8 +10,8 @@
 
 ## 核心特性
 
-- **Ollama 风格零界面常驻架构** — 原生系统托盘常驻伴侣（内存占用低于 5MB），配合终端命令行（`oneasr`）与标准化 REST/WebSocket API
-- **开箱即用独立打包** — 针对 macOS、Windows、Linux 平台提供全量自包含安装包，内置隔离 Python 3.12 运行时、硬件加速环境（MPS/CUDA）与 FFmpeg，无需手动配置 Python 或 PyTorch
+- **双重形态：现代轻量桌面控制台与系统托盘伴侣** — 原生跨平台桌面客户端（Vue 3 + Tauri），深度支持 macOS 顶部菜单栏常驻（闲置内存低于 5MB），配合极客终端命令行（`oneasr`）与标准化 REST/WebSocket API
+- **开箱即用独立打包** — 针对 macOS（Apple Silicon）提供全量自包含安装包，内置隔离 Python 3.12 运行时、硬件加速环境（Apple MPS / CUDA）与原生 C 扩展音视频解码器（`PyAV`），无需用户手动配置 Python、PyTorch 或外部 FFmpeg
 - **统一 OpenAI 兼容音频接口** — 支持上传音视频文件、指定 `file_uuid` 或远程 `url`，输出格式涵盖 `json`、`verbose_json`、`text`、`srt`、`vtt`、`tsv`
 - **SSE 流式文件识别** — 基于 Silero VAD 智能切片，以 Server-Sent Events (`stream=true`) 逐句实时推送长音频识别结果
 - **WebSocket 实时流式听写** — 基于 `xasr` (`sherpa-onnx` Zipformer2 transducer) 提供毫秒级低延迟实时语音流识别（兼容 `/v1/realtime` 与扩展协议 `/v1/realtime_ext`）
@@ -21,17 +21,41 @@
 
 ---
 
+## 快速开始
+
+启动本地语音识别守护服务：
+
+```bash
+oneasr serve
+```
+
+通过 OpenAI 兼容的音频 API 发起转录测试：
+
+```bash
+curl http://localhost:8020/v1/audio/transcriptions \
+  -F file=@recording.mp3 \
+  -F model=sensevoice-small
+```
+
+---
+
 ## 下载与安装
 
-使用 OneASR 最简捷的方式是直接从 **[GitHub Releases](https://github.com/codeAndxv/OneASR/releases)** 下载对应平台的自包含独立安装包：
+### 1. macOS 桌面端（带 UI 控制台与系统托盘）
 
-| 平台 | 安装包 | 架构 | 算力加速支持 |
-| :--- | :--- | :--- | :--- |
-| **macOS** | `OneASR-macos-arm64.dmg` | Apple Silicon (M1/M2/M3/M4) | Metal Performance Shaders (MPS) 原生加速 |
-| **Windows** | `OneASR-windows-x64-setup.exe` | x86_64 | NVIDIA CUDA 12 独显加速 / CPU 自动回退 |
-| **Linux** | `oneasr-linux-amd64.tar.gz` | x86_64 | NVIDIA CUDA 12 独显加速 / CPU 自动回退 |
+下载即用型 macOS 桌面版（内置沉浸式 UI、系统顶部菜单栏托盘与 Apple MPS 硬件加速）：
 
-*所有独立安装包均内置隔离 Python 3.12 运行时、算力加速版 PyTorch 以及静态 FFmpeg 可执行文件，用户电脑无需预装任何 Python、pip 或 CUDA 环境。*
+- **[下载 OneASR for macOS (Apple Silicon .dmg)](https://github.com/codeAndxv/OneASR/releases/latest/download/OneASR.dmg)**
+
+### 2. macOS / Linux 纯命令行模式（无头终端）
+
+在终端中通过单行脚本一键安装并自动注入 `oneasr` 全局命令：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/codeAndxv/OneASR/main/install.sh | sh
+```
+
+*自包含独立的精简 Python 3.12 运行时、PyTorch 科学计算加速与原生 PyAV 全格式解码器，用户电脑无需预装任何 Python、pip 或系统 FFmpeg 环境。*
 
 ---
 
@@ -40,10 +64,9 @@
 ### 环境要求
 
 - Python 3.12+（推荐使用 [uv](https://docs.astral.sh/uv/) 管理）
-- Node.js 18+
-- FFmpeg（音视频解码与重采样必需）
+- Node.js 18+ 与 Rust / Cargo（桌面端开发必需）
 
-### 后端启动
+### 1. 后端服务启动
 
 ```bash
 # 1. 创建虚拟环境
@@ -54,18 +77,33 @@ uv pip install -r requirements.txt
 # 或安装含开发/测试依赖：
 uv pip install -e ".[dev]"
 
-# 3. 一键下载 config.yaml 中已启用的本地模型（自动优选 ModelScope / HF-Mirror）
+# 3. 一键下载默认启用的本地模型
 uv run python -m cli.model pull
 
-# 4. 启动服务
-uv run uvicorn server.main:app --host 0.0.0.0 --port 8020
+# 4. 启动服务（支持代码改动实时热重载）
+uv run python -m server.main --reload
+# 或使用 CLI 启动：
+# uv run oneasr serve --reload
 ```
 
-服务运行在 `http://localhost:8020`，访问 `http://localhost:8020/docs` 查看交互式 API 文档。
+服务运行在 `http://127.0.0.1:8020`，访问 `http://127.0.0.1:8020/docs` 查看交互式 API 文档。
 
-### 终端命令行工具 (`oneasr` CLI)
+### 2. 桌面端应用启动（双开调试工作流）
 
-OneASR 提供了类似 Ollama 的极客终端命令行工具，支持模型管理、状态监控与快捷转录测试：
+在第二个终端窗口中启动桌面端应用：
+
+```bash
+cd desktop
+
+# 启动 Tauri 桌面端伴侣窗口（Vite HMR 监听 8021 端口）
+npm run tauri dev
+```
+
+> **说明**：在开发态（`npm run tauri dev`）下，桌面客户端作为纯客户端直连终端 1 的 `8020` 后端服务，绝不擅自拉起任何后台子进程。若只想在浏览器调试 Web 界面，可执行 `npm run dev` 并访问 `http://localhost:8021`。
+
+### 3. 终端命令行工具 (`oneasr` CLI)
+
+OneASR 提供了类似 Ollama 的极客终端命令行工具，支持模型管理、状态监控与服务管理：
 
 ```bash
 # 查看所有可用模型、本地就绪状态与磁盘占用
@@ -81,28 +119,23 @@ oneasr ps
 # 查看硬件加速驱动 (MPS/CUDA/CPU) 与存储路径信息
 oneasr info
 
-# 在终端直接测试转录音频文件
-oneasr run sensevoice-small /path/to/sample.wav
-
 # 删除本地权重以释放磁盘空间
 oneasr rm whisper-large-v3-turbo
 
-# 在前台启动守护服务进程
-oneasr serve --host 127.0.0.1 --port 8020
+# 在前台启动守护服务进程（支持 --reload 热重载）
+oneasr serve --reload
 ```
 
-### 原生桌面伴侣应用 (`OneASR.app`)
-
-完全对标 Ollama，OneASR 提供了纯原生、零界面的系统托盘伴侣。它安安静静常驻在 macOS 顶部菜单栏，自动守护管理后端进程，常驻内存仅占约 3~5MB：
+### 4. 本地打包发布 macOS DMG 安装包
 
 ```bash
 cd desktop
-npm run build
+npm run build:app
 ```
 
-打包产物 `OneASR.app` 与 `OneASR_<版本>_<架构>.dmg` 位于 `desktop/src-tauri/target/debug/bundle/`。
+打包生成的 `.dmg` 安装包将位于 `desktop/src-tauri/target/release/bundle/dmg/`。
 
-### 客户端接入 (DuRT 与 OpenAI SDK)
+### 5. 客户端接入 (DuRT 与 OpenAI SDK)
 
 OneASR 默认在本地 `http://127.0.0.1:8020` 运行。任何兼容 OpenAI 协议的客户端（包括 DuRT 客户端、Python 脚本或自动化工具）均可无缝对接：
 
@@ -141,7 +174,7 @@ curl -H "Authorization: Bearer sk-oneasr-v1-p_L3kXm9QZ8sT2vA4wE7rY1u" \
 
 ## 模型下载与管理指南
 
-OneASR 默认将所有本地模型统一存放在 `data/models/` 目录下。推荐使用内置的 `cli.model` 工具进行管理。
+OneASR 默认将所有本地模型统一存放在 `~/.oneasr/models/` 目录下（可通过环境变量 `ONEASR_MODELS_DIR` 自定义）。推荐使用内置的 `oneasr` CLI 或 `cli.model` 工具进行管理。
 
 ### 1. 推荐方式：使用内置 CLI 工具 (`cli.model`)
 
@@ -197,77 +230,35 @@ uv run python -m cli.model check
 
 ---
 
-## 配置与模型生命周期管理 (`config.yaml`)
+## 系统设置与个性化配置 (~/.oneasr/settings.json)
 
-OneASR 根据 `model_name`（`Org/Repo-Name`）自动推导 `data/models/<Repo-Name>` 本地路径，并内置了 Ollama 风格的模型生命周期管理器（`model_manager`），避免多个大模型同时常驻撑爆内存：
+OneASR 采用 **Ollama 风格的零静态配置文件架构**。存放在 `~/.oneasr/models/` 下的模型会被系统自动动态识别、按需待命加载。
 
-- **流式小模型（如 `xasr`）**：默认 `preload: true`、`keep_alive: -1`（启动即预热并常驻内存，确保实时语音 0 冷启动延迟）。
-- **离线大模型（如 `faster-whisper`、`qwen`、`funasr`）**：默认 `preload: false`、`keep_alive: 600`（启动时仅零内存校验路径，首次请求时按需加载，空闲 10 分钟后自动卸载释放 RAM/VRAM；当同时加载模型数达到 `max_loaded_models` 上限时，自动按 LRU 淘汰最久未使用的空闲模型）。
+用户偏好可以直接在桌面端应用（“设置”标签页）中图形化微调，并自动持久化保存在 `~/.oneasr/settings.json` 中：
 
-```yaml
-# API Key（所有接口必须携带此 key）
-api_key: sk-oneasr-v1-p_L3kXm9QZ8sT2vA4wE7rY1u
-
-# 模型生命周期与内存管理配置
-model_manager:
-  default_keep_alive: 600        # 默认空闲存活时长（秒，支持 "10m" / 600 / -1 常驻 / 0 用完即焚）
-  max_loaded_models: 2           # 最大同时驻留内存的非常驻本地模型数（超出自动按 LRU 释放）
-  cleanup_interval: 30           # 后台空闲模型回收巡检间隔（秒）
-
-# ASR Toolkit 全局切片与 VAD 配置
-ASR-Toolkit:
-  vad:
-    model: "silero_vad"
-    threshold: 0.5
-    min_speech_duration_ms: 250
-    min_silence_duration_ms: 300
-    padding_ms: 100
-  chunking:
-    target_chunk_duration: 6.0
-    max_chunk_duration: 8.0
-    min_pause_duration: 0.4
-    min_sentence_duration: 2.0
-
-# 本地模型配置 (local-models)
-local-models:
-  xasr-zh-en:
-    enable: true
-    driver: xasr
-    preload: true                # 启动即预热
-    keep_alive: -1               # -1 永驻内存
-    load:
-      model_name: Gilgamesh-J/X-ASR-zh-en
-      provider: cpu
-      sample_rate: 16000
-
-  whisper-medium:
-    enable: true
-    driver: whisper
-    preload: false               # 按需懒加载
-    keep_alive: 600              # 空闲 10 分钟自动卸载
-    load:
-      model_name: Systran/faster-whisper-medium
-      device: cpu
-      compute_type: int8
-
-  qwen:
-    enable: false
-    engine: qwen
-    load:
-      model_name: Qwen/Qwen3-ASR-1.7B
-      device: cpu
-      dtype: float32
-      # forced_aligner_name: Qwen/Qwen3-ForcedAligner-0.6B
-
-  funasr:
-    enable: false
-    engine: funasr
-    load:
-      model_name: iic/SenseVoiceSmall
-      vad_model: iic/speech_fsmn_vad_zh-cn-16k-common-pytorch
-      punc_model: null
-      device: cpu
+```json
+{
+  "api_key": "sk-oneasr-v1-p_L3kXm9QZ8sT2vA4wE7rY1u",
+  "keep_alive": 600,
+  "max_loaded_models": 2,
+  "download_source": "auto",
+  "vad_threshold": 0.5,
+  "target_chunk_duration": 6.0
+}
 ```
+
+### 环境变量对照表
+
+所有核心参数亦支持通过系统环境变量进行无入侵覆写：
+
+| 环境变量 | 默认值 | 说明 |
+| :--- | :--- | :--- |
+| `ONEASR_API_KEY` | `sk-oneasr-v1-...` | API 请求鉴权密钥（请求头 `Authorization: Bearer <key>`） |
+| `ONEASR_KEEP_ALIVE` | `600` (10分钟) | 模型空闲释放超时（`-1` 为常驻内存，`0` 为用完即释放） |
+| `ONEASR_MAX_LOADED_MODELS` | `2` | 允许同时驻留内存/显存的最大模型数（超出按 LRU 算法自动淘汰） |
+| `ONEASR_MODELS_DIR` | `~/.oneasr/models` | 本地语音模型权重的自定义存储根目录 |
+| `ONEASR_HOST` | `127.0.0.1` | 服务监听网络接口（设为 `0.0.0.0` 开启局域网共享） |
+| `ONEASR_PORT` | `8020` | 服务 HTTP 与 WebSocket 监听端口 |
 
 ---
 
@@ -432,15 +423,19 @@ OneASR/
 │   │   ├── media_service.py      # 媒体 URL 解析与后台下载服务
 │   │   └── record_service.py     # 历史记录持久化服务
 │   └── utils/                    # ASRToolkit (内存 VAD、长音频切片、智能字幕分段、格式转换)
-├── cli/                          # 命令行工具集
+├── cli/                          # 命令行工具集与统一 `oneasr` CLI
+│   ├── main.py                   # 统一极客 CLI 入口 (`oneasr list/pull/serve/ps/info`)
 │   ├── model.py                  # 模型状态查询、多源下载与完整性校验工具
 │   ├── clip.py                   # 音视频截取工具
 │   ├── converter.py              # 音频格式转换器
 │   └── stream_simulation_client.py # WebSocket 实时流式模拟客户端
-├── data/                         # 运行时数据目录（models、uploads、downloads、database）
-│   └── models/                   # 本地 ASR 模型权重统一存放目录
+├── desktop/                      # 原生桌面客户端与管理控制台 (Vue 3 + Tauri 2.0)
+│   ├── src/                      # Vue 3 前端界面源码 (视图、组件、多语言、状态感知)
+│   ├── src-tauri/                # Tauri 2.0 Rust 核心 (系统托盘、IPC 通信、原生应用打包)
+│   ├── vite.config.js            # Vite 配置文件 (开发端口 8021)
+│   └── build.sh                  # macOS 独立自包含打包构建脚本
+├── install.sh                    # 终端单行一键无头安装脚本 (对标 Ollama)
 ├── tests/                        # 三层自动化测试套件与内置 Public Domain 测试媒体
-├── web/                          # Vue 3 前端管理界面
 ├── docs/                         # 架构设计与 API 参考文档中心
 ├── config.yaml                   # 核心服务、模型生命周期与引擎配置文件
 ├── pyproject.toml                # 项目元数据、CLI 入口与 pytest 配置

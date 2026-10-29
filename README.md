@@ -10,8 +10,8 @@ A unified speech recognition API gateway that integrates multiple local and clou
 
 ## Features
 
-- **Ollama-Style Zero-GUI Architecture** — Native headless daemon and system tray companion under 5MB RAM, with terminal CLI (`oneasr`) and standard REST/WebSocket API
-- **Standalone Prebuilt Packages** — Self-contained installers for macOS, Windows, and Linux with pre-bundled Python runtime, hardware acceleration (MPS/CUDA), and FFmpeg. No manual Python or PyTorch setup required
+- **Dual Experience: Modern Desktop Dashboard & System Tray Companion** — Lightweight native desktop console (Vue 3 + Tauri) with menu bar tray support (<5MB idle), accompanied by terminal CLI (`oneasr`) and standard REST/WebSocket API
+- **Standalone Prebuilt Packages** — Self-contained installers for macOS (Apple Silicon) with pre-bundled Python runtime, hardware acceleration (Apple MPS / CUDA), and native C-extension audio decoder (`PyAV`). No manual Python, PyTorch, or FFmpeg setup required
 - **Unified OpenAI-Compatible Audio API** — Upload audio/video files or specify `file_uuid` / `url`, get transcription in `json`, `verbose_json`, `text`, `srt`, `vtt`, or `tsv`
 - **SSE Streaming File Recognition** — Receive sentence-by-sentence transcription segments in real time via Server-Sent Events (`stream=true`)
 - **Real-time WebSocket Streaming** — Low-latency streaming speech recognition (`/v1/realtime` & `/v1/realtime_ext`) powered by `xasr` (`sherpa-onnx` Zipformer2 transducer)
@@ -19,29 +19,52 @@ A unified speech recognition API gateway that integrates multiple local and clou
 - **One-Command Model CLI (`oneasr`)** — Inspect, verify, and download local models into `~/.oneasr/models` with automatic ModelScope / HuggingFace Mirror fallback
 - **File Upload & MD5 Instant Dedup** — Upload files with MD5 fingerprint for instant deduplication, plus async long-audio task management
 
-## Download & Installation
+## Quickstart
 
-The easiest way to get started with OneASR is downloading the self-contained standalone release for your platform from **[GitHub Releases](https://github.com/codeAndxv/OneASR/releases)**:
+Start the local speech engine daemon:
 
-| Platform | Package | Architecture | Acceleration |
-| :--- | :--- | :--- | :--- |
-| **macOS** | `OneASR-macos-arm64.dmg` | Apple Silicon (M1/M2/M3/M4) | Metal Performance Shaders (MPS) |
-| **Windows** | `OneASR-windows-x64-setup.exe` | x86_64 | NVIDIA CUDA 12 / CPU fallback |
-| **Linux** | `oneasr-linux-amd64.tar.gz` | x86_64 | NVIDIA CUDA 12 / CPU fallback |
+```bash
+oneasr serve
+```
 
-*All standalone releases bundle an isolated Python 3.12 runtime, hardware-accelerated PyTorch, and static FFmpeg binary. No external environment setup needed.*
+Transcribe an audio file using the OpenAI-compatible audio API:
+
+```bash
+curl http://localhost:8020/v1/audio/transcriptions \
+  -F file=@recording.mp3 \
+  -F model=sensevoice-small
+```
 
 ---
 
-## Quick Start (Developer Setup)
+## Installation
+
+### 1. macOS (Desktop GUI & Tray)
+
+Download the self-contained macOS application (with built-in native UI, system tray companion, and Apple MPS acceleration):
+
+- **[Download OneASR for macOS (Apple Silicon)](https://github.com/codeAndxv/OneASR/releases/latest/download/OneASR.dmg)**
+
+### 2. macOS / Linux (Headless CLI)
+
+Install the standalone command-line engine with a single terminal command:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/codeAndxv/OneASR/main/install.sh | sh
+```
+
+*Bundles an isolated Python runtime, PyTorch (Apple MPS/CUDA), and native C-extension audio decoder (`PyAV`). Zero external environment setup required.*
+
+---
+
+## Developer Setup (Running from Source)
 
 ### Prerequisites
 
 - Python 3.12+ (managed by [uv](https://docs.astral.sh/uv/))
-- Node.js 18+
-- FFmpeg (required for audio/video decoding and resampling)
+- Node.js 18+ & Rust / Cargo (for desktop UI)
 
-### Backend Setup
+### 1. Backend Service
 
 ```bash
 # 1. Create virtual environment
@@ -52,18 +75,33 @@ uv pip install -r requirements.txt
 # or install with dev/test dependencies:
 uv pip install -e ".[dev]"
 
-# 3. Download enabled local models (auto-selects ModelScope / HF-Mirror / HuggingFace)
+# 3. Download default local models
 uv run python -m cli.model pull
 
-# 4. Start the server
-uv run uvicorn server.main:app --host 0.0.0.0 --port 8020
+# 4. Start the server (with auto-reload on code change)
+uv run python -m server.main --reload
+# or using CLI:
+# uv run oneasr serve --reload
 ```
 
-The server runs at `http://localhost:8020`. Visit `http://localhost:8020/docs` for interactive Swagger API documentation.
+The backend server listens on `http://127.0.0.1:8020`. Visit `http://127.0.0.1:8020/docs` for interactive Swagger API documentation.
 
-### Command Line Interface (`oneasr`)
+### 2. Desktop Application & Frontend UI
 
-OneASR provides an Ollama-style terminal CLI for model lifecycle management and quick transcription tests:
+In a second terminal, launch the companion desktop application:
+
+```bash
+cd desktop
+
+# Launch Tauri companion with Vite HMR on port 8021
+npm run tauri dev
+```
+
+> **Note**: In development mode (`npm run tauri dev`), the desktop client connects to your local backend on port `8020` without spawning any child processes. If you only want to debug the web UI in a browser, run `npm run dev` and open `http://localhost:8021`.
+
+### 3. Command Line Interface (`oneasr`)
+
+OneASR provides an Ollama-style terminal CLI for model lifecycle management:
 
 ```bash
 # List all available models, local readiness, and disk size
@@ -79,28 +117,23 @@ oneasr ps
 # Display compute acceleration (MPS/CUDA/CPU) and storage paths
 oneasr info
 
-# Transcribe an audio file directly from terminal
-oneasr run sensevoice-small /path/to/sample.wav
-
 # Remove local model weights to free up disk space
 oneasr rm whisper-large-v3-turbo
 
-# Start the daemon in foreground
-oneasr serve --host 127.0.0.1 --port 8020
+# Start the daemon in foreground (with optional auto-reload)
+oneasr serve --reload
 ```
 
-### Desktop Companion App (`OneASR.app`)
-
-Modeled strictly on Ollama, OneASR includes a zero-GUI native system tray companion. It stays quietly in your macOS menu bar, supervises the backend daemon, and keeps resource usage under 5MB RAM:
+### 4. Build Desktop Release Package (`.dmg`)
 
 ```bash
 cd desktop
-npm run build
+npm run build:app
 ```
 
-The native package `OneASR.app` and `OneASR_<version>_<arch>.dmg` will be in `desktop/src-tauri/target/debug/bundle/`.
+The packaged DMG and standalone bundle will be generated under `desktop/src-tauri/target/release/bundle/dmg/`.
 
-### Client Integration (DuRT & OpenAI SDK)
+### 5. Client Integration (DuRT & OpenAI SDK)
 
 OneASR runs locally at `http://127.0.0.1:8020`. Any OpenAI-compatible client (including DuRT, Python scripts, and automation workflows) connects seamlessly:
 
@@ -139,7 +172,7 @@ curl -H "Authorization: Bearer sk-oneasr-v1-p_L3kXm9QZ8sT2vA4wE7rY1u" \
 
 ## Model Management & Download Guide
 
-Local ASR models are stored in `data/models/` by default. OneASR provides a built-in CLI tool (`cli.model`) that reads `config.yaml` and automatically downloads, extracts, and verifies model weights.
+Local ASR models are stored in `~/.oneasr/models/` by default (configurable via `ONEASR_MODELS_DIR`). OneASR provides a built-in CLI tool (`cli.model` or `oneasr`) that reads `config.yaml` and automatically downloads, extracts, and verifies model weights.
 
 ### 1. Recommended: Built-in Model CLI (`cli.model`)
 
@@ -193,74 +226,35 @@ If you prefer using `hf` or `modelscope` CLI directly, run from the `OneASR/` ro
 
 ---
 
-## Configuration & Model Lifecycle (`config.yaml`)
+## Settings & Configuration (~/.oneasr/settings.json)
 
-OneASR automatically maps `model_name` (`Org/Repo-Name`) to `data/models/<Repo-Name>` and features an Ollama-inspired model lifecycle manager that prevents out-of-memory issues when configuring multiple large local ASR models:
+OneASR operates with an **Ollama-style zero-config architecture**. All models in `~/.oneasr/models/` are detected and loaded on-demand automatically.
 
-- **`preload: true` & `keep_alive: -1`**: Ideal for lightweight real-time streaming models (`xasr`), keeping them permanently resident in memory with zero cold-start latency.
-- **`preload: false` & `keep_alive: 600`**: Ideal for heavy offline transcription models (`faster-whisper`, `qwen`, `funasr`). Validated at startup with zero RAM usage, loaded on first request, and automatically unloaded after 10 minutes of inactivity or when `max_loaded_models` capacity is reached.
+User preferences can be adjusted directly from the companion desktop interface (Settings tab) or stored persistently in `~/.oneasr/settings.json`.
 
-```yaml
-api_key: sk-oneasr-v1-p_L3kXm9QZ8sT2vA4wE7rY1u
-
-# Ollama-style model lifecycle & memory management
-model_manager:
-  default_keep_alive: 600        # Default idle TTL in seconds (supports "10m", 600, -1 forever, 0 immediate unload)
-  max_loaded_models: 2           # Max concurrent non-pinned local models in RAM (LRU eviction)
-  cleanup_interval: 30           # Background idle reaper interval in seconds
-
-ASR-Toolkit:
-  vad:
-    model: "silero_vad"
-    threshold: 0.5
-    min_speech_duration_ms: 250
-    min_silence_duration_ms: 300
-    padding_ms: 100
-  chunking:
-    target_chunk_duration: 6.0
-    max_chunk_duration: 8.0
-    min_pause_duration: 0.4
-    min_sentence_duration: 2.0
-
-local-models:
-  xasr-zh-en:
-    enable: true
-    driver: xasr
-    preload: true                # Preload at startup
-    keep_alive: -1               # Pin in memory forever
-    load:
-      model_name: Gilgamesh-J/X-ASR-zh-en
-      provider: cpu
-      sample_rate: 16000
-
-  whisper-medium:
-    enable: true
-    driver: whisper
-    preload: false               # Lazy load on demand
-    keep_alive: 600              # Auto-unload after 10m idle
-    load:
-      model_name: Systran/faster-whisper-medium
-      device: cpu
-      compute_type: int8
-
-  qwen:
-    enable: false
-    engine: qwen
-    load:
-      model_name: Qwen/Qwen3-ASR-1.7B
-      device: cpu
-      dtype: float32
-      # forced_aligner_name: Qwen/Qwen3-ForcedAligner-0.6B
-
-  funasr:
-    enable: false
-    engine: funasr
-    load:
-      model_name: iic/SenseVoiceSmall
-      vad_model: iic/speech_fsmn_vad_zh-cn-16k-common-pytorch
-      punc_model: null
-      device: cpu
+```json
+{
+  "api_key": "sk-oneasr-v1-p_L3kXm9QZ8sT2vA4wE7rY1u",
+  "keep_alive": 600,
+  "max_loaded_models": 2,
+  "download_source": "auto",
+  "vad_threshold": 0.5,
+  "target_chunk_duration": 6.0
+}
 ```
+
+### Environment Variables
+
+All settings can also be customized via standard system environment variables:
+
+| Variable | Default | Description |
+| :--- | :--- | :--- |
+| `ONEASR_API_KEY` | `sk-oneasr-v1-...` | API key required for client requests (`Authorization: Bearer <key>`) |
+| `ONEASR_KEEP_ALIVE` | `600` (10m) | Idle duration before unloading resident models (`-1` = stay in memory forever, `0` = immediate release) |
+| `ONEASR_MAX_LOADED_MODELS` | `2` | Maximum concurrent models resident in memory/VRAM (LRU eviction) |
+| `ONEASR_MODELS_DIR` | `~/.oneasr/models` | Custom storage directory for local speech models |
+| `ONEASR_HOST` | `127.0.0.1` | Network interface binding (`0.0.0.0` for local area network sharing) |
+| `ONEASR_PORT` | `8020` | Server HTTP and WebSocket listening port |
 
 ---
 
@@ -444,15 +438,19 @@ OneASR/
 │   │   ├── media_service.py      # yt-dlp download & background workers
 │   │   └── record_service.py     # Transcription records persistence
 │   └── utils/                    # High-performance audio & subtitle utilities
-├── cli/                          # Command-line utilities
+├── cli/                          # Command-line utilities & unified `oneasr` CLI
+│   ├── main.py                   # Unified CLI entry (`oneasr list/pull/serve/ps/info`)
 │   ├── model.py                  # Model download, status & integrity check CLI
 │   ├── clip.py                   # Media clipping utility
 │   ├── converter.py              # Audio format converter
 │   └── stream_simulation_client.py # WebSocket streaming test client
-├── data/                         # Runtime data directory (models, uploads, downloads, DB)
-│   └── models/                   # Local ASR model weights directory
-├── tests/                        # 3-tier automated test suite
-├── web/                          # Vue 3 frontend application
+├── desktop/                      # Native companion desktop app (Vue 3 + Tauri 2.0)
+│   ├── src/                      # Vue 3 dashboard (views, components, i18n, assets)
+│   ├── src-tauri/                # Tauri 2.0 Rust core (system tray, IPC, bundle)
+│   ├── vite.config.js            # Vite configuration (port 8021)
+│   └── build.sh                  # macOS standalone packaging script
+├── install.sh                    # One-line headless terminal installer (Ollama pattern)
+├── tests/                        # 3-tier automated test suite (unit, api, integration)
 ├── docs/                         # Architecture & API design documentation
 ├── config.yaml                   # Server, model lifecycle & provider configuration
 ├── pyproject.toml                # Project metadata, scripts & pytest config

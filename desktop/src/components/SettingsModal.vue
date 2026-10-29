@@ -146,16 +146,81 @@
 
                 <div class="setting-row">
                   <div class="row-info">
+                    <span class="row-label">{{ t('apiKeyLabel') }}</span>
+                    <span class="row-desc">{{ t('apiKeyDesc') }}</span>
+                  </div>
+                  <div class="row-control api-key-control-wrap">
+                    <div class="api-key-input-group">
+                      <div class="api-key-input-wrapper">
+                        <input
+                          v-model="apiKeyInput"
+                          :type="showApiKey ? 'text' : 'password'"
+                          class="api-key-input"
+                          :placeholder="t('apiKeyPlaceholder')"
+                          @change="handleApiKeyChange"
+                        />
+                        <button
+                          type="button"
+                          class="eye-toggle-btn"
+                          :title="showApiKey ? t('btnHideKey') : t('btnShowKey')"
+                          @click="showApiKey = !showApiKey"
+                        >
+                          <svg v-if="showApiKey" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+                            <line x1="1" y1="1" x2="23" y2="23"/>
+                          </svg>
+                          <svg v-else viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                            <circle cx="12" cy="12" r="3"/>
+                          </svg>
+                        </button>
+                      </div>
+                      <button
+                        class="secondary-btn"
+                        :disabled="!apiKeyInput"
+                        @click="copyApiKey"
+                      >
+                        {{ apiKeyCopied ? t('btnCopied') : t('btnCopy') }}
+                      </button>
+                      <button
+                        class="secondary-btn"
+                        @click="regenerateApiKey"
+                      >
+                        {{ t('btnRegenerateKey') }}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="setting-row">
+                  <div class="row-info">
                     <span class="row-label">{{ t('keepAliveLabel') }}</span>
-                    <span class="row-desc">无请求时自动释放模型占用的显存与内存</span>
+                    <span class="row-desc">{{ locale === 'zh-CN' ? '无请求时自动释放模型占用的显存与内存' : 'Auto-release idle model GPU/CPU memory' }}</span>
                   </div>
                   <div class="row-control">
                     <select v-model="keepAliveTimeout" class="custom-select" @change="saveSettings">
+                      <option value="0">{{ t('keepAliveImmediate') }}</option>
                       <option value="60">{{ t('keepAlive1Min') }}</option>
                       <option value="300">{{ t('keepAlive5Min') }}</option>
                       <option value="900">{{ t('keepAlive15Min') }}</option>
                       <option value="1800">{{ t('keepAlive30Min') }}</option>
-                      <option value="0">{{ t('keepAliveNever') }}</option>
+                      <option value="-1">{{ t('keepAliveNever') }}</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="setting-row">
+                  <div class="row-info">
+                    <span class="row-label">{{ t('maxLoadedModelsLabel') }}</span>
+                    <span class="row-desc">{{ t('maxLoadedModelsDesc') }}</span>
+                  </div>
+                  <div class="row-control">
+                    <select v-model.number="maxLoadedModels" class="custom-select" @change="saveSettings">
+                      <option :value="1">1</option>
+                      <option :value="2">2 {{ locale === 'zh-CN' ? '(推荐)' : '(Default)' }}</option>
+                      <option :value="3">3</option>
+                      <option :value="4">4</option>
+                      <option :value="5">5</option>
                     </select>
                   </div>
                 </div>
@@ -171,6 +236,65 @@
                     </button>
                   </div>
                 </div>
+              </div>
+
+              <!-- Advanced Toolkit & VAD (Collapsible) -->
+              <div class="settings-group advanced-group">
+                <details class="advanced-details">
+                  <summary class="advanced-summary">
+                    <div class="summary-left">
+                      <span class="group-title">{{ t('sectionAdvancedToolkit') }}</span>
+                      <span class="summary-desc">{{ t('sectionAdvancedToolkitDesc') }}</span>
+                    </div>
+                    <span class="summary-chevron">▾</span>
+                  </summary>
+                  
+                  <div class="advanced-content">
+                    <div class="setting-row">
+                      <div class="row-info">
+                        <span class="row-label">{{ t('vadThresholdLabel') }}</span>
+                        <span class="row-desc">{{ t('vadThresholdDesc') }}</span>
+                      </div>
+                      <div class="row-control slider-control">
+                        <input
+                          v-model.number="vadThreshold"
+                          type="range"
+                          min="0.10"
+                          max="0.90"
+                          step="0.05"
+                          class="range-slider"
+                          @change="saveSettings"
+                        />
+                        <span class="mono-badge slider-badge">{{ vadThreshold.toFixed(2) }}</span>
+                      </div>
+                    </div>
+
+                    <div class="setting-row">
+                      <div class="row-info">
+                        <span class="row-label">{{ t('targetChunkLabel') }}</span>
+                        <span class="row-desc">{{ t('targetChunkDesc') }}</span>
+                      </div>
+                      <div class="row-control slider-control">
+                        <input
+                          v-model.number="targetChunkDuration"
+                          type="range"
+                          min="3.0"
+                          max="15.0"
+                          step="0.5"
+                          class="range-slider"
+                          @change="saveSettings"
+                        />
+                        <span class="mono-badge slider-badge">{{ targetChunkDuration.toFixed(1) }}s</span>
+                      </div>
+                    </div>
+
+                    <div class="advanced-actions">
+                      <button class="secondary-btn" @click="resetAdvancedDefaults">
+                        {{ t('btnResetDefaults') }}
+                      </button>
+                    </div>
+                  </div>
+                </details>
               </div>
             </div>
 
@@ -236,7 +360,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, watch, onMounted, onUnmounted } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { useI18n } from '../i18n';
 import { apiClient } from '../api/client';
@@ -288,6 +412,68 @@ const deviceDesc = ref('');
 const diskFreeGb = ref(null);
 const diskTotalGb = ref(null);
 
+const apiKeyInput = ref(localStorage.getItem('oneasr_api_key') || '');
+const apiKeyCopied = ref(false);
+const showApiKey = ref(false);
+const maxLoadedModels = ref(2);
+const vadThreshold = ref(0.50);
+const targetChunkDuration = ref(6.0);
+
+function generateRandomKey() {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  let result = 'sk-oneasr-v1-';
+  const array = new Uint8Array(24);
+  if (typeof window !== 'undefined' && window.crypto && window.crypto.getRandomValues) {
+    window.crypto.getRandomValues(array);
+    for (let i = 0; i < array.length; i++) {
+      result += chars[array[i] % chars.length];
+    }
+  } else {
+    for (let i = 0; i < 24; i++) {
+      result += chars[Math.floor(Math.random() * chars.length)];
+    }
+  }
+  return result;
+}
+
+async function regenerateApiKey() {
+  const newKey = generateRandomKey();
+  apiKeyInput.value = newKey;
+  localStorage.setItem('oneasr_api_key', newKey);
+  await saveSettings();
+}
+
+async function handleApiKeyChange() {
+  const val = apiKeyInput.value.trim();
+  apiKeyInput.value = val;
+  if (val) {
+    localStorage.setItem('oneasr_api_key', val);
+  } else {
+    localStorage.removeItem('oneasr_api_key');
+  }
+  await saveSettings();
+}
+
+async function copyApiKey() {
+  if (!apiKeyInput.value) return;
+  try {
+    await navigator.clipboard.writeText(apiKeyInput.value);
+    apiKeyCopied.value = true;
+    setTimeout(() => {
+      apiKeyCopied.value = false;
+    }, 2000);
+  } catch (err) {
+    console.warn('Copy failed:', err);
+  }
+}
+
+async function resetAdvancedDefaults() {
+  vadThreshold.value = 0.50;
+  targetChunkDuration.value = 6.0;
+  maxLoadedModels.value = 2;
+  await saveSettings();
+}
+
 function handleThemeChange() {
   setTheme(selectedTheme.value);
 }
@@ -303,6 +489,12 @@ function onKeydown(e) {
     emit('close');
   }
 }
+
+watch(() => props.isOpen, (open) => {
+  if (open) {
+    fetchSettings();
+  }
+});
 
 onMounted(() => {
   window.addEventListener('keydown', onKeydown);
@@ -335,9 +527,27 @@ async function fetchSettings() {
     const cfg = await apiClient.get('/v1/x/system/settings');
     if (cfg) {
       if (cfg.host === '0.0.0.0') isLanExposed.value = true;
-      if (cfg.keep_alive !== undefined) keepAliveTimeout.value = String(cfg.keep_alive);
+      const ka = cfg.keep_alive ?? cfg.default_keep_alive ?? cfg.keep_alive_timeout;
+      if (ka !== undefined && ka !== null) keepAliveTimeout.value = String(ka);
       if (cfg.download_source) downloadSource.value = cfg.download_source;
       if (cfg.models_dir) modelsDirPath.value = cfg.models_dir;
+      if (cfg.api_key !== undefined && cfg.api_key !== null) {
+        apiKeyInput.value = cfg.api_key;
+        if (cfg.api_key) {
+          localStorage.setItem('oneasr_api_key', cfg.api_key);
+        } else {
+          localStorage.removeItem('oneasr_api_key');
+        }
+      }
+      if (cfg.max_loaded_models !== undefined && cfg.max_loaded_models !== null) {
+        maxLoadedModels.value = Number(cfg.max_loaded_models);
+      }
+      if (cfg.vad_threshold !== undefined && cfg.vad_threshold !== null) {
+        vadThreshold.value = Number(cfg.vad_threshold);
+      }
+      if (cfg.target_chunk_duration !== undefined && cfg.target_chunk_duration !== null) {
+        targetChunkDuration.value = Number(cfg.target_chunk_duration);
+      }
     }
   } catch (err) {
     // Keep defaults
@@ -346,10 +556,17 @@ async function fetchSettings() {
 
 async function saveSettings() {
   try {
+    const kaVal = parseInt(keepAliveTimeout.value, 10);
+    const keyVal = apiKeyInput.value.trim() || null;
     await apiClient.post('/v1/x/system/settings', {
-      keep_alive: parseInt(keepAliveTimeout.value, 10),
+      keep_alive: kaVal,
+      keep_alive_timeout: kaVal,
       host: isLanExposed.value ? '0.0.0.0' : '127.0.0.1',
-      download_source: downloadSource.value
+      download_source: downloadSource.value,
+      api_key: keyVal,
+      max_loaded_models: Number(maxLoadedModels.value),
+      vad_threshold: Number(vadThreshold.value),
+      target_chunk_duration: Number(targetChunkDuration.value)
     });
   } catch (err) {
     console.error('Failed to save settings:', err);
@@ -674,6 +891,142 @@ function openGithub() {
   background: rgba(16, 185, 129, 0.12);
   color: var(--accent-emerald);
   border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.api-key-control-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex: 1;
+}
+
+.api-key-input-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  justify-content: flex-end;
+}
+
+.api-key-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.api-key-input {
+  width: 175px;
+  background: var(--bg-card, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  padding: 4px 26px 4px 8px;
+  border-radius: 6px;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.api-key-input:focus {
+  border-color: var(--accent-emerald);
+}
+
+.eye-toggle-btn {
+  position: absolute;
+  right: 6px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  border-radius: 4px;
+  transition: color 0.15s ease;
+}
+
+.eye-toggle-btn:hover {
+  color: var(--text-primary);
+}
+
+.advanced-group {
+  margin-top: 10px;
+}
+
+.advanced-details summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.advanced-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.advanced-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  user-select: none;
+}
+
+.summary-left {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.group-title {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.summary-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.summary-chevron {
+  font-size: 12px;
+  color: var(--text-muted);
+  transition: transform 0.2s ease;
+}
+
+.advanced-details[open] .summary-chevron {
+  transform: rotate(180deg);
+}
+
+.advanced-content {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.slider-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.range-slider {
+  width: 120px;
+  accent-color: var(--text-primary);
+  cursor: pointer;
+}
+
+.slider-badge {
+  min-width: 44px;
+  text-align: center;
+}
+
+.advanced-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 4px;
 }
 
 .disk-free-pill {

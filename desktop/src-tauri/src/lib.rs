@@ -3,7 +3,7 @@
 // Manages the background engine daemon, health status polling, and system tray menu.
 
 use std::net::TcpStream;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -23,12 +23,12 @@ fn is_server_listening(addr: &str) -> bool {
 }
 
 /// Locate the OneASR backend root containing `server/main.py` and its Python executable.
-/// Priority:
+/// Strictly hermetic:
 /// 1. Explicit environment variables `ONEASR_ROOT` and `ONEASR_PYTHON`.
 /// 2. Packaged standalone application bundle resources (macOS .app Resources or Windows/Linux resources directory).
-/// 3. Development ancestor directories (.venv / venv / system python).
+/// If not running inside a packaged bundle with embedded Python, returns None (pure client mode).
 fn discover_backend_env() -> Option<(PathBuf, PathBuf)> {
-    // 1. Check environment variables
+    // 1. Check explicit environment variables
     if let (Ok(root_str), Ok(py_str)) = (std::env::var("ONEASR_ROOT"), std::env::var("ONEASR_PYTHON")) {
         let root = PathBuf::from(root_str);
         let py = PathBuf::from(py_str);
@@ -37,7 +37,7 @@ fn discover_backend_env() -> Option<(PathBuf, PathBuf)> {
         }
     }
 
-    // 2. Check bundled standalone application resources
+    // 2. Check bundled standalone application resources only
     if let Ok(exe) = std::env::current_exe() {
         let mut candidate_resource_dirs: Vec<PathBuf> = Vec::new();
 
@@ -70,66 +70,6 @@ fn discover_backend_env() -> Option<(PathBuf, PathBuf)> {
                 let backend_sub = res_dir.join("backend");
                 if backend_sub.join("server").join("main.py").exists() {
                     return Some((backend_sub, py));
-                }
-            }
-        }
-    }
-
-    // 3. Search ancestor directories from working directory and current executable (dev mode)
-    let mut search_origins: Vec<PathBuf> = Vec::new();
-    if let Ok(cwd) = std::env::current_dir() {
-        search_origins.push(cwd);
-    }
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(parent) = exe.parent() {
-            search_origins.push(parent.to_path_buf());
-        }
-    }
-
-    for origin in search_origins {
-        let mut curr: Option<&Path> = Some(&origin);
-        while let Some(dir) = curr {
-            let marker = dir.join("server").join("main.py");
-            if marker.exists() {
-                // Found backend root! Now resolve Python executable
-                let venv_unix = dir.join(".venv").join("bin").join("python");
-                let venv_win = dir.join(".venv").join("Scripts").join("python.exe");
-                let alt_venv = dir.join("venv").join("bin").join("python");
-
-                let py_bin = if venv_unix.exists() {
-                    venv_unix
-                } else if venv_win.exists() {
-                    venv_win
-                } else if alt_venv.exists() {
-                    alt_venv
-                } else {
-                    PathBuf::from("python3")
-                };
-
-                return Some((dir.to_path_buf(), py_bin));
-            }
-            curr = dir.parent();
-        }
-    }
-
-    // 4. Fallback development workspace and ~/.oneasr/backend check
-    if let Some(home) = dirs::home_dir() {
-        let candidate_roots = [
-            home.join(".oneasr").join("backend"),
-            home.join("Files/Project/github/codeAndxv/ASR_Projects/OneASR"),
-            PathBuf::from("/Volumes/du/project/github/codeAndxv/ASR_Projects/OneASR"),
-        ];
-        for root in candidate_roots {
-            if root.join("server").join("main.py").exists() {
-                let py_candidates = [
-                    root.join(".venv").join("bin").join("python"),
-                    root.join(".venv").join("Scripts").join("python.exe"),
-                    root.join("venv").join("bin").join("python"),
-                ];
-                for py in py_candidates {
-                    if py.exists() {
-                        return Some((root, py));
-                    }
                 }
             }
         }
@@ -173,7 +113,7 @@ fn ensure_cli_installed() {
                 return;
             }
 
-            // 2. Discover from development environment
+            // 2. Discover from development environment or ~/.oneasr/core
             let script_content = if let Some((root_dir, py_bin)) = discover_backend_env() {
                 format!(
                     "#!/usr/bin/env bash\nexport PYTHONPATH=\"{}:$PYTHONPATH\"\nexec \"{}\" -m cli.main \"$@\"\n",
@@ -181,24 +121,7 @@ fn ensure_cli_installed() {
                     py_bin.to_string_lossy()
                 )
             } else {
-                // 3. Fallback for developer machine when App is installed in /Applications
-                let dev_root = PathBuf::from("/Volumes/du/project/github/codeAndxv/ASR_Projects/OneASR");
-                if dev_root.join("server").join("main.py").exists() {
-                    let py_bin = dev_root.join(".venv").join("bin").join("python");
-                    let py_exec = if py_bin.exists() {
-                        format!("exec \"{}\" -m cli.main \"$@\"", py_bin.to_string_lossy())
-                    } else {
-                        "exec uv run python -m cli.main \"$@\"".to_string()
-                    };
-                    format!(
-                        "#!/usr/bin/env bash\ncd \"{}\"\nexport PYTHONPATH=\"{}:$PYTHONPATH\"\n{}\n",
-                        dev_root.to_string_lossy(),
-                        dev_root.to_string_lossy(),
-                        py_exec
-                    )
-                } else {
-                    return;
-                }
+                return;
             };
 
             let _ = std::fs::write(&target_cli, script_content);
@@ -220,6 +143,89 @@ fn terminate_child(child_lock: &Arc<Mutex<Option<Child>>>) {
     }
 }
 
+/// Spawns the backend daemon process if not already listening on 127.0.0.1:8020.
+/// Redirects stdout and stderr to ~/.oneasr/logs/server.log.
+fn spawn_backend(child_handle: &Arc<Mutex<Option<Child>>>) -> Result<(), String> {
+    let backend_addr = "127.0.0.1:8020";
+
+    // If server is already responding on 8020, nothing to spawn
+    if is_server_listening(backend_addr) {
+        eprintln!("[OneASR] Backend daemon already responding on {}", backend_addr);
+        return Ok(());
+    }
+
+    // Terminate existing dead or unresponsive child process if recorded
+    terminate_child(child_handle);
+
+    if let Some((root_dir, py_bin)) = discover_backend_env() {
+        eprintln!("[OneASR] Spawning backend daemon in {:?} via {:?}", root_dir, py_bin);
+
+        let mut cmd = Command::new(&py_bin);
+        cmd.arg("-m")
+            .arg("server.main")
+            .current_dir(&root_dir)
+            .env("PYTHONUNBUFFERED", "1");
+
+        // Prepend standalone python & ffmpeg bin directories to PATH
+        let mut path_entries: Vec<String> = Vec::new();
+        if let Some(py_parent) = py_bin.parent() {
+            path_entries.push(py_parent.to_string_lossy().to_string());
+        }
+        let bundled_bin = root_dir.join("bin");
+        if bundled_bin.exists() {
+            path_entries.push(bundled_bin.to_string_lossy().to_string());
+        }
+        if let Ok(sys_path) = std::env::var("PATH") {
+            path_entries.push(sys_path);
+        }
+        let path_sep = if cfg!(windows) { ";" } else { ":" };
+        cmd.env("PATH", path_entries.join(path_sep));
+
+        // Prepend root_dir to PYTHONPATH
+        if let Ok(sys_pythonpath) = std::env::var("PYTHONPATH") {
+            cmd.env("PYTHONPATH", format!("{}{}{}", root_dir.to_string_lossy(), path_sep, sys_pythonpath));
+        } else {
+            cmd.env("PYTHONPATH", root_dir.to_string_lossy().to_string());
+        }
+
+        // Redirect stdout/stderr to ~/.oneasr/logs/server.log
+        if let Some(home) = dirs::home_dir() {
+            let log_dir = home.join(".oneasr").join("logs");
+            let _ = std::fs::create_dir_all(&log_dir);
+            let log_file = log_dir.join("server.log");
+            if let Ok(file) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&log_file)
+            {
+                if let Ok(err_file) = file.try_clone() {
+                    cmd.stdout(std::process::Stdio::from(file));
+                    cmd.stderr(std::process::Stdio::from(err_file));
+                }
+            }
+        }
+
+        match cmd.spawn() {
+            Ok(child) => {
+                eprintln!("[OneASR] Backend daemon started with PID: {}", child.id());
+                if let Ok(mut lock) = child_handle.lock() {
+                    *lock = Some(child);
+                }
+                Ok(())
+            }
+            Err(err) => {
+                let msg = format!("Failed to spawn backend daemon: {}", err);
+                eprintln!("[OneASR] {}", msg);
+                Err(msg)
+            }
+        }
+    } else {
+        let msg = "Could not locate backend root or Python executable".to_string();
+        eprintln!("[OneASR] {}", msg);
+        Err(msg)
+    }
+}
+
 /// Tauri native command: Open local application directories in macOS Finder.
 /// Bypasses HTTP server completely for robust, offline-capable desktop UX.
 #[tauri::command]
@@ -233,14 +239,23 @@ fn open_local_dir(target: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Tauri native command: Manually trigger / retry starting the backend daemon.
+#[tauri::command]
+fn start_backend(
+    state: tauri::State<Arc<Mutex<Option<Child>>>>,
+) -> Result<bool, String> {
+    spawn_backend(&state).map(|_| true)
+}
+
 pub fn run() {
     let child_handle: Arc<Mutex<Option<Child>>> = Arc::new(Mutex::new(None));
     let child_for_tray = child_handle.clone();
     let child_for_exit = child_handle.clone();
 
     tauri::Builder::default()
+        .manage(child_handle.clone())
         .plugin(tauri_plugin_shell::init())
-        .invoke_handler(tauri::generate_handler![open_local_dir])
+        .invoke_handler(tauri::generate_handler![open_local_dir, start_backend])
         .setup(move |app| {
             let handle = app.handle();
             let backend_addr = "127.0.0.1:8020";
@@ -248,56 +263,8 @@ pub fn run() {
             // 0. Ensure global CLI tool 'oneasr' is registered in PATH (Ollama pattern)
             ensure_cli_installed();
 
-            // 1. Check if backend daemon is already running
-            if !is_server_listening(backend_addr) {
-                if let Some((root_dir, py_bin)) = discover_backend_env() {
-                    eprintln!("[OneASR] Spawning backend daemon in {:?} via {:?}", root_dir, py_bin);
-                    
-                    let mut cmd = Command::new(&py_bin);
-                    cmd.arg("-m")
-                        .arg("server.main")
-                        .current_dir(&root_dir)
-                        .env("PYTHONUNBUFFERED", "1");
-
-                    // Prepend standalone python & ffmpeg bin directories to PATH
-                    let mut path_entries: Vec<String> = Vec::new();
-                    if let Some(py_parent) = py_bin.parent() {
-                        path_entries.push(py_parent.to_string_lossy().to_string());
-                    }
-                    let bundled_bin = root_dir.join("bin");
-                    if bundled_bin.exists() {
-                        path_entries.push(bundled_bin.to_string_lossy().to_string());
-                    }
-                    if let Ok(sys_path) = std::env::var("PATH") {
-                        path_entries.push(sys_path);
-                    }
-                    let path_sep = if cfg!(windows) { ";" } else { ":" };
-                    cmd.env("PATH", path_entries.join(path_sep));
-
-                    // Prepend root_dir to PYTHONPATH
-                    if let Ok(sys_pythonpath) = std::env::var("PYTHONPATH") {
-                        cmd.env("PYTHONPATH", format!("{}{}{}", root_dir.to_string_lossy(), path_sep, sys_pythonpath));
-                    } else {
-                        cmd.env("PYTHONPATH", root_dir.to_string_lossy().to_string());
-                    }
-
-                    match cmd.spawn() {
-                        Ok(child) => {
-                            eprintln!("[OneASR] Backend daemon started with PID: {}", child.id());
-                            if let Ok(mut lock) = child_handle.lock() {
-                                *lock = Some(child);
-                            }
-                        }
-                        Err(err) => {
-                            eprintln!("[OneASR] Failed to spawn backend daemon: {}", err);
-                        }
-                    }
-                } else {
-                    eprintln!("[OneASR] Could not locate backend root; running in standalone tray mode");
-                }
-            } else {
-                eprintln!("[OneASR] Backend daemon already responding on {}", backend_addr);
-            }
+            // 1. Initial attempt to spawn backend daemon if not already listening
+            let _ = spawn_backend(&child_handle);
 
             // 2. Build Native System Tray Menu
             let initial_status = if is_server_listening(backend_addr) {

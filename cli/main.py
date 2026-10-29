@@ -7,7 +7,6 @@ Usage examples:
     oneasr rm sensevoice-small         # Remove local model files
     oneasr ps                          # Show models currently loaded in VRAM/memory
     oneasr info                        # Display hardware and storage diagnostics
-    oneasr run sensevoice-small a.wav  # Transcribe an audio file from terminal
 """
 
 from __future__ import annotations
@@ -193,78 +192,40 @@ def cmd_info(args: argparse.Namespace) -> int:
 
 def cmd_serve(args: argparse.Namespace) -> int:
     """Start the OneASR backend daemon in the foreground."""
+    import socket
     import uvicorn
+
     host = args.host
     port = args.port
+
+    # Pre-check if port is already listening to avoid unhandled socket bind Traceback
+    probe_host = "127.0.0.1" if host in ("0.0.0.0", "") else host
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(0.6)
+        if s.connect_ex((probe_host, port)) == 0:
+            print(f"[OneASR] Daemon is already active on http://{probe_host}:{port}")
+            print(f"[OneASR] Interactive Swagger Docs: http://{probe_host}:{port}/docs")
+            if getattr(args, "browser", False):
+                import webbrowser
+                webbrowser.open(f"http://{probe_host}:{port}")
+            return 0
+
     print(f"Starting OneASR Engine daemon on {host}:{port} ...")
     if getattr(args, "browser", False):
         import threading
         import webbrowser
+
         def _open():
             time.sleep(1.2)
             url = f"http://{'127.0.0.1' if host == '0.0.0.0' else host}:{port}"
             print(f"Opening web browser at {url} ...")
             webbrowser.open(url)
+
         threading.Thread(target=_open, daemon=True).start()
-    uvicorn.run("server.main:app", host=host, port=port, log_level="info")
+
+    reload_flag = getattr(args, "reload", False)
+    uvicorn.run("server.main:app", host=host, port=port, log_level="info", reload=reload_flag)
     return 0
-
-
-def cmd_run(args: argparse.Namespace) -> int:
-    """Transcribe an audio file directly from terminal (like 'ollama run')."""
-    import urllib.request
-    import mimetypes
-
-    model_id = args.model_id
-    audio_path = Path(args.audio_file).expanduser().resolve()
-
-    if not audio_path.exists():
-        print(f"Error: audio file '{audio_path}' not found.")
-        return 1
-
-    url = "http://127.0.0.1:8020/v1/audio/transcriptions"
-    boundary = "----OneASRBoundary" + str(int(time.time()))
-    body = bytearray()
-
-    # Form field: model
-    body.extend(f"--{boundary}\r\n".encode())
-    body.extend(b'Content-Disposition: form-data; name="model"\r\n\r\n')
-    body.extend(f"{model_id}\r\n".encode())
-
-    # Form field: file
-    mime_type, _ = mimetypes.guess_type(str(audio_path))
-    mime_type = mime_type or "application/octet-stream"
-    body.extend(f"--{boundary}\r\n".encode())
-    body.extend(
-        f'Content-Disposition: form-data; name="file"; filename="{audio_path.name}"\r\n'.encode()
-    )
-    body.extend(f"Content-Type: {mime_type}\r\n\r\n".encode())
-    with open(audio_path, "rb") as f:
-        body.extend(f.read())
-    body.extend(b"\r\n")
-    body.extend(f"--{boundary}--\r\n".encode())
-
-    req = urllib.request.Request(
-        url,
-        data=body,
-        headers={
-            "Content-Type": f"multipart/form-data; boundary={boundary}",
-            "Authorization": "Bearer sk-oneasr-v1-p_L3kXm9QZ8sT2vA4wE7rY1u",
-        },
-    )
-
-    print(f"Transcribing '{audio_path.name}' using {model_id}...")
-    start_time = time.time()
-    try:
-        with urllib.request.urlopen(req, timeout=300) as resp:
-            data = json.loads(resp.read().decode())
-            elapsed = time.time() - start_time
-            print(f"\n{data.get('text', '')}")
-            print(f"\n[Completed in {elapsed:.2f}s]")
-            return 0
-    except Exception as e:
-        print(f"Error during transcription: {e}")
-        return 1
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -303,11 +264,7 @@ def build_parser() -> argparse.ArgumentParser:
     serve_p.add_argument("--host", default="127.0.0.1", help="Host interface to bind")
     serve_p.add_argument("--port", type=int, default=8020, help="Port to listen on")
     serve_p.add_argument("--browser", "--open-browser", action="store_true", help="Automatically open web browser on startup")
-
-    # run / transcribe
-    run_p = subparsers.add_parser("run", aliases=["transcribe"], help="Transcribe audio file directly")
-    run_p.add_argument("model_id", help="Model identifier to use")
-    run_p.add_argument("audio_file", help="Path to audio file")
+    serve_p.add_argument("--reload", action="store_true", help="Enable auto-reload on code change (development)")
 
     return parser
 
@@ -329,8 +286,6 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_info(args)
     if args.subcommand == "serve":
         return cmd_serve(args)
-    if args.subcommand in ("run", "transcribe"):
-        return cmd_run(args)
 
     parser.print_help()
     return 1

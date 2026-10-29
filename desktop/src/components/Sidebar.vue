@@ -38,12 +38,27 @@
     <!-- Sidebar Footer: Status on top, Settings at the very bottom -->
     <div class="sidebar-footer no-drag">
       <!-- Engine Status Card (above settings) -->
-      <div class="server-status no-drag" :class="{ online: isOnline }">
-        <div class="status-indicator"></div>
+      <div class="server-status no-drag" :class="{ online: isOnline, starting: isStarting }">
+        <div class="status-indicator" :class="{ pulse: isStarting }"></div>
         <div class="status-text">
-          <div class="status-title">{{ isOnline ? t('statusOnline') : t('statusOffline') }}</div>
+          <div class="status-title">
+            {{ isOnline ? t('statusOnline') : (isStarting ? t('statusStarting') : t('statusOffline')) }}
+          </div>
           <div class="status-host">127.0.0.1:8020</div>
         </div>
+        <!-- Manual Start Ghost Button: shown when initial check fails or offline -->
+        <button
+          v-if="!isOnline && hasChecked"
+          class="status-action-btn no-drag"
+          :disabled="isStarting"
+          :title="isStarting ? t('statusStarting') : t('statusStart')"
+          @click.stop="$emit('start-service')"
+        >
+          <svg v-if="isStarting" class="spin-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5">
+            <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+          </svg>
+          <span v-else>{{ t('statusStart') }}</span>
+        </button>
       </div>
 
       <!-- Preferences / Settings Button (Triggers Preferences Modal) -->
@@ -77,13 +92,21 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
+  isStarting: {
+    type: Boolean,
+    default: false
+  },
+  hasChecked: {
+    type: Boolean,
+    default: false
+  },
   historyCount: {
     type: Number,
     default: 0
   }
 });
 
-defineEmits(['select-tab', 'open-settings']);
+defineEmits(['select-tab', 'open-settings', 'start-service']);
 const { t } = useI18n();
 
 let appWindow = null;
@@ -269,7 +292,7 @@ const navItems = [
 .server-status {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 8px;
   padding: 8px 10px;
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.02);
@@ -284,20 +307,75 @@ const navItems = [
   box-shadow: 0 0 6px rgba(239, 68, 68, 0.4);
 }
 
+.status-indicator.pulse {
+  background-color: #f59e0b;
+  box-shadow: 0 0 6px rgba(245, 158, 11, 0.5);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
 .server-status.online .status-indicator {
   background-color: var(--accent-emerald);
   box-shadow: 0 0 6px rgba(16, 185, 129, 0.5);
+}
+
+.status-text {
+  flex: 1;
+  min-width: 0;
 }
 
 .status-title {
   font-size: 11px;
   font-weight: 600;
   color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .status-host {
   font-size: 10px;
   color: var(--text-muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.status-action-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.status-action-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.status-action-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.spin-icon {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 </style>

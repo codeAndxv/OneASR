@@ -103,8 +103,8 @@ class ModelManagerConfig:
         env_keep_alive = os.getenv("ONEASR_KEEP_ALIVE")
         raw_val = env_keep_alive if env_keep_alive is not None else data.get("default_keep_alive", data.get("keep_alive", 600))
         self.default_keep_alive: int = parse_keep_alive_seconds(raw_val, default=600)
-        raw_max = os.getenv("ONEASR_MAX_LOADED_MODELS") or data.get("max_loaded_models", 1)
-        self.max_loaded_models: int = int(raw_max) if raw_max is not None else 1
+        raw_max = os.getenv("ONEASR_MAX_LOADED_MODELS") or data.get("max_loaded_models", 2)
+        self.max_loaded_models: int = int(raw_max) if raw_max is not None else 2
         self.cleanup_interval: int = max(5, int(data.get("cleanup_interval", 30)))
 
 
@@ -459,10 +459,17 @@ class AppConfig:
         raw_mm: dict[str, Any] = {}
         if "keep_alive" in user_settings:
             raw_mm["default_keep_alive"] = user_settings["keep_alive"]
+        if "max_loaded_models" in user_settings:
+            raw_mm["max_loaded_models"] = user_settings["max_loaded_models"]
         self.model_manager = ModelManagerConfig(raw_mm)
 
-        # 3. ASR Toolkit and yt-dlp config (pure defaults)
-        self.asr_toolkit = ASRToolkitConfig()
+        # 3. ASR Toolkit and yt-dlp config
+        raw_toolkit: dict[str, Any] = {}
+        if "vad_threshold" in user_settings:
+            raw_toolkit.setdefault("vad", {})["threshold"] = user_settings["vad_threshold"]
+        if "target_chunk_duration" in user_settings:
+            raw_toolkit.setdefault("chunking", {})["target_chunk_duration"] = user_settings["target_chunk_duration"]
+        self.asr_toolkit = ASRToolkitConfig(raw_toolkit)
         self.ytdlp = YtDlpConfig()
 
         # 4. API Key resolution: Environment > settings.json > default standard key
