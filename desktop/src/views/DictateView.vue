@@ -5,7 +5,10 @@
       <!-- Model Selector -->
       <div class="config-item">
         <label class="config-label">{{ t('selectModel') }}</label>
-        <select v-model="selectedModel" class="custom-select" :disabled="isRecording || isTranscribing">
+        <select v-model="selectedModel" class="custom-select" :disabled="isRecording || isTranscribing || modelOptions.length === 0">
+          <option v-if="modelOptions.length === 0" value="" disabled selected>
+            {{ t('noReadyRealtimeModels') || '暂无可用实时模型 (请先前往模型管理下载)' }}
+          </option>
           <option v-for="m in modelOptions" :key="m.id" :value="m.id">
             {{ m.name }}
           </option>
@@ -14,14 +17,14 @@
 
       <!-- Language Selector -->
       <div class="config-item">
-        <label class="config-label">语言识别</label>
+        <label class="config-label">{{ t('langDetection') }}</label>
         <select v-model="selectedLanguage" class="custom-select" :disabled="isRecording || isTranscribing">
-          <option value="auto">自动识别语言 (Auto Detect)</option>
-          <option value="zh">中文普通话 (Chinese)</option>
-          <option value="en">英语 (English)</option>
-          <option value="yue">粤语 (Cantonese)</option>
-          <option value="ja">日语 (Japanese)</option>
-          <option value="ko">韩语 (Korean)</option>
+          <option value="auto">{{ t('langOptAuto') }}</option>
+          <option value="zh">{{ t('langOptZh') }}</option>
+          <option value="en">{{ t('langOptEn') }}</option>
+          <option value="yue">{{ t('langOptYue') }}</option>
+          <option value="ja">{{ t('langOptJa') }}</option>
+          <option value="ko">{{ t('langOptKo') }}</option>
         </select>
       </div>
 
@@ -65,7 +68,7 @@
             }"
           ></span>
           <span class="status-text" :class="{ 'text-error': !!errorMessage }">{{ currentStatusText }}</span>
-          <span v-if="charCount > 0" class="char-badge">({{ charCount }} 字)</span>
+          <span v-if="charCount > 0" class="char-badge">({{ charCount }} {{ t('unitWords') }})</span>
         </div>
 
         <div class="canvas-actions">
@@ -75,7 +78,7 @@
             :title="t('copyText')"
             @click="copyResult"
           >
-            {{ copied ? '✓ 已复制' : t('copyText') }}
+            {{ copied ? t('copied') : t('copyText') }}
           </button>
           <button
             class="action-btn"
@@ -114,8 +117,8 @@
           </svg>
           <p v-if="errorMessage" class="placeholder-error">{{ errorMessage }}</p>
           <template v-else>
-            <p class="placeholder-main">点击下方麦克风或按空格键开始实时听写</p>
-            <p class="placeholder-sub">毫秒级流式文本与延迟检测 · 端侧神经推理不经云端</p>
+            <p class="placeholder-main">{{ t('dictatePlaceholderMain') }}</p>
+            <p class="placeholder-sub">{{ t('dictatePlaceholderSub') }}</p>
           </template>
         </div>
 
@@ -191,7 +194,7 @@
         <!-- Right: Spacebar Shortcut Hint -->
         <div class="dock-right">
           <span class="shortcut-tip">
-            按 <kbd class="kbd-badge">Space</kbd> 切换录音
+            {{ t('dictateShortcutHint') }}
           </span>
         </div>
       </div>
@@ -208,7 +211,7 @@ import { apiClient } from '../api/client';
 const emit = defineEmits(['add-history']);
 const { t } = useI18n();
 
-const selectedModel = ref('sensevoice-small');
+const selectedModel = ref('');
 const selectedLanguage = ref('auto');
 const selectedMicId = ref('');
 const microphones = ref([]);
@@ -225,9 +228,7 @@ const canvasBody = ref(null);
 
 const waveBars = ref([4, 4, 4, 4, 4, 4, 4, 4]);
 
-const modelOptions = ref([
-  { id: 'sensevoice-small', name: 'SenseVoice-Small (极速轻量 · 推荐)' }
-]);
+const modelOptions = ref([]);
 
 let realtimeWs = null;
 const finalizedSentences = ref([]);
@@ -333,7 +334,7 @@ async function loadAvailableModels() {
       if (ready.length > 0) {
         modelOptions.value = ready.map((m) => ({
           id: m.id,
-          name: `${m.name || m.id}${m.loaded ? ' (● 内存驻留)' : ''}`,
+          name: `${m.name || m.id}${m.loaded ? t('modelResidentBadge') : ''}`,
           isLoaded: !!m.loaded
         }));
         const loadedModel = modelOptions.value.find((m) => m.isLoaded);
@@ -345,7 +346,13 @@ async function loadAvailableModels() {
         } else if (!modelOptions.value.some((m) => m.id === selectedModel.value)) {
           selectedModel.value = modelOptions.value[0].id;
         }
+      } else {
+        modelOptions.value = [];
+        selectedModel.value = '';
       }
+    } else {
+      modelOptions.value = [];
+      selectedModel.value = '';
     }
   } catch (err) {
     console.warn('[DictateView] Failed to load ready models:', err);
@@ -368,16 +375,19 @@ const currentStatusText = computed(() => {
   if (errorMessage.value) {
     return errorMessage.value;
   }
+  if (modelOptions.value.length === 0) {
+    return t('statusNoRealtimeModel');
+  }
   if (isRecording.value) {
-    return '正在收音中 · 实时感知麦克风信号...';
+    return t('statusRecording');
   }
   if (isTranscribing.value) {
-    return '正在神经网络分块推理中...';
+    return t('statusTranscribing');
   }
   if (transcribedText.value) {
-    return '转录就绪 · 已同步保存至历史记录';
+    return t('statusDictateDone');
   }
-  return '准备就绪 · 点击下方麦克风或按空格开始';
+  return t('statusDictateReady');
 });
 
 onMounted(async () => {
@@ -430,6 +440,10 @@ async function toggleRecording() {
 
 async function startRecording() {
   try {
+    if (!selectedModel.value || modelOptions.value.length === 0) {
+      errorMessage.value = t('errNoRealtimeModel') || '暂无可用的实时听写模型，请先前往【模型管理】下载 SenseVoice-Small 或 X-ASR。';
+      return;
+    }
     errorMessage.value = '';
     transcribedText.value = '';
     durationSec.value = 0;
@@ -483,7 +497,7 @@ async function startRecording() {
     }, 90);
   } catch (err) {
     console.error('Failed to start recording:', err);
-    errorMessage.value = `麦克风无法启动: ${err.name || ''} ${err.message || '请检查系统偏好设置中 OneASR 的麦克风权限'}`;
+    errorMessage.value = `${t('errMicPermission')}${err.message ? ` (${err.message})` : ''}`;
   }
 }
 
@@ -557,7 +571,7 @@ async function stopAndTranscribe() {
     }
   } catch (err) {
     console.error('Transcription error:', err);
-    errorMessage.value = `[转录失败: ${err.message}]`;
+    errorMessage.value = `[${t('errTranscribeFailed')}: ${err.message}]`;
   } finally {
     isTranscribing.value = false;
     volume.value = 0;

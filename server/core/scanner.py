@@ -216,10 +216,10 @@ def scan_all_models() -> dict[str, ModelScanResult]:
         except (PermissionError, FileNotFoundError):
             pass
 
-    # 3. Include any explicitly configured providers from app_config
+    # 3. Include any explicitly configured models from app_config
     try:
         from server.core.config import app_config
-        for pid, pcfg in app_config.providers.items():
+        for pid, pcfg in app_config.models.items():
             if pid not in results:
                 p_path = Path(pcfg.model_path) if pcfg.model_path else None
                 is_ready = bool(p_path and p_path.exists())

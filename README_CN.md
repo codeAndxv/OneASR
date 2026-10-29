@@ -95,11 +95,11 @@ uv run python -m server.main --reload
 ```bash
 cd desktop
 
-# 启动 Tauri 桌面端伴侣窗口（Vite HMR 监听 8021 端口）
+# 启动 Tauri 桌面端伴侣窗口（Vite HMR 监听 8025 端口）
 npm run tauri dev
 ```
 
-> **说明**：在开发态（`npm run tauri dev`）下，桌面客户端作为纯客户端直连终端 1 的 `8020` 后端服务，绝不擅自拉起任何后台子进程。若只想在浏览器调试 Web 界面，可执行 `npm run dev` 并访问 `http://localhost:8021`。
+> **说明**：在开发态（`npm run tauri dev`）下，桌面客户端作为纯客户端直连终端 1 的 `8020` 后端服务，绝不擅自拉起任何后台子进程。若只想在浏览器调试 Web 界面，可执行 `npm run dev` 并访问 `http://localhost:8025`。
 
 ### 3. 终端命令行工具 (`oneasr` CLI)
 
@@ -432,7 +432,7 @@ OneASR/
 ├── desktop/                      # 原生桌面客户端与管理控制台 (Vue 3 + Tauri 2.0)
 │   ├── src/                      # Vue 3 前端界面源码 (视图、组件、多语言、状态感知)
 │   ├── src-tauri/                # Tauri 2.0 Rust 核心 (系统托盘、IPC 通信、原生应用打包)
-│   ├── vite.config.js            # Vite 配置文件 (开发端口 8021)
+│   ├── vite.config.js            # Vite 配置文件 (开发端口 8025)
 │   └── build.sh                  # macOS 独立自包含打包构建脚本
 ├── install.sh                    # 终端单行一键无头安装脚本 (对标 Ollama)
 ├── tests/                        # 三层自动化测试套件与内置 Public Domain 测试媒体

@@ -365,9 +365,21 @@ pub fn run() {
         })
         .build(tauri::generate_context!())
         .expect("error while building OneASR desktop application")
-        .run(move |_app_handle, event| {
-            if let tauri::RunEvent::Exit = event {
-                terminate_child(&child_for_exit);
+        .run(move |app_handle, event| {
+            match event {
+                tauri::RunEvent::Reopen { has_visible_windows, .. } => {
+                    if !has_visible_windows {
+                        if let Some(window) = app_handle.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.unminimize();
+                            let _ = window.set_focus();
+                        }
+                    }
+                }
+                tauri::RunEvent::Exit => {
+                    terminate_child(&child_for_exit);
+                }
+                _ => {}
             }
         });
 }

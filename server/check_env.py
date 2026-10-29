@@ -1,9 +1,9 @@
-"""环境检查脚本：验证 config.yaml 配置及本地模型/云端服务可用性。
+"""环境检查脚本：验证本地模型及服务可用性。
 
 用法:
-    uv run python -m server.check_env              # 检查所有已配置的 Provider
-    uv run python -m server.check_env faster-whisper  # 只检查指定 Provider（可多个）
-    uv run python -m server.check_env --list       # 列出所有已配置的 Provider
+    uv run python -m server.check_env              # 检查所有模型
+    uv run python -m server.check_env sensevoice-small  # 只检查指定模型（可多个）
+    uv run python -m server.check_env --list       # 列出所有模型
 """
 
 import argparse
@@ -13,8 +13,8 @@ from cli.model import CLOUD_ENGINES, resolve_provider_specs, verify_model_dir
 from server.core.config import AppConfig, EngineConfig
 
 
-def check_local_provider(cfg: EngineConfig) -> bool:
-    """检查本地 Provider 的模型目录完整性（基于 cli.model 规则，零内存开销）。"""
+def check_local_model(cfg: EngineConfig) -> bool:
+    """检查本地模型的目录完整性（基于 cli.model 规则，零内存开销）。"""
     specs = resolve_provider_specs(cfg, include_aligner=False)
     if not specs:
         print(f"  [WARN] 未能解析本地模型规格: {cfg.name}")
@@ -32,7 +32,7 @@ def check_local_provider(cfg: EngineConfig) -> bool:
     return all_ok
 
 
-def check_cloud_provider(cfg: EngineConfig) -> bool:
+def check_cloud_model(cfg: EngineConfig) -> bool:
     """检查云端 API（OpenAI 兼容接口）是否可用。"""
     print(f"  模型: {cfg.model_name}, URL: {cfg.base_url}")
 
@@ -53,8 +53,8 @@ def check_cloud_provider(cfg: EngineConfig) -> bool:
         return False
 
 
-def check_provider(cfg: EngineConfig) -> bool:
-    """检查单个 Provider。"""
+def check_model(cfg: EngineConfig) -> bool:
+    """检查单个模型。"""
     eng = (cfg.engine_name or cfg.name).lower()
     is_cloud = cfg.type == "cloud" or eng in CLOUD_ENGINES
     prov_type = "cloud" if is_cloud else "local"
@@ -62,40 +62,43 @@ def check_provider(cfg: EngineConfig) -> bool:
     print(f"\n[{cfg.name}] engine={cfg.engine_name}, type={prov_type}, status={status_str}")
 
     if is_cloud:
-        return check_cloud_provider(cfg)
-    return check_local_provider(cfg)
+        return check_cloud_model(cfg)
+    return check_local_model(cfg)
+
+
+check_provider = check_model
 
 
 def main():
     parser = argparse.ArgumentParser(description="OneASR 环境检查")
-    parser.add_argument("providers", nargs="*", help="要检查的 Provider 名称（默认检查所有已配置的 Provider）")
-    parser.add_argument("--list", action="store_true", help="列出所有已配置的 Provider")
+    parser.add_argument("models", nargs="*", help="要检查的模型 ID（默认检查所有已配置的模型）")
+    parser.add_argument("--list", action="store_true", help="列出所有模型")
     args = parser.parse_args()
 
     app_cfg = AppConfig()
-    providers = app_cfg.providers
+    models = app_cfg.models
 
     if args.list:
-        for name, cfg in providers.items():
+        for name, cfg in models.items():
             print(f"  {name:<18} (engine={cfg.engine_name}, enable={cfg.enable}, model={cfg.model_name})")
         return
 
     print("=" * 60)
-    print("OneASR 环境检查")
+    print("OneASR 环境与模型检查")
     print("=" * 60)
 
-    if not providers:
-        print("\n[WARN] config.yaml 中未配置任何 Provider")
+    if not models:
+        print("\n[WARN] 未扫描到任何可用模型")
         return
 
-    targets = args.providers if args.providers else list(providers.keys())
+    targets = args.models if args.models else list(models.keys())
 
     results = {}
     for name in targets:
-        if name not in providers:
-            print(f"\n[{name}] 配置中不存在，跳过")
+        if name not in models:
+            print(f"\n[{name}] 模型不存在，跳过")
             continue
-        results[name] = check_provider(providers[name])
+        results[name] = check_model(models[name])
 
     print("\n" + "=" * 60)
     print("检查结果汇总")

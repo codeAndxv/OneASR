@@ -568,11 +568,11 @@ def collect_all_specs(
     app_cfg: AppConfig,
     include_aligner: bool = False,
 ) -> list[ModelArtifactSpec]:
-    """收集所有内置与本地 Provider 的模型规格。"""
+    """收集所有内置与本地模型的规格。"""
     all_specs: list[ModelArtifactSpec] = []
-    local_dict = getattr(app_cfg, "local_models", app_cfg.providers)
-    for prov_cfg in local_dict.values():
-        all_specs.extend(resolve_provider_specs(prov_cfg, include_aligner=include_aligner))
+    local_dict = getattr(app_cfg, "models", getattr(app_cfg, "local_models", app_cfg.providers))
+    for mod_cfg in local_dict.values():
+        all_specs.extend(resolve_provider_specs(mod_cfg, include_aligner=include_aligner))
     return all_specs
 
 
@@ -614,8 +614,9 @@ def cmd_check(args: argparse.Namespace) -> int:
     app_cfg = AppConfig()
     specs = collect_all_specs(app_cfg, include_aligner=False)
 
-    if args.providers:
-        target_names = set(args.providers)
+    target_args = getattr(args, "models", None) or getattr(args, "providers", None)
+    if target_args:
+        target_names = set(target_args)
         specs = [s for s in specs if s.provider_name in target_names]
     elif not args.all:
         specs = [s for s in specs if s.enable]
@@ -648,19 +649,20 @@ def cmd_pull(args: argparse.Namespace) -> int:
     app_cfg = AppConfig()
     specs = collect_all_specs(app_cfg, include_aligner=args.include_aligner)
 
-    if args.providers:
+    target_args = getattr(args, "models", None) or getattr(args, "providers", None)
+    if target_args:
         available = {
-            p for p, c in getattr(app_cfg, "local_models", app_cfg.providers).items()
+            p for p, c in getattr(app_cfg, "models", app_cfg.providers).items()
             if not getattr(c, "is_cloud", False) and c.type != "cloud" and c.engine_name not in CLOUD_ENGINES
         }
-        unknown = [p for p in args.providers if p not in available]
+        unknown = [p for p in target_args if p not in available]
         if unknown:
             print(
-                f"[ERROR] 未知的本地 Provider: {', '.join(unknown)} (可用本地 Provider: {', '.join(sorted(available))})",
+                f"[ERROR] 未知的本地模型: {', '.join(unknown)} (可用本地模型: {', '.join(sorted(available))})",
                 file=sys.stderr,
             )
             return 1
-        target_set = set(args.providers)
+        target_set = set(target_args)
         selected_specs = [s for s in specs if s.provider_name in target_set]
     elif args.all:
         selected_specs = specs
@@ -702,9 +704,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="下载模型到本地模型目录（默认下载所有常用/已启用模型）",
     )
     pull_parser.add_argument(
-        "providers",
+        "models",
         nargs="*",
-        help="指定要下载的 Provider 名称（如 xasr faster-whisper qwen），留空则下载所有已启用模型",
+        metavar="MODEL_ID",
+        help="指定要下载的模型 ID（如 xasr sensevoice-small qwen），留空则下载所有已启用模型",
     )
     pull_parser.add_argument(
         "--all",
@@ -734,9 +737,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="离线校验本地模型文件是否完整（默认检查所有 enable: true 的模型）",
     )
     check_parser.add_argument(
-        "providers",
+        "models",
         nargs="*",
-        help="指定要校验的 Provider 名称",
+        metavar="MODEL_ID",
+        help="指定要校验的模型 ID",
     )
     check_parser.add_argument(
         "--all",

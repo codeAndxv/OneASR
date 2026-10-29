@@ -157,10 +157,10 @@
 
           <!-- Specs/Desc -->
           <div class="col col-desc">
-            <div class="desc-line truncate" :title="model.desc">{{ model.desc }}</div>
+            <div class="desc-line truncate" :title="getModelDesc(model)">{{ getModelDesc(model) }}</div>
             <div class="lang-line">
               <span class="lang-icon">🌐</span>
-              <span class="lang-text truncate" :title="model.langs">{{ model.langs }}</span>
+              <span class="lang-text truncate" :title="getModelLangs(model)">{{ getModelLangs(model) }}</span>
             </div>
           </div>
 
@@ -372,7 +372,124 @@ import { useI18n } from '../i18n';
 import { apiClient } from '../api/client';
 import { isTauri } from '../utils/env';
 
-const { t } = useI18n();
+const { locale, t } = useI18n();
+
+const MODEL_I18N = {
+  'sensevoice-small': {
+    descEn: 'Ultra-fast end-to-end ASR foundation model (<150ms TTFT) with native support for Chinese, English, Japanese, Korean, Cantonese, and audio event detection.',
+    langsEn: 'ZH / EN / JA / KO / YUE'
+  },
+  'paraformer-zh': {
+    descEn: 'Alibaba DAMO industrial-grade Mandarin ASR foundation model with dedicated Silero VAD and punctuation restoration.',
+    langsEn: 'Mandarin / English'
+  },
+  'qwen-audio': {
+    descEn: 'Alibaba next-gen lightweight Audio-LLM blending SenseVoice acoustic features with Qwen semantics for superior noise resistance.',
+    langsEn: 'ZH / EN / JA / KO / YUE'
+  },
+  'whisper-large-v3-turbo': {
+    descEn: 'OpenAI official distilled flagship model optimized with CTranslate2. Extremely high accuracy, 8x faster than vanilla Whisper, ideal for podcasts and long meetings.',
+    langsEn: '99+ Global Languages'
+  },
+  'whisper-small': {
+    descEn: 'Lightweight multilingual transcription model. Low VRAM footprint, optimal balance between speed and precision for consumer GPUs.',
+    langsEn: '99+ Global Languages'
+  },
+  'whisper-base': {
+    descEn: 'Minimal resource multilingual model. Extremely rapid execution suitable for strictly constrained CPU environments.',
+    langsEn: '99+ Global Languages'
+  },
+  'whisper-tiny': {
+    descEn: 'Ultra-fast entry-level multilingual model (~75MB). Sub-second responses on low-power edge devices.',
+    langsEn: '99+ Global Languages'
+  },
+  'whisper-medium': {
+    descEn: 'High-accuracy multilingual benchmark model (~1.4GB). Exceptional accuracy for audiovisual podcasts and bilingual subtitles.',
+    langsEn: '99+ Global Languages'
+  },
+  'whisper-large-v1': {
+    descEn: 'Whisper flagship 1st gen full-scale global multilingual foundation model.',
+    langsEn: '99+ Global Languages'
+  },
+  'whisper-large-v2': {
+    descEn: 'Whisper flagship 2nd gen full-scale global multilingual model with enhanced noise generalization.',
+    langsEn: '99+ Global Languages'
+  },
+  'whisper-large-v3': {
+    descEn: 'Whisper flagship 3rd gen highest-accuracy model with 128 Mel bands. Industry gold standard for global multilingual transcription.',
+    langsEn: '99+ Global Languages'
+  },
+  'whisper-tiny-en': {
+    descEn: 'Ultra-fast English-specialized micro model (~75MB). Low-latency lightweight transcription.',
+    langsEn: 'English (EN)'
+  },
+  'whisper-base-en': {
+    descEn: 'Lightweight English-specialized model (~145MB). Low resource usage and high throughput.',
+    langsEn: 'English (EN)'
+  },
+  'whisper-small-en': {
+    descEn: 'High-accuracy English-specialized model (~480MB). Ideal for daily meetings and video subtitling.',
+    langsEn: 'English (EN)'
+  },
+  'whisper-medium-en': {
+    descEn: 'Professional production-grade English-specialized model (~1.4GB) for complex long-form audio.',
+    langsEn: 'English (EN)'
+  },
+  'distil-whisper-small-en': {
+    descEn: 'Distilled English-specialized model (~330MB). 6x faster inference with minimal accuracy tradeoff.',
+    langsEn: 'English (EN)'
+  },
+  'distil-whisper-medium-en': {
+    descEn: 'Distilled advanced English model (~790MB). High throughput with production subtitle quality.',
+    langsEn: 'English (EN)'
+  },
+  'distil-whisper-large-v2': {
+    descEn: 'Distilled multilingual foundation model based on Large V2 (~1.5GB). Top choice for high-concurrency throughput.',
+    langsEn: '99+ Global Languages'
+  },
+  'distil-whisper-large-v3': {
+    descEn: 'Latest distilled multilingual flagship model based on Large V3 (~1.5GB). Extreme speed and state-of-the-art accuracy.',
+    langsEn: '99+ Global Languages'
+  },
+  'sherpa-onnx-zh-en': {
+    descEn: 'High-precision Chinese-English bilingual end-to-end ASR model optimized for Sherpa-ONNX with low memory footprint.',
+    langsEn: 'Chinese & English'
+  },
+  'firered-asr-aed': {
+    descEn: 'Xiaohongshu industrial-grade AED speech model specially reinforced for background noise, singing lyrics, and heavy accents.',
+    langsEn: 'Bilingual / Noisy Environments'
+  },
+  'firered-asr-llm': {
+    descEn: 'Xiaohongshu flagship 8.3B Encoder-LLM speech model deeply covering 20+ Chinese regional dialects and code-switching.',
+    langsEn: 'ZH / EN / 20+ Dialects'
+  },
+  'qwen-audio-0.6b': {
+    descEn: 'Alibaba Qwen compact 0.6B audio foundation model. Minimal footprint and agile response.',
+    langsEn: 'General Multilingual'
+  },
+  'qwen-audio-chat': {
+    descEn: 'Alibaba Qwen multimodal audio foundation model capable of rich audio understanding, Q&A, and forced alignment.',
+    langsEn: 'ZH / EN / Audio-LLM'
+  },
+  'xasr': {
+    descEn: 'Sherpa-ONNX streaming bilingual ASR engine with zero dependencies and ultra-low CPU overhead. Optimal for real-time conference transcription.',
+    langsEn: 'Streaming ZH / EN'
+  }
+};
+
+function getModelDesc(model) {
+  if (locale.value === 'en-US' && MODEL_I18N[model.id]?.descEn) {
+    return MODEL_I18N[model.id].descEn;
+  }
+  return model.desc;
+}
+
+function getModelLangs(model) {
+  if (locale.value === 'en-US' && MODEL_I18N[model.id]?.langsEn) {
+    return MODEL_I18N[model.id].langsEn;
+  }
+  return model.langs;
+}
 
 const selectedEngine = ref('all');
 const selectedStatus = ref('all');
@@ -1055,7 +1172,7 @@ async function executeDownload(model, source) {
 }
 
 async function handleDeleteModel(model) {
-  const confirmMsg = (t('modelsDeleteConfirm') || '确定要删除模型 "{name}" 的本地权重文件吗？').replace('{name}', model.name);
+  const confirmMsg = t('modelsDeleteConfirm').replace('{name}', model.name);
   if (!confirm(confirmMsg)) {
     return;
   }
@@ -1083,7 +1200,7 @@ async function handleOpenDir() {
     try {
       await apiClient.post('/v1/x/system/open-path', { path: '~/.oneasr/models' });
     } catch {
-      alert('OneASR 模型存放于服务器端: ~/.oneasr/models');
+      alert(t('modelsPathAlert'));
     }
   }
 }

@@ -77,7 +77,7 @@ def _ensure_wav(data: bytes, filename: str, request_id: str) -> bytes:
 async def create_transcription(
     request: Request,
     file: UploadFile = File(..., description="The audio file to transcribe"),
-    model: str = Form(..., description="Model ID (provider name, e.g. faster-whisper)"),
+    model: str = Form(..., description="Model ID (e.g. sensevoice-small, whisper-large-v3-turbo)"),
     language: Optional[str] = Form(None, description="Language in ISO-639-1 (e.g. en, zh)"),
     languages: Optional[str] = Form(None, description="Possible languages (comma-separated ISO-639-1)"),
     response_format: OutputFormat = Form(OutputFormat.JSON, description="Output format"),

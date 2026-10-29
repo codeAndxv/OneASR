@@ -93,11 +93,11 @@ In a second terminal, launch the companion desktop application:
 ```bash
 cd desktop
 
-# Launch Tauri companion with Vite HMR on port 8021
+# Launch Tauri companion with Vite HMR on port 8025
 npm run tauri dev
 ```
 
-> **Note**: In development mode (`npm run tauri dev`), the desktop client connects to your local backend on port `8020` without spawning any child processes. If you only want to debug the web UI in a browser, run `npm run dev` and open `http://localhost:8021`.
+> **Note**: In development mode (`npm run tauri dev`), the desktop client connects to your local backend on port `8020` without spawning any child processes. If you only want to debug the web UI in a browser, run `npm run dev` and open `http://localhost:8025`.
 
 ### 3. Command Line Interface (`oneasr`)
 
@@ -447,7 +447,7 @@ OneASR/
 ├── desktop/                      # Native companion desktop app (Vue 3 + Tauri 2.0)
 │   ├── src/                      # Vue 3 dashboard (views, components, i18n, assets)
 │   ├── src-tauri/                # Tauri 2.0 Rust core (system tray, IPC, bundle)
-│   ├── vite.config.js            # Vite configuration (port 8021)
+│   ├── vite.config.js            # Vite configuration (port 8025)
 │   └── build.sh                  # macOS standalone packaging script
 ├── install.sh                    # One-line headless terminal installer (Ollama pattern)
 ├── tests/                        # 3-tier automated test suite (unit, api, integration)

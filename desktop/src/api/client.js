@@ -10,8 +10,8 @@ export function getDefaultApiBaseUrl() {
   }
   if (typeof window !== 'undefined' && window.location) {
     const origin = window.location.origin;
-    // When running in Vite dev server (port 8021), route API requests to local backend 8020
-    if (origin && origin.includes(':8021')) {
+    // When running in Vite dev server (port 8025), route API requests to local backend 8020
+    if (origin && origin.includes(':8025')) {
       return DEFAULT_LOCAL_API_BASE;
     }
     // When running in pure web browser hosted by backend or reverse proxy, default to current host:port

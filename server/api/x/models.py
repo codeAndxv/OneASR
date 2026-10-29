@@ -20,7 +20,7 @@ from server.core.paths import get_models_dir
 from server.core.scanner import scan_all_models
 from server.engines.registry import (
     get_engine,
-    get_provider_runtime_status,
+    get_model_runtime_status,
     unload_engine,
 )
 from server.utils.downloader import model_downloader
@@ -50,8 +50,8 @@ async def list_extended_models():
     models: list[dict[str, Any]] = []
 
     for model_id, scan_res in scanned.items():
-        base_config = app_config.providers.get(model_id)
-        rt_status = get_provider_runtime_status(model_id) if base_config else {
+        base_config = app_config.models.get(model_id)
+        rt_status = get_model_runtime_status(model_id) if base_config else {
             "loaded": False,
             "active_tasks": 0,
             "keep_alive": scan_res.keep_alive,
@@ -122,8 +122,8 @@ async def retrieve_extended_model(model_id: str):
             code="model_not_found",
         )
 
-    base_config = app_config.providers.get(canonical_id)
-    rt_status = get_provider_runtime_status(canonical_id) if base_config else {
+    base_config = app_config.models.get(canonical_id)
+    rt_status = get_model_runtime_status(canonical_id) if base_config else {
         "loaded": False,
         "active_tasks": 0,
         "keep_alive": scan_res.keep_alive,
@@ -216,7 +216,7 @@ async def delete_model_endpoint(model_id: str):
     target_id = manifest.id if manifest else model_id
 
     # 1. Unload from memory if currently resident
-    rt = get_provider_runtime_status(target_id)
+    rt = get_model_runtime_status(target_id)
     if rt and rt["loaded"]:
         try:
             await asyncio.to_thread(unload_engine, target_id, force=True)
@@ -267,7 +267,7 @@ async def load_model_endpoint(model_id: str):
     manifest = get_manifest(model_id)
     target_id = manifest.id if manifest else model_id
 
-    if target_id not in app_config.providers:
+    if target_id not in app_config.models:
         raise OpenAIAPIException(
             status_code=404,
             message=f"The model '{model_id}' does not exist.",
@@ -278,7 +278,7 @@ async def load_model_endpoint(model_id: str):
     t0 = time.time()
     await asyncio.to_thread(get_engine, target_id)
     elapsed = round(time.time() - t0, 3)
-    rt = get_provider_runtime_status(target_id)
+    rt = get_model_runtime_status(target_id)
     logger.info("[x-models] Manually loaded model: %s, time=%.3fs", target_id, elapsed)
     return {
         "id": target_id,
@@ -298,7 +298,7 @@ async def unload_model_endpoint(
     manifest = get_manifest(model_id)
     target_id = manifest.id if manifest else model_id
 
-    if target_id not in app_config.providers:
+    if target_id not in app_config.models:
         raise OpenAIAPIException(
             status_code=404,
             message=f"The model '{model_id}' does not exist.",
@@ -317,7 +317,7 @@ async def unload_model_endpoint(
             code="model_in_use",
         )
 
-    rt = get_provider_runtime_status(target_id)
+    rt = get_model_runtime_status(target_id)
     logger.info("[x-models] Unloaded model: %s, was_loaded=%s", target_id, was_loaded)
     return {
         "id": target_id,

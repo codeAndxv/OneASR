@@ -56,28 +56,28 @@ async def lifespan(app: FastAPI):
         logger.info("[startup] 重置 %d 个未完成的媒体下载任务为 failed", n)
 
     from server.core.config import app_config
-    from server.engines.registry import get_engine, unload_all, validate_provider
+    from server.engines.registry import get_engine, unload_all, validate_model
 
-    enabled_providers = [
-        name for name, cfg in app_config.providers.items()
+    enabled_models = [
+        name for name, cfg in app_config.models.items()
         if getattr(cfg, "enable", True)
     ]
-    logger.info("[startup] 启用的 Provider 列表: %s", enabled_providers)
+    logger.info("[startup] 启用的模型列表: %s", enabled_models)
 
-    for name in enabled_providers:
-        cfg = app_config.providers[name]
+    for name in enabled_models:
+        cfg = app_config.models[name]
         try:
             if cfg.preload:
-                logger.info("[startup] 正在预热加载 Provider (preload=true): %s", name)
+                logger.info("[startup] 正在预热加载模型 (preload=true): %s", name)
                 await asyncio.to_thread(get_engine, name)
-                logger.info("[startup] Provider 预热完成: %s (keep_alive=%ss)", name, cfg.keep_alive)
+                logger.info("[startup] 模型预热完成: %s (keep_alive=%ss)", name, cfg.keep_alive)
             else:
-                logger.info("[startup] 正在校验按需加载 Provider (preload=false): %s", name)
-                await asyncio.to_thread(validate_provider, name)
-                logger.info("[startup] Provider 路径校验通过 (待命按需加载): %s (keep_alive=%ss)", name, cfg.keep_alive)
+                logger.info("[startup] 正在校验待命模型 (preload=false): %s", name)
+                await asyncio.to_thread(validate_model, name)
+                logger.info("[startup] 模型路径校验通过 (待命按需加载): %s (keep_alive=%ss)", name, cfg.keep_alive)
         except Exception as e:
-            logger.error("[startup] Provider [%s] 校验或加载失败，终止服务启动: %s", name, e)
-            raise RuntimeError(f"Provider [{name}] 加载失败: {e}") from e
+            logger.error("[startup] 模型 [%s] 校验或加载失败，终止服务启动: %s", name, e)
+            raise RuntimeError(f"模型 [{name}] 加载失败: {e}") from e
 
     reaper_task = asyncio.create_task(
         _idle_model_reaper(app_config.model_manager.cleanup_interval)

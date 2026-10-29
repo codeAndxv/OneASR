@@ -5,26 +5,28 @@
       <!-- Model Selector (Dynamic: Only displays on-disk ready models) -->
       <div class="config-item">
         <label class="config-label">{{ t('selectModel') }}</label>
-        <select v-model="selectedModel" class="custom-select" :disabled="isTranscribing">
-          <option v-if="readyModels.length === 0" value="" disabled>暂无可用模型 (请先前往模型管理下载)</option>
+        <select v-model="selectedModel" class="custom-select" :disabled="isTranscribing || readyModels.length === 0">
+          <option v-if="readyModels.length === 0" value="" disabled selected>
+            {{ t('noReadyFileModels') || '暂无可用模型 (请先前往模型管理下载)' }}
+          </option>
           <option
             v-for="m in readyModels"
             :key="m.id"
             :value="m.id"
           >
-            {{ m.name }}{{ m.isLoaded ? ' (● 内存驻留)' : '' }} · {{ getEngineDisplayName(m.engine) }}
+            {{ m.name }}{{ m.isLoaded ? t('modelResidentBadge') : '' }} · {{ getEngineDisplayName(m.engine) }}
           </option>
         </select>
       </div>
 
       <!-- Language Detection -->
       <div class="config-item">
-        <label class="config-label">语言识别与断句</label>
+        <label class="config-label">{{ t('langDetectionAndSegment') }}</label>
         <select v-model="selectedLanguage" class="custom-select" :disabled="isTranscribing">
-          <option value="auto">自动识别语言 (Auto Detect)</option>
-          <option value="zh">中文普通话 (Mandarin)</option>
-          <option value="en">英语 (English)</option>
-          <option value="bilingual">中英双语混合识别</option>
+          <option value="auto">{{ t('langOptAuto') }}</option>
+          <option value="zh">{{ t('langOptZh') }}</option>
+          <option value="en">{{ t('langOptEn') }}</option>
+          <option value="bilingual">{{ t('langOptBilingual') }}</option>
         </select>
       </div>
     </div>
@@ -72,30 +74,32 @@
         <div class="file-meta">
           <div class="file-name-row">
             <span class="file-name" :title="selectedFile.name">{{ selectedFile.name }}</span>
-            <span class="file-badge">音视频</span>
+            <span class="file-badge">{{ t('fileBadgeMedia') }}</span>
           </div>
           <div class="file-subtext">
             <span>{{ formatFileSize(selectedFile.size) }}</span>
             <span class="dot-sep">•</span>
-            <span>已准备就绪</span>
+            <span>{{ t('fileStatusReady') }}</span>
           </div>
         </div>
       </div>
 
       <div class="file-actions">
         <button class="secondary-btn" :disabled="isTranscribing" @click="triggerFileInput">
-          更换文件
+          {{ t('btnChangeFile') }}
         </button>
         <button
           v-if="isTranscribing"
           class="cancel-btn"
           @click="cancelCurrentTask"
         >
-          取消转写
+          {{ t('btnCancelTranscribe') }}
         </button>
         <button
           v-else
           class="primary-action-btn"
+          :class="{ disabled: readyModels.length === 0 || !selectedModel }"
+          :title="readyModels.length === 0 || !selectedModel ? (t('noReadyFileModels') || '暂无可用模型，请先前往模型管理下载') : ''"
           @click="startTranscribe"
         >
           <svg viewBox="0 0 24 24" class="play-icon" fill="currentColor">
@@ -127,20 +131,20 @@
         </svg>
         <span class="error-msg">{{ errorMessage }}</span>
       </div>
-      <button class="close-error-btn" @click="errorMessage = ''" aria-label="关闭">✕</button>
+      <button class="close-error-btn" @click="errorMessage = ''" :aria-label="t('close')">✕</button>
     </div>
 
     <!-- Result / Subtitle Viewer Section -->
     <div class="result-section">
       <div class="result-toolbar">
         <div class="toolbar-left">
-          <span class="toolbar-title">字幕与分段预览</span>
-          <span class="count-badge">{{ segments.length }} 句</span>
+          <span class="toolbar-title">{{ t('subtitlePreviewTitle') }}</span>
+          <span class="count-badge">{{ segments.length }} {{ t('unitSentences') }}</span>
         </div>
 
         <div class="export-buttons">
           <button class="tool-btn" :disabled="!fullText" @click="copyAllText">
-            {{ copied ? '✓ 已复制' : '复制全文' }}
+            {{ copied ? t('copiedFullText') : t('copyFullText') }}
           </button>
           <button class="tool-btn" :disabled="segments.length === 0" @click="exportFile('srt')">
             {{ t('exportSrt') }}
@@ -196,7 +200,7 @@ const activeTaskId = ref('');
 let pollTimer = null;
 let unlistenDragDrop = null;
 
-const selectedModel = ref('sensevoice-small');
+const selectedModel = ref('');
 const readyModels = ref([]);
 const selectedLanguage = ref('auto');
 const isDragging = ref(false);
@@ -249,7 +253,12 @@ async function loadAvailableModels() {
         } else if (!readyModels.value.some((m) => m.id === selectedModel.value)) {
           selectedModel.value = readyModels.value[0].id;
         }
+      } else {
+        selectedModel.value = '';
       }
+    } else {
+      readyModels.value = [];
+      selectedModel.value = '';
     }
   } catch (err) {
     console.warn('[FilesView] Failed to load ready models:', err);
@@ -371,17 +380,21 @@ async function cancelCurrentTask() {
       pollTimer = null;
     }
     isTranscribing.value = false;
-    errorMessage.value = '已取消当前转写任务';
+    errorMessage.value = t('taskCancelled');
   }
 }
 
 async function startTranscribe() {
   if (!selectedFile.value || isTranscribing.value) return;
+  if (!selectedModel.value || readyModels.value.length === 0) {
+    errorMessage.value = t('errNoFileModel') || '暂无可用的文件转录模型，请先前往【模型管理】下载模型。';
+    return;
+  }
 
   errorMessage.value = '';
   isTranscribing.value = true;
   progressPercent.value = 5;
-  currentStageText.value = '准备音视频资源与特征校验...';
+  currentStageText.value = t('stagePrepare');
   const startTime = performance.now();
 
   try {
@@ -389,7 +402,7 @@ async function startTranscribe() {
 
     // 1. 如果尚未通过本地路径秒传导入，则上传至 /v1/x/files
     if (!fileUuid) {
-      currentStageText.value = '上传音频文件与特征哈希...';
+      currentStageText.value = t('stageUpload');
       const uploadRes = await apiClient.uploadFile(selectedFile.value);
       fileUuid = uploadRes.file_id;
       importedFileUuid.value = fileUuid;
@@ -397,7 +410,7 @@ async function startTranscribe() {
 
     // 2. 创建异步转写任务 (OneASR Extended /v1/x/audio/transcriptions)
     progressPercent.value = 10;
-    currentStageText.value = '初始化转写引擎与音频解码...';
+    currentStageText.value = t('stageInitEngine');
     const taskRes = await apiClient.createTranscriptionTask(
       fileUuid,
       selectedModel.value,
@@ -416,7 +429,7 @@ async function startTranscribe() {
         }
 
         if (task.status === 'processing') {
-          currentStageText.value = `神经网络转录中 (${progressPercent.value}%)...`;
+          currentStageText.value = t('stageInferencingProgress').replace('{percent}', progressPercent.value);
           if (task.segments && task.segments.length > 0) {
             segments.value = task.segments;
           }
@@ -424,7 +437,7 @@ async function startTranscribe() {
           clearInterval(pollTimer);
           pollTimer = null;
           progressPercent.value = 100;
-          currentStageText.value = '转写完成';
+          currentStageText.value = t('stageCompleted');
 
           fullText.value = task.text || '';
           if (task.segments && task.segments.length > 0) {
@@ -453,12 +466,12 @@ async function startTranscribe() {
           clearInterval(pollTimer);
           pollTimer = null;
           console.error('[FilesView] Task failed:', task.error_message);
-          errorMessage.value = task.error_message || '转录处理失败，请重试';
+          errorMessage.value = task.error_message || t('errTaskFailed');
           isTranscribing.value = false;
         } else if (task.status === 'cancelled') {
           clearInterval(pollTimer);
           pollTimer = null;
-          errorMessage.value = '转写任务已取消';
+          errorMessage.value = t('taskCancelled');
           isTranscribing.value = false;
         }
       } catch (pollErr) {
@@ -472,7 +485,7 @@ async function startTranscribe() {
       pollTimer = null;
     }
     console.error('File transcribe failed:', err);
-    errorMessage.value = err.message || '转写处理遇到异常，请检查音频格式或重试';
+    errorMessage.value = err.message || t('errAudioFormat');
     isTranscribing.value = false;
   }
 }

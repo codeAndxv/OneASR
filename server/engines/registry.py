@@ -34,7 +34,7 @@ _engine_classes: dict[str, type[ASREngine]] = {
 class LoadedEngine:
     """已加载引擎的运行态元信息。"""
     engine: ASREngine
-    provider_name: str
+    model_id: str
     engine_name: str
     model_name: str
     device: str
@@ -46,8 +46,13 @@ class LoadedEngine:
     loaded_at: float = field(default_factory=time.time)
     last_used_at: float = field(default_factory=time.time)
 
+    @property
+    def provider_name(self) -> str:
+        """Backward-compatible alias for model_id."""
+        return self.model_id
 
-# key = "provider_name/model_name/device/compute_type"
+
+# key = "model_id/model_name/device/compute_type"
 _loaded: dict[str, LoadedEngine] = {}
 # 已通过配置校验的轻量引擎壳实例（lazy_load=True，未加载权重）
 _standby: dict[str, ASREngine] = {}
@@ -55,16 +60,19 @@ _standby: dict[str, ASREngine] = {}
 _registry_lock = threading.RLock()
 
 
-def _make_key(provider_name: str, model_name: str, device: str = "", compute_type: str = "") -> str:
+def _make_key(model_id: str, model_name: str, device: str = "", compute_type: str = "") -> str:
     if device and compute_type:
-        return f"{provider_name}/{model_name}/{device}/{compute_type}"
-    return f"{provider_name}/{model_name}"
+        return f"{model_id}/{model_name}/{device}/{compute_type}"
+    return f"{model_id}/{model_name}"
 
 
-def _resolve_provider_name(name: str | None) -> str:
+def _resolve_model_name(name: str | None) -> str:
     if not name:
-        return next(iter(app_config.providers))
+        return next(iter(app_config.models))
     return name.split("/")[0]
+
+
+_resolve_provider_name = _resolve_model_name
 
 
 def _find_loaded_entry(name: str) -> tuple[str, LoadedEngine] | tuple[None, None]:
@@ -76,15 +84,15 @@ def _find_loaded_entry(name: str) -> tuple[str, LoadedEngine] | tuple[None, None
         for k, le in _loaded.items():
             if k.startswith(prefix):
                 return k, le
-    provider_name = parts[0]
+    model_id = parts[0]
     for k, le in _loaded.items():
-        if k == provider_name or k.startswith(f"{provider_name}/"):
+        if k == model_id or k.startswith(f"{model_id}/"):
             return k, le
     return None, None
 
 
-def _instantiate_engine(provider_name: str, lazy_load: bool = False) -> ASREngine:
-    config = app_config.get_provider_config(provider_name)
+def _instantiate_engine(model_id: str, lazy_load: bool = False) -> ASREngine:
+    config = app_config.get_model_config(model_id)
     engine_name = DRIVER_ALIAS_MAP.get(config.engine_name, config.engine_name)
     if engine_name not in _engine_classes:
         raise ValueError(f"未知引擎类型: {config.engine_name}，可用: {list(_engine_classes)}")
@@ -96,30 +104,33 @@ def _instantiate_engine(provider_name: str, lazy_load: bool = False) -> ASREngin
     return engine_cls(config)
 
 
-def validate_provider(provider_name: str) -> ASREngine:
-    """仅校验 Provider 配置与本地模型文件是否存在（不加载大模型权重进内存）。"""
+def validate_model(model_id: str) -> ASREngine:
+    """仅校验 Model 配置与本地模型文件是否存在（不加载大模型权重进内存）。"""
     with _registry_lock:
-        _, existing = _find_loaded_entry(provider_name)
+        _, existing = _find_loaded_entry(model_id)
         if existing is not None:
             existing.engine.validate_config()
             return existing.engine
 
-        if provider_name in _standby:
-            _standby[provider_name].validate_config()
-            return _standby[provider_name]
+        if model_id in _standby:
+            _standby[model_id].validate_config()
+            return _standby[model_id]
 
-        engine = _instantiate_engine(provider_name, lazy_load=True)
-        _standby[provider_name] = engine
+        engine = _instantiate_engine(model_id, lazy_load=True)
+        _standby[model_id] = engine
         return engine
 
 
-def _evict_lru_if_needed(target_provider: str) -> list[str]:
+validate_provider = validate_model
+
+
+def _evict_lru_if_needed(target_model_id: str) -> list[str]:
     """当非常驻本地大模型达到 max_loaded_models 上限时，按 LRU 自动淘汰最久未使用的空闲模型。"""
     max_models = app_config.model_manager.max_loaded_models
     if max_models <= 0:
         return []
 
-    target_cfg = app_config.get_provider_config(target_provider)
+    target_cfg = app_config.get_model_config(target_model_id)
     # 若目标模型本身是常驻小模型 (keep_alive == -1) 或云端模型，不触发淘汰
     if target_cfg.keep_alive == -1 or target_cfg.type == "cloud":
         return []
@@ -128,9 +139,9 @@ def _evict_lru_if_needed(target_provider: str) -> list[str]:
     loaded_heavy_count = 0
 
     for k, le in _loaded.items():
-        if le.provider_name == target_provider:
+        if le.model_id == target_model_id:
             continue
-        cfg = app_config.providers.get(le.provider_name)
+        cfg = app_config.models.get(le.model_id)
         is_cloud = cfg and cfg.type == "cloud"
         if le.keep_alive != -1 and not is_cloud:
             loaded_heavy_count += 1
@@ -145,20 +156,20 @@ def _evict_lru_if_needed(target_provider: str) -> list[str]:
         for k, le in evictable[:need_to_evict]:
             logger.info(
                 "[ModelManager] 触发 LRU 容量回收 (上限=%d): 卸载空闲模型 %s (上次使用 %.1fs 前)",
-                max_models, le.provider_name, time.time() - le.last_used_at,
+                max_models, le.model_id, time.time() - le.last_used_at,
             )
             le.engine.unload()
-            _standby[le.provider_name] = le.engine
+            _standby[le.model_id] = le.engine
             _loaded.pop(k, None)
-            evicted_names.append(le.provider_name)
+            evicted_names.append(le.model_id)
 
     return evicted_names
 
 
 def get_engine(name: str | None = None) -> ASREngine:
     """获取已加载权重的 ASR 引擎实例（若处于待命/已卸载状态则自动加载权重并刷新活跃时间）。"""
-    name = name or next(iter(app_config.providers))
-    provider_name = _resolve_provider_name(name)
+    name = name or next(iter(app_config.models))
+    model_id = _resolve_model_name(name)
 
     with _registry_lock:
         _, loaded_entry = _find_loaded_entry(name)
@@ -169,19 +180,19 @@ def get_engine(name: str | None = None) -> ASREngine:
             loaded_entry.last_used_at = time.time()
             return loaded_entry.engine
 
-        return _ensure_engine(provider_name)
+        return _ensure_engine(model_id)
 
 
-def _ensure_engine(provider_name: str) -> ASREngine:
+def _ensure_engine(model_id: str) -> ASREngine:
     """确保引擎权重已加载进内存，包含并发锁与 LRU 容量回收。"""
     with _registry_lock:
-        config = app_config.get_provider_config(provider_name)
+        config = app_config.get_model_config(model_id)
         engine_name = DRIVER_ALIAS_MAP.get(config.engine_name, config.engine_name)
 
         if engine_name not in _engine_classes:
             raise ValueError(f"未知引擎类型: {config.engine_name}，可用: {list(_engine_classes)}")
 
-        key = _make_key(provider_name, config.model_name, config.device, config.compute_type)
+        key = _make_key(model_id, config.model_name, config.device, config.compute_type)
         if key in _loaded:
             le = _loaded[key]
             if not le.engine.is_loaded:
@@ -191,19 +202,19 @@ def _ensure_engine(provider_name: str) -> ASREngine:
             return le.engine
 
         # 检查是否超出最大并发常驻大模型数，必要时先淘汰空闲旧模型释放内存
-        _evict_lru_if_needed(provider_name)
+        _evict_lru_if_needed(model_id)
 
         # 优先复用已在 standby 中通过校验的实例
-        engine = _standby.pop(provider_name, None)
+        engine = _standby.pop(model_id, None)
         if engine is None:
-            engine = _instantiate_engine(provider_name, lazy_load=False)
+            engine = _instantiate_engine(model_id, lazy_load=False)
         else:
             engine.load()
 
         now = time.time()
         _loaded[key] = LoadedEngine(
             engine=engine,
-            provider_name=provider_name,
+            model_id=model_id,
             engine_name=config.engine_name,
             model_name=config.model_name,
             device=config.device,
@@ -226,10 +237,10 @@ def acquire_engine(name: str | None = None, engine_getter=None):
     """
     getter = engine_getter or get_engine
     eng = getter(name)
-    provider_name = _resolve_provider_name(name)
+    model_id = _resolve_model_name(name)
 
     with _registry_lock:
-        _, entry = _find_loaded_entry(provider_name)
+        _, entry = _find_loaded_entry(model_id)
         if entry is not None:
             entry.active_tasks += 1
             entry.last_used_at = time.time()
@@ -238,37 +249,37 @@ def acquire_engine(name: str | None = None, engine_getter=None):
         yield eng
     finally:
         with _registry_lock:
-            key, entry = _find_loaded_entry(provider_name)
+            key, entry = _find_loaded_entry(model_id)
             if entry is not None:
                 entry.active_tasks = max(0, entry.active_tasks - 1)
                 entry.last_used_at = time.time()
                 if entry.keep_alive == 0 and entry.active_tasks == 0:
-                    logger.info("[ModelManager] 模型 %s 配置为 keep_alive=0，任务完成立即卸载释放内存", provider_name)
+                    logger.info("[ModelManager] 模型 %s 配置为 keep_alive=0，任务完成立即卸载释放内存", model_id)
                     entry.engine.unload()
-                    _standby[entry.provider_name] = entry.engine
+                    _standby[entry.model_id] = entry.engine
                     if key:
                         _loaded.pop(key, None)
 
 
 def unload_engine(name: str, force: bool = False) -> bool:
-    """显式卸载指定 Provider 的模型并释放内存。
+    """显式卸载指定 Model 的模型并释放内存。
 
     若模型当前未加载返回 False；若正在被任务使用且 force=False 则抛出 RuntimeError。
     """
-    provider_name = _resolve_provider_name(name)
+    model_id = _resolve_model_name(name)
     with _registry_lock:
-        key, entry = _find_loaded_entry(provider_name)
+        key, entry = _find_loaded_entry(model_id)
         if entry is None:
             return False
 
         if entry.active_tasks > 0 and not force:
             raise RuntimeError(
-                f"模型 '{provider_name}' 当前有 {entry.active_tasks} 个活跃任务正在运行，无法卸载"
+                f"模型 '{model_id}' 当前有 {entry.active_tasks} 个活跃任务正在运行，无法卸载"
             )
 
-        logger.info("[ModelManager] 正在卸载模型: %s", provider_name)
+        logger.info("[ModelManager] 正在卸载模型: %s", model_id)
         entry.engine.unload()
-        _standby[entry.provider_name] = entry.engine
+        _standby[entry.model_id] = entry.engine
         if key:
             _loaded.pop(key, None)
         release_hardware_memory()
@@ -276,7 +287,7 @@ def unload_engine(name: str, force: bool = False) -> bool:
 
 
 def unload_idle_engines(now: float | None = None) -> list[str]:
-    """扫描并卸载所有超过 keep_alive 空闲时间且无活跃任务的模型。返回被卸载的 provider_name 列表。"""
+    """扫描并卸载所有超过 keep_alive 空闲时间且无活跃任务的模型。返回被卸载的 model_id 列表。"""
     now = now if now is not None else time.time()
     unloaded: list[str] = []
 
@@ -289,12 +300,12 @@ def unload_idle_engines(now: float | None = None) -> list[str]:
             if idle_seconds >= entry.keep_alive:
                 logger.info(
                     "[ModelManager] 模型 %s 已空闲 %.1fs (超过 keep_alive=%ds)，自动卸载释放内存",
-                    entry.provider_name, idle_seconds, entry.keep_alive,
+                    entry.model_id, idle_seconds, entry.keep_alive,
                 )
                 entry.engine.unload()
-                _standby[entry.provider_name] = entry.engine
+                _standby[entry.model_id] = entry.engine
                 _loaded.pop(key, None)
-                unloaded.append(entry.provider_name)
+                unloaded.append(entry.model_id)
 
     if unloaded:
         release_hardware_memory()
@@ -309,19 +320,19 @@ def unload_all(force: bool = True) -> list[str]:
             if entry.active_tasks > 0 and not force:
                 continue
             entry.engine.unload()
-            _standby[entry.provider_name] = entry.engine
+            _standby[entry.model_id] = entry.engine
             _loaded.pop(key, None)
-            unloaded.append(entry.provider_name)
+            unloaded.append(entry.model_id)
     if unloaded:
         release_hardware_memory()
     return unloaded
 
 
-def get_provider_runtime_status(provider_name: str) -> dict:
-    """获取指定 Provider 的实时运行状态（供 /v1/x/models 和 /v1/models 返回）。"""
-    cfg = app_config.providers.get(provider_name)
+def get_model_runtime_status(model_id: str) -> dict:
+    """获取指定 Model 的实时运行状态（供 /v1/x/models 和 /v1/models 返回）。"""
+    cfg = app_config.models.get(model_id)
     with _registry_lock:
-        _, entry = _find_loaded_entry(provider_name)
+        _, entry = _find_loaded_entry(model_id)
         if entry is not None and entry.engine.is_loaded:
             return {
                 "loaded": True,
@@ -339,6 +350,9 @@ def get_provider_runtime_status(provider_name: str) -> dict:
             "loaded_at": None,
             "last_used_at": None,
         }
+
+
+get_provider_runtime_status = get_model_runtime_status
 
 
 def get_loaded_engines() -> dict[str, LoadedEngine]:

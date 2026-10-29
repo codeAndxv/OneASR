@@ -441,9 +441,7 @@ class AppConfig:
         self.model_dir = get_models_dir()
 
         self._data: dict[str, Any] = {}
-        self.providers: dict[str, EngineConfig] = {}
-        self.local_models: dict[str, EngineConfig] = {}
-        self.cloud_providers: dict[str, dict] = {}
+        self.models: dict[str, EngineConfig] = {}
 
         # 1. Check user settings in ~/.oneasr/settings.json
         settings_file = get_settings_path()
@@ -482,6 +480,21 @@ class AppConfig:
         # 5. Populate models dynamically from built-in manifest and disk scan
         self.refresh_models()
 
+    @property
+    def providers(self) -> dict[str, EngineConfig]:
+        """Backward-compatible alias for self.models."""
+        return self.models
+
+    @property
+    def local_models(self) -> dict[str, EngineConfig]:
+        """Backward-compatible alias for self.models."""
+        return self.models
+
+    @property
+    def cloud_providers(self) -> dict[str, dict]:
+        """Deprecated empty container retained for legacy caller compatibility."""
+        return {}
+
     def refresh_models(self) -> None:
         """Scan disk and built-in manifest to dynamically update providers without restart."""
         scanned = scan_all_models()
@@ -517,30 +530,33 @@ class AppConfig:
                 default_keep_alive=self.model_manager.default_keep_alive,
                 is_cloud=False,
             )
-            self.local_models[model_id] = cfg
-            self.providers[model_id] = cfg
+            self.models[model_id] = cfg
 
-    def get_provider_config(self, name: str) -> EngineConfig:
-        """Find engine config by direct ID, alias, or driver matching."""
-        if name in self.providers:
-            return self.providers[name]
+    def get_model_config(self, name: str) -> EngineConfig:
+        """Find model config by direct ID, alias, or driver matching."""
+        if name in self.models:
+            return self.models[name]
 
         # Check aliases from manifest
         manifest = get_manifest(name)
-        if manifest and manifest.id in self.providers:
-            return self.providers[manifest.id]
+        if manifest and manifest.id in self.models:
+            return self.models[manifest.id]
 
         # Support shorthand lookup (e.g. 'whisper-turbo' matching 'groq/whisper-turbo')
-        for prov_id, cfg in self.providers.items():
-            if prov_id.split("/")[-1] == name:
+        for mod_id, cfg in self.models.items():
+            if mod_id.split("/")[-1] == name:
                 return cfg
 
         # Match by driver or engine_name fallback (e.g. 'faster-whisper', 'funasr')
-        for cfg in self.providers.values():
+        for cfg in self.models.values():
             if cfg.driver == name or cfg.engine_name == name:
                 return cfg
 
-        raise ValueError(f"Unknown Provider / Model: {name}, available: {list(self.providers)}")
+        raise ValueError(f"Unknown Model: {name}, available: {list(self.models)}")
+
+    def get_provider_config(self, name: str) -> EngineConfig:
+        """Deprecated backward-compatible alias for get_model_config."""
+        return self.get_model_config(name)
 
     def save_settings(self, updates: dict[str, Any]) -> None:
         """Atomically persist user settings into ~/.oneasr/settings.json."""

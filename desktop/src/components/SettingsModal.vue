@@ -1,8 +1,8 @@
 <template>
   <Teleport to="body">
     <Transition name="modal-fade">
-      <div v-if="isOpen" class="modal-backdrop" @click="handleBackdropClick">
-        <div class="modal-card" @click.stop>
+      <div v-if="isOpen" class="modal-backdrop">
+        <div class="modal-card">
           <!-- Modal Header -->
           <div class="modal-header">
             <div class="modal-title-area">
@@ -17,340 +17,349 @@
             </button>
           </div>
 
-          <!-- Segmented Tab Nav -->
-          <div class="modal-tabs">
-            <button
-              v-for="tab in tabs"
-              :key="tab.id"
-              class="tab-btn"
-              :class="{ active: activeTab === tab.id }"
-              @click="activeTab = tab.id"
-            >
-              <span class="tab-icon" v-html="tab.icon"></span>
-              <span class="tab-label">{{ t(tab.labelKey) }}</span>
-            </button>
-          </div>
+          <!-- Two-column Body: Left Sidebar + Right Content -->
+          <div class="modal-layout">
+            <!-- Left Sidebar Navigation -->
+            <aside class="modal-sidebar">
+              <button
+                v-for="tab in tabs"
+                :key="tab.id"
+                class="sidebar-tab-btn"
+                :class="{ active: activeTab === tab.id }"
+                @click="activeTab = tab.id"
+              >
+                <span class="tab-icon" v-html="tab.icon"></span>
+                <span class="tab-label">{{ t(tab.labelKey) }}</span>
+              </button>
+            </aside>
 
-          <!-- Modal Body (Active Tab Content) -->
-          <div class="modal-body">
-            <!-- Tab 1: General -->
-            <div v-if="activeTab === 'general'" class="tab-pane">
-              <div class="settings-group">
-                <div class="setting-row">
-                  <div class="row-info">
-                    <span class="row-label">{{ t('generalTheme') }}</span>
-                    <span class="row-desc">{{ t('generalThemeDesc') }}</span>
+            <!-- Right Content Area -->
+            <main class="modal-content">
+              <!-- Tab 1: General (常规设置) -->
+              <div v-if="activeTab === 'general'" class="tab-pane">
+                <div class="settings-group">
+                  <div class="setting-row">
+                    <div class="row-info">
+                      <span class="row-label">{{ t('generalTheme') }}</span>
+                      <span class="row-desc">{{ t('generalThemeDesc') }}</span>
+                    </div>
+                    <div class="row-control">
+                      <select v-model="selectedTheme" class="custom-select" @change="handleThemeChange">
+                        <option value="auto">{{ t('themeAuto') }}</option>
+                        <option value="dark">{{ t('themeDark') }}</option>
+                        <option value="light">{{ t('themeLight') }}</option>
+                      </select>
+                    </div>
                   </div>
-                  <div class="row-control">
-                    <select v-model="selectedTheme" class="custom-select" @change="handleThemeChange">
-                      <option value="auto">{{ t('themeAuto') }}</option>
-                      <option value="dark">{{ t('themeDark') }}</option>
-                      <option value="light">{{ t('themeLight') }}</option>
-                    </select>
-                  </div>
-                </div>
 
-                <div class="setting-row">
-                  <div class="row-info">
-                    <span class="row-label">{{ t('generalLanguage') }}</span>
-                    <span class="row-desc">{{ t('generalLanguageDesc') }}</span>
+                  <div class="setting-row">
+                    <div class="row-info">
+                      <span class="row-label">{{ t('generalLanguage') }}</span>
+                      <span class="row-desc">{{ t('generalLanguageDesc') }}</span>
+                    </div>
+                    <div class="row-control">
+                      <select :value="locale" class="custom-select" @change="e => setLocale(e.target.value)">
+                        <option value="zh-CN">简体中文 (Simplified Chinese)</option>
+                        <option value="en-US">English (US)</option>
+                      </select>
+                    </div>
                   </div>
-                  <div class="row-control">
-                    <select :value="locale" class="custom-select" @change="e => setLocale(e.target.value)">
-                      <option value="zh-CN">简体中文 (Simplified Chinese)</option>
-                      <option value="en-US">English (US)</option>
-                    </select>
-                  </div>
-                </div>
 
-                <div class="setting-row">
-                  <div class="row-info">
-                    <span class="row-label">{{ t('downloadNetworkSettingsLabel') }}</span>
-                    <span class="row-desc">{{ t('downloadNetworkSettingsDesc') }}</span>
-                  </div>
-                  <div class="row-control">
-                    <select v-model="downloadSource" class="custom-select" @change="saveSettings">
-                      <option value="auto">{{ t('downloadNetworkOptionAuto') }}</option>
-                      <option value="modelscope">{{ t('downloadNetworkOptionCn') }}</option>
-                      <option value="hf-mirror">{{ t('downloadNetworkOptionHfMirror') }}</option>
-                      <option value="huggingface">{{ t('downloadNetworkOptionGlobal') }}</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Tab 2: Storage -->
-            <div v-else-if="activeTab === 'storage'" class="tab-pane">
-              <div class="settings-group">
-                <div class="setting-row">
-                  <div class="row-info">
-                    <span class="row-label">{{ t('storageUserModels') }}</span>
-                    <span class="row-desc mono-path">{{ modelsDirPath || '~/.oneasr/models' }}</span>
-                  </div>
-                  <div class="row-control">
-                    <button class="secondary-btn" @click="openFolder">
-                      {{ t('btnOpenDir') }}
-                    </button>
-                  </div>
-                </div>
-
-                <div class="setting-row">
-                  <div class="row-info">
-                    <span class="row-label">{{ t('storageLogs') }}</span>
-                    <span class="row-desc mono-path">~/.oneasr/logs</span>
-                  </div>
-                  <div class="row-control">
-                    <button class="secondary-btn" @click="openLogs">
-                      {{ t('btnOpenDir') }}
-                    </button>
-                  </div>
-                </div>
-
-                <div v-if="diskFreeGb !== null" class="setting-row">
-                  <div class="row-info">
-                    <span class="row-label">{{ t('storageDiskSpace') }}</span>
-                    <span class="row-desc">主存储卷总计 {{ diskTotalGb }} GB</span>
-                  </div>
-                  <div class="row-control">
-                    <span class="disk-free-pill">{{ diskFreeGb }} GB 可用</span>
+                  <div class="setting-row">
+                    <div class="row-info">
+                      <span class="row-label">{{ t('downloadNetworkSettingsLabel') }}</span>
+                      <span class="row-desc">{{ t('downloadNetworkSettingsDesc') }}</span>
+                    </div>
+                    <div class="row-control">
+                      <select v-model="downloadSource" class="custom-select" @change="saveSettings">
+                        <option value="auto">{{ t('downloadNetworkOptionAuto') }}</option>
+                        <option value="modelscope">{{ t('downloadNetworkOptionCn') }}</option>
+                        <option value="hf-mirror">{{ t('downloadNetworkOptionHfMirror') }}</option>
+                        <option value="huggingface">{{ t('downloadNetworkOptionGlobal') }}</option>
+                      </select>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
 
-            <!-- Tab 3: Service -->
-            <div v-else-if="activeTab === 'service'" class="tab-pane">
-              <div class="settings-group">
-                <div class="setting-row">
-                  <div class="row-info">
-                    <span class="row-label">{{ t('lanAccessLabel') }}</span>
-                    <span class="row-desc">{{ isLanExposed ? t('lanExposed') : t('lanLocalOnly') }}</span>
+              <!-- Tab 2: Service & API (网络与服务) -->
+              <div v-else-if="activeTab === 'service'" class="tab-pane">
+                <div class="settings-group">
+                  <div class="setting-row">
+                    <div class="row-info">
+                      <span class="row-label">{{ t('lanAccessLabel') }}</span>
+                      <span class="row-desc">{{ isLanExposed ? t('lanExposed') : t('lanLocalOnly') }}</span>
+                    </div>
+                    <div class="row-control">
+                      <button class="toggle-btn" :class="{ active: isLanExposed }" @click="toggleLan">
+                        <span class="toggle-slider"></span>
+                      </button>
+                    </div>
                   </div>
-                  <div class="row-control">
-                    <button class="toggle-btn" :class="{ active: isLanExposed }" @click="toggleLan">
-                      <span class="toggle-slider"></span>
-                    </button>
-                  </div>
-                </div>
 
-                <div class="setting-row">
-                  <div class="row-info">
-                    <span class="row-label">{{ t('portLabel') }}</span>
-                    <span class="row-desc">HTTP & WebSocket 统一监听端口</span>
+                  <div class="setting-row">
+                    <div class="row-info">
+                      <span class="row-label">{{ t('portLabel') }}</span>
+                      <span class="row-desc">{{ t('portDesc') }}</span>
+                    </div>
+                    <div class="row-control">
+                      <span class="mono-badge">8020</span>
+                    </div>
                   </div>
-                  <div class="row-control">
-                    <span class="mono-badge">8020</span>
-                  </div>
-                </div>
 
-                <div class="setting-row">
-                  <div class="row-info">
-                    <span class="row-label">{{ t('apiKeyLabel') }}</span>
-                    <span class="row-desc">{{ t('apiKeyDesc') }}</span>
-                  </div>
-                  <div class="row-control api-key-control-wrap">
-                    <div class="api-key-input-group">
-                      <div class="api-key-input-wrapper">
-                        <input
-                          v-model="apiKeyInput"
-                          :type="showApiKey ? 'text' : 'password'"
-                          class="api-key-input"
-                          :placeholder="t('apiKeyPlaceholder')"
-                          @change="handleApiKeyChange"
-                        />
+                  <div class="setting-row">
+                    <div class="row-info">
+                      <span class="row-label">{{ t('apiKeyLabel') }}</span>
+                      <span class="row-desc">{{ t('apiKeyDesc') }}</span>
+                    </div>
+                    <div class="row-control api-key-control-wrap">
+                      <div class="api-key-input-group">
+                        <div class="api-key-input-wrapper">
+                          <input
+                            v-model="apiKeyInput"
+                            :type="showApiKey ? 'text' : 'password'"
+                            class="api-key-input"
+                            :placeholder="t('apiKeyPlaceholder')"
+                            @change="handleApiKeyChange"
+                          />
+                          <button
+                            type="button"
+                            class="eye-toggle-btn"
+                            :title="showApiKey ? t('btnHideKey') : t('btnShowKey')"
+                            @click="showApiKey = !showApiKey"
+                          >
+                            <svg v-if="showApiKey" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                              <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+                              <line x1="1" y1="1" x2="23" y2="23"/>
+                            </svg>
+                            <svg v-else viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                              <circle cx="12" cy="12" r="3"/>
+                            </svg>
+                          </button>
+                        </div>
                         <button
-                          type="button"
-                          class="eye-toggle-btn"
-                          :title="showApiKey ? t('btnHideKey') : t('btnShowKey')"
-                          @click="showApiKey = !showApiKey"
+                          class="secondary-btn"
+                          :disabled="!apiKeyInput"
+                          @click="copyApiKey"
                         >
-                          <svg v-if="showApiKey" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
-                            <line x1="1" y1="1" x2="23" y2="23"/>
-                          </svg>
-                          <svg v-else viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                            <circle cx="12" cy="12" r="3"/>
-                          </svg>
+                          {{ apiKeyCopied ? t('btnCopied') : t('btnCopy') }}
+                        </button>
+                        <button
+                          class="secondary-btn"
+                          @click="regenerateApiKey"
+                        >
+                          {{ t('btnRegenerateKey') }}
                         </button>
                       </div>
-                      <button
-                        class="secondary-btn"
-                        :disabled="!apiKeyInput"
-                        @click="copyApiKey"
-                      >
-                        {{ apiKeyCopied ? t('btnCopied') : t('btnCopy') }}
-                      </button>
-                      <button
-                        class="secondary-btn"
-                        @click="regenerateApiKey"
-                      >
-                        {{ t('btnRegenerateKey') }}
-                      </button>
                     </div>
                   </div>
-                </div>
 
-                <div class="setting-row">
-                  <div class="row-info">
-                    <span class="row-label">{{ t('keepAliveLabel') }}</span>
-                    <span class="row-desc">{{ locale === 'zh-CN' ? '无请求时自动释放模型占用的显存与内存' : 'Auto-release idle model GPU/CPU memory' }}</span>
-                  </div>
-                  <div class="row-control">
-                    <select v-model="keepAliveTimeout" class="custom-select" @change="saveSettings">
-                      <option value="0">{{ t('keepAliveImmediate') }}</option>
-                      <option value="60">{{ t('keepAlive1Min') }}</option>
-                      <option value="300">{{ t('keepAlive5Min') }}</option>
-                      <option value="900">{{ t('keepAlive15Min') }}</option>
-                      <option value="1800">{{ t('keepAlive30Min') }}</option>
-                      <option value="-1">{{ t('keepAliveNever') }}</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div class="setting-row">
-                  <div class="row-info">
-                    <span class="row-label">{{ t('maxLoadedModelsLabel') }}</span>
-                    <span class="row-desc">{{ t('maxLoadedModelsDesc') }}</span>
-                  </div>
-                  <div class="row-control">
-                    <select v-model.number="maxLoadedModels" class="custom-select" @change="saveSettings">
-                      <option :value="1">1</option>
-                      <option :value="2">2 {{ locale === 'zh-CN' ? '(推荐)' : '(Default)' }}</option>
-                      <option :value="3">3</option>
-                      <option :value="4">4</option>
-                      <option :value="5">5</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div class="setting-row">
-                  <div class="row-info">
-                    <span class="row-label">{{ t('swaggerDocs') }}</span>
-                    <span class="row-desc">{{ t('apiDocsDesc') }}</span>
-                  </div>
-                  <div class="row-control">
-                    <button class="secondary-btn" @click="openDocs">
-                      {{ t('apiDocsBtn') }}
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Advanced Toolkit & VAD (Collapsible) -->
-              <div class="settings-group advanced-group">
-                <details class="advanced-details">
-                  <summary class="advanced-summary">
-                    <div class="summary-left">
-                      <span class="group-title">{{ t('sectionAdvancedToolkit') }}</span>
-                      <span class="summary-desc">{{ t('sectionAdvancedToolkitDesc') }}</span>
+                  <div class="setting-row">
+                    <div class="row-info">
+                      <span class="row-label">{{ t('swaggerDocs') }}</span>
+                      <span class="row-desc">{{ t('apiDocsDesc') }}</span>
                     </div>
-                    <span class="summary-chevron">▾</span>
-                  </summary>
-                  
-                  <div class="advanced-content">
-                    <div class="setting-row">
-                      <div class="row-info">
-                        <span class="row-label">{{ t('vadThresholdLabel') }}</span>
-                        <span class="row-desc">{{ t('vadThresholdDesc') }}</span>
-                      </div>
-                      <div class="row-control slider-control">
-                        <input
-                          v-model.number="vadThreshold"
-                          type="range"
-                          min="0.10"
-                          max="0.90"
-                          step="0.05"
-                          class="range-slider"
-                          @change="saveSettings"
-                        />
-                        <span class="mono-badge slider-badge">{{ vadThreshold.toFixed(2) }}</span>
-                      </div>
-                    </div>
-
-                    <div class="setting-row">
-                      <div class="row-info">
-                        <span class="row-label">{{ t('targetChunkLabel') }}</span>
-                        <span class="row-desc">{{ t('targetChunkDesc') }}</span>
-                      </div>
-                      <div class="row-control slider-control">
-                        <input
-                          v-model.number="targetChunkDuration"
-                          type="range"
-                          min="3.0"
-                          max="15.0"
-                          step="0.5"
-                          class="range-slider"
-                          @change="saveSettings"
-                        />
-                        <span class="mono-badge slider-badge">{{ targetChunkDuration.toFixed(1) }}s</span>
-                      </div>
-                    </div>
-
-                    <div class="advanced-actions">
-                      <button class="secondary-btn" @click="resetAdvancedDefaults">
-                        {{ t('btnResetDefaults') }}
+                    <div class="row-control">
+                      <button class="secondary-btn" @click="openDocs">
+                        {{ t('apiDocsBtn') }}
                       </button>
                     </div>
                   </div>
-                </details>
-              </div>
-            </div>
-
-            <!-- Tab 4: About -->
-            <div v-else-if="activeTab === 'about'" class="tab-pane">
-              <div class="about-hero">
-                <div class="about-logo-wrapper">
-                  <img :src="appLogo" alt="OneASR" class="about-app-icon" />
-                </div>
-                <div class="about-identity">
-                  <div class="identity-top">
-                    <span class="about-name">OneASR</span>
-                    <span class="about-version-tag">v1.0.0</span>
-                  </div>
-                  <span class="about-tagline">{{ t('aboutTagline') }}</span>
                 </div>
               </div>
 
-              <div class="settings-group">
-                <div class="setting-row">
-                  <div class="row-info">
-                    <span class="row-label">{{ t('aboutArch') }}</span>
-                    <span class="row-desc">{{ t('aboutArchDesc') }}</span>
+              <!-- Tab 3: Engine & Compute (引擎与计算) -->
+              <div v-else-if="activeTab === 'engine'" class="tab-pane">
+                <div class="settings-group">
+                  <div class="setting-row">
+                    <div class="row-info">
+                      <span class="row-label">{{ t('aboutAcceleration') }}</span>
+                      <span class="row-desc">{{ deviceDesc || 'Apple Silicon Metal (MPS)' }}</span>
+                    </div>
+                    <div class="row-control">
+                      <span class="status-pill active">{{ hardwareAccel === 'mps' ? t('accelAppleMps') : (hardwareAccel === 'cuda' ? t('accelNvidiaCuda') : t('accelCpu')) }}</span>
+                    </div>
+                  </div>
+
+                  <div class="setting-row">
+                    <div class="row-info">
+                      <span class="row-label">{{ t('maxLoadedModelsLabel') }}</span>
+                      <span class="row-desc">{{ t('maxLoadedModelsDesc') }}</span>
+                    </div>
+                    <div class="row-control">
+                      <select v-model.number="maxLoadedModels" class="custom-select" @change="saveSettings">
+                        <option :value="1">1</option>
+                        <option :value="2">2 {{ t('recommendedDefault') }}</option>
+                        <option :value="3">3</option>
+                        <option :value="4">4</option>
+                        <option :value="5">5</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div class="setting-row">
+                    <div class="row-info">
+                      <span class="row-label">{{ t('keepAliveLabel') }}</span>
+                      <span class="row-desc">{{ t('keepAliveDesc') }}</span>
+                    </div>
+                    <div class="row-control">
+                      <select v-model="keepAliveTimeout" class="custom-select" @change="saveSettings">
+                        <option value="0">{{ t('keepAliveImmediate') }}</option>
+                        <option value="60">{{ t('keepAlive1Min') }}</option>
+                        <option value="300">{{ t('keepAlive5Min') }}</option>
+                        <option value="600">{{ t('keepAlive10Min') }}</option>
+                        <option value="900">{{ t('keepAlive15Min') }}</option>
+                        <option value="1800">{{ t('keepAlive30Min') }}</option>
+                        <option value="-1">{{ t('keepAliveNever') }}</option>
+                      </select>
+                    </div>
                   </div>
                 </div>
 
-                <div class="setting-row">
-                  <div class="row-info">
-                    <span class="row-label">{{ t('aboutAcceleration') }}</span>
-                    <span class="row-desc">{{ deviceDesc || 'Apple Silicon Metal (MPS)' }}</span>
-                  </div>
-                  <div class="row-control">
-                    <span class="status-pill active">{{ hardwareAccel === 'mps' ? 'Apple MPS 开启' : (hardwareAccel === 'cuda' ? 'NVIDIA CUDA 开启' : 'CPU AVX2') }}</span>
-                  </div>
-                </div>
+                <!-- Advanced Audio Chunking & VAD (Collapsible) -->
+                <div class="settings-group advanced-group">
+                  <details class="advanced-details">
+                    <summary class="advanced-summary">
+                      <div class="summary-left">
+                        <span class="group-title">{{ t('sectionAdvancedToolkit') }}</span>
+                        <span class="summary-desc">{{ t('sectionAdvancedToolkitDesc') }}</span>
+                      </div>
+                      <span class="summary-chevron">▾</span>
+                    </summary>
+                    
+                    <div class="advanced-content">
+                      <div class="setting-row">
+                        <div class="row-info">
+                          <span class="row-label">{{ t('vadThresholdLabel') }}</span>
+                          <span class="row-desc">{{ t('vadThresholdDesc') }}</span>
+                        </div>
+                        <div class="row-control slider-control">
+                          <input
+                            v-model.number="vadThreshold"
+                            type="range"
+                            min="0.10"
+                            max="0.90"
+                            step="0.05"
+                            class="range-slider"
+                            @change="saveSettings"
+                          />
+                          <span class="mono-badge slider-badge">{{ vadThreshold.toFixed(2) }}</span>
+                        </div>
+                      </div>
 
-                <div class="setting-row">
-                  <div class="row-info">
-                    <span class="row-label">{{ t('aboutGithub') }}</span>
-                    <span class="row-desc">https://github.com/codeAndxv/OneASR</span>
+                      <div class="setting-row">
+                        <div class="row-info">
+                          <span class="row-label">{{ t('targetChunkLabel') }}</span>
+                          <span class="row-desc">{{ t('targetChunkDesc') }}</span>
+                        </div>
+                        <div class="row-control slider-control">
+                          <input
+                            v-model.number="targetChunkDuration"
+                            type="range"
+                            min="3.0"
+                            max="15.0"
+                            step="0.5"
+                            class="range-slider"
+                            @change="saveSettings"
+                          />
+                          <span class="mono-badge slider-badge">{{ targetChunkDuration.toFixed(1) }}s</span>
+                        </div>
+                      </div>
+
+                      <div class="advanced-actions">
+                        <button class="secondary-btn" @click="resetAdvancedDefaults">
+                          {{ t('btnResetDefaults') }}
+                        </button>
+                      </div>
+                    </div>
+                  </details>
+                </div>
+              </div>
+
+              <!-- Tab 4: Storage (存储管理) -->
+              <div v-else-if="activeTab === 'storage'" class="tab-pane">
+                <div class="settings-group">
+                  <div class="setting-row">
+                    <div class="row-info">
+                      <span class="row-label">{{ t('storageUserModels') }}</span>
+                      <span class="row-desc mono-path">{{ modelsDirPath || '~/.oneasr/models' }}</span>
+                    </div>
+                    <div class="row-control">
+                      <button class="secondary-btn" @click="openFolder">
+                        {{ t('btnOpenDir') }}
+                      </button>
+                    </div>
                   </div>
-                  <div class="row-control">
-                    <button class="secondary-btn" @click="openGithub">
-                      访问 GitHub
-                    </button>
+
+                  <div class="setting-row">
+                    <div class="row-info">
+                      <span class="row-label">{{ t('storageLogs') }}</span>
+                      <span class="row-desc mono-path">~/.oneasr/logs</span>
+                    </div>
+                    <div class="row-control">
+                      <button class="secondary-btn" @click="openLogs">
+                        {{ t('btnOpenDir') }}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div v-if="diskFreeGb !== null" class="setting-row">
+                    <div class="row-info">
+                      <span class="row-label">{{ t('storageDiskSpace') }}</span>
+                      <span class="row-desc">{{ t('storageVolumeTotal') }}: {{ diskTotalGb }} GB</span>
+                    </div>
+                    <div class="row-control">
+                      <span class="disk-free-pill">{{ diskFreeGb }} {{ t('unitGbAvailable') }}</span>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
+
+              <!-- Tab 5: About (关于) -->
+              <div v-else-if="activeTab === 'about'" class="tab-pane">
+                <div class="about-hero">
+                  <div class="about-logo-wrapper">
+                    <img :src="appLogo" alt="OneASR" class="about-app-icon" />
+                  </div>
+                  <div class="about-identity">
+                    <div class="identity-top">
+                      <span class="about-name">OneASR</span>
+                      <span class="about-version-tag">v0.1.0</span>
+                    </div>
+                    <span class="about-tagline">{{ t('aboutTagline') }}</span>
+                  </div>
+                </div>
+
+                <div class="settings-group">
+                  <div class="setting-row">
+                    <div class="row-info">
+                      <span class="row-label">{{ t('aboutArch') }}</span>
+                      <span class="row-desc">{{ t('aboutArchDesc') }}</span>
+                    </div>
+                  </div>
+
+                  <div class="setting-row">
+                    <div class="row-info">
+                      <span class="row-label">{{ t('aboutGithub') }}</span>
+                      <span class="row-desc">https://github.com/codeAndxv/OneASR</span>
+                    </div>
+                    <div class="row-control">
+                      <button class="secondary-btn" @click="openGithub">
+                        {{ t('visitGithub') }}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </main>
           </div>
 
           <!-- Modal Footer -->
           <div class="modal-footer">
-            <span class="footer-hint">提示：按 <kbd>Esc</kbd> 快速关闭偏好设置</span>
+            <span class="footer-hint">{{ t('settingsEscHint') }}</span>
             <button class="primary-btn" @click="$emit('close')">
-              {{ t('btnConfirm') || '完成' }}
+              {{ t('btnConfirm') }}
             </button>
           </div>
         </div>
@@ -383,28 +392,33 @@ const tabs = [
   {
     id: 'general',
     labelKey: 'tabGeneral',
-    icon: '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>'
-  },
-  {
-    id: 'storage',
-    labelKey: 'tabStorage',
-    icon: '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>'
+    icon: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>'
   },
   {
     id: 'service',
     labelKey: 'tabService',
-    icon: '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>'
+    icon: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>'
+  },
+  {
+    id: 'engine',
+    labelKey: 'tabEngine',
+    icon: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="15" x2="23" y2="15"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="15" x2="4" y2="15"/></svg>'
+  },
+  {
+    id: 'storage',
+    labelKey: 'tabStorage',
+    icon: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>'
   },
   {
     id: 'about',
     labelKey: 'tabAbout',
-    icon: '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>'
+    icon: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>'
   }
 ];
 
 const selectedTheme = ref(currentTheme.value);
 const isLanExposed = ref(false);
-const keepAliveTimeout = ref('300');
+const keepAliveTimeout = ref('600');
 const downloadSource = ref('auto');
 const modelsDirPath = ref('');
 const hardwareAccel = ref('mps');
@@ -430,58 +444,77 @@ function generateRandomKey() {
     }
   } else {
     for (let i = 0; i < 24; i++) {
-      result += chars[Math.floor(Math.random() * chars.length)];
+      result += chars.charAt(Math.floor(Math.random() * chars.length));
     }
   }
   return result;
 }
 
-async function regenerateApiKey() {
+function regenerateApiKey() {
   const newKey = generateRandomKey();
   apiKeyInput.value = newKey;
-  localStorage.setItem('oneasr_api_key', newKey);
-  await saveSettings();
-}
-
-async function handleApiKeyChange() {
-  const val = apiKeyInput.value.trim();
-  apiKeyInput.value = val;
-  if (val) {
-    localStorage.setItem('oneasr_api_key', val);
-  } else {
-    localStorage.removeItem('oneasr_api_key');
-  }
-  await saveSettings();
+  handleApiKeyChange();
 }
 
 async function copyApiKey() {
   if (!apiKeyInput.value) return;
   try {
-    await navigator.clipboard.writeText(apiKeyInput.value);
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(apiKeyInput.value);
+    } else {
+      const textarea = document.createElement('textarea');
+      textarea.value = apiKeyInput.value;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+    }
     apiKeyCopied.value = true;
     setTimeout(() => {
       apiKeyCopied.value = false;
     }, 2000);
   } catch (err) {
-    console.warn('Copy failed:', err);
+    console.error('Failed to copy API key:', err);
   }
+}
+
+async function handleApiKeyChange() {
+  const keyToSave = apiKeyInput.value.trim();
+  localStorage.setItem('oneasr_api_key', keyToSave);
+  await saveSettings();
+}
+
+async function toggleLan() {
+  isLanExposed.value = !isLanExposed.value;
+  await saveSettings();
 }
 
 async function resetAdvancedDefaults() {
   vadThreshold.value = 0.50;
   targetChunkDuration.value = 6.0;
-  maxLoadedModels.value = 2;
   await saveSettings();
+}
+
+async function saveSettings() {
+  try {
+    await apiClient.put('/v1/x/system/settings', {
+      host: isLanExposed.value ? '0.0.0.0' : '127.0.0.1',
+      keep_alive: parseInt(keepAliveTimeout.value, 10),
+      download_source: downloadSource.value,
+      api_key: apiKeyInput.value.trim(),
+      max_loaded_models: maxLoadedModels.value,
+      vad_threshold: vadThreshold.value,
+      target_chunk_duration: targetChunkDuration.value
+    });
+  } catch (e) {
+    console.warn('Failed to persist settings to server:', e);
+  }
 }
 
 function handleThemeChange() {
   setTheme(selectedTheme.value);
-}
-
-function handleBackdropClick(e) {
-  if (e.target === e.currentTarget) {
-    emit('close');
-  }
 }
 
 function onKeydown(e) {
@@ -509,87 +542,80 @@ async function fetchSettings() {
   try {
     const data = await apiClient.get('/v1/x/system/info');
     if (data) {
-      if (data.hardware) {
-        hardwareAccel.value = data.hardware.accelerator || 'mps';
-        deviceDesc.value = data.hardware.device_name || '';
+      if (data.system) {
+        hardwareAccel.value = data.system.device || 'mps';
+        deviceDesc.value = data.system.device_name || '';
       }
       if (data.storage) {
         modelsDirPath.value = data.storage.models_dir || '';
-        diskFreeGb.value = data.storage.disk_free_gb;
-        diskTotalGb.value = data.storage.disk_total_gb;
-      }
-    }
-  } catch (err) {
-    // Engine not online yet, keep defaults
-  }
-
-  try {
-    const cfg = await apiClient.get('/v1/x/system/settings');
-    if (cfg) {
-      if (cfg.host === '0.0.0.0') isLanExposed.value = true;
-      const ka = cfg.keep_alive ?? cfg.default_keep_alive ?? cfg.keep_alive_timeout;
-      if (ka !== undefined && ka !== null) keepAliveTimeout.value = String(ka);
-      if (cfg.download_source) downloadSource.value = cfg.download_source;
-      if (cfg.models_dir) modelsDirPath.value = cfg.models_dir;
-      if (cfg.api_key !== undefined && cfg.api_key !== null) {
-        apiKeyInput.value = cfg.api_key;
-        if (cfg.api_key) {
-          localStorage.setItem('oneasr_api_key', cfg.api_key);
-        } else {
-          localStorage.removeItem('oneasr_api_key');
+        if (data.storage.disk_free_gb !== undefined) {
+          diskFreeGb.value = data.storage.disk_free_gb;
+        }
+        if (data.storage.disk_total_gb !== undefined) {
+          diskTotalGb.value = data.storage.disk_total_gb;
         }
       }
-      if (cfg.max_loaded_models !== undefined && cfg.max_loaded_models !== null) {
-        maxLoadedModels.value = Number(cfg.max_loaded_models);
+    }
+  } catch (e) {
+    console.warn('Could not fetch system info:', e);
+  }
+
+  try {
+    const settings = await apiClient.get('/v1/x/system/settings');
+    if (settings) {
+      if (settings.host !== undefined) {
+        isLanExposed.value = settings.host === '0.0.0.0';
       }
-      if (cfg.vad_threshold !== undefined && cfg.vad_threshold !== null) {
-        vadThreshold.value = Number(cfg.vad_threshold);
+      if (settings.keep_alive !== undefined) {
+        const valStr = String(settings.keep_alive);
+        keepAliveTimeout.value = ['0', '60', '300', '600', '900', '1800', '-1'].includes(valStr) ? valStr : '600';
       }
-      if (cfg.target_chunk_duration !== undefined && cfg.target_chunk_duration !== null) {
-        targetChunkDuration.value = Number(cfg.target_chunk_duration);
+      if (settings.download_source) {
+        downloadSource.value = settings.download_source;
+      }
+      if (settings.api_key !== undefined) {
+        apiKeyInput.value = settings.api_key || '';
+        localStorage.setItem('oneasr_api_key', apiKeyInput.value);
+      }
+      if (settings.max_loaded_models !== undefined) {
+        maxLoadedModels.value = settings.max_loaded_models;
+      }
+      if (settings.vad_threshold !== undefined) {
+        vadThreshold.value = settings.vad_threshold;
+      }
+      if (settings.target_chunk_duration !== undefined) {
+        targetChunkDuration.value = settings.target_chunk_duration;
       }
     }
-  } catch (err) {
-    // Keep defaults
+  } catch (e) {
+    console.warn('Could not fetch server settings:', e);
   }
 }
 
-async function saveSettings() {
+async function openFolder() {
   try {
-    const kaVal = parseInt(keepAliveTimeout.value, 10);
-    const keyVal = apiKeyInput.value.trim() || null;
-    await apiClient.post('/v1/x/system/settings', {
-      keep_alive: kaVal,
-      keep_alive_timeout: kaVal,
-      host: isLanExposed.value ? '0.0.0.0' : '127.0.0.1',
-      download_source: downloadSource.value,
-      api_key: keyVal,
-      max_loaded_models: Number(maxLoadedModels.value),
-      vad_threshold: Number(vadThreshold.value),
-      target_chunk_duration: Number(targetChunkDuration.value)
-    });
+    await invoke('open_local_dir', { target: 'models' });
   } catch (err) {
-    console.error('Failed to save settings:', err);
+    console.warn('Tauri open_local_dir failed, fallback to server:', err);
+    try {
+      await apiClient.post('/v1/x/system/open-folder', { target: 'models' });
+    } catch (e) {
+      console.error('Failed to open models folder:', e);
+    }
   }
 }
 
-function toggleLan() {
-  isLanExposed.value = !isLanExposed.value;
-  saveSettings();
-}
-
-function openFolder() {
-  invoke('open_local_dir', { target: 'models' }).catch((err) => {
-    console.warn('Native open_local_dir (models) failed, falling back to REST API:', err);
-    apiClient.post('/v1/x/system/open-path', { path: modelsDirPath.value || '~/.oneasr/models' });
-  });
-}
-
-function openLogs() {
-  invoke('open_local_dir', { target: 'logs' }).catch((err) => {
-    console.warn('Native open_local_dir (logs) failed, falling back to REST API:', err);
-    apiClient.post('/v1/x/system/open-path', { path: '~/.oneasr/logs' });
-  });
+async function openLogs() {
+  try {
+    await invoke('open_local_dir', { target: 'logs' });
+  } catch (err) {
+    console.warn('Tauri open_local_dir failed, fallback to server:', err);
+    try {
+      await apiClient.post('/v1/x/system/open-folder', { target: 'logs' });
+    } catch (e) {
+      console.error('Failed to open logs folder:', e);
+    }
+  }
 }
 
 function openDocs() {
@@ -606,9 +632,9 @@ function openGithub() {
   position: fixed;
   inset: 0;
   z-index: 999;
-  background: rgba(0, 0, 0, 0.45);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -616,14 +642,14 @@ function openGithub() {
 }
 
 .modal-card {
-  width: 100%;
-  max-width: 580px;
-  min-height: 440px;
-  max-height: 82vh;
+  width: 760px;
+  max-width: 92vw;
+  height: 540px;
+  max-height: 86vh;
   background-color: var(--bg-surface);
   border: 1px solid var(--border-subtle);
   border-radius: 12px;
-  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.4), 0 0 0 1px var(--border-subtle);
+  box-shadow: 0 24px 56px rgba(0, 0, 0, 0.45), 0 0 0 1px var(--border-subtle);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -678,56 +704,84 @@ function openGithub() {
   color: var(--text-primary);
 }
 
-/* Tabs Bar */
-.modal-tabs {
+/* Two-column Layout */
+.modal-layout {
+  flex: 1;
   display: flex;
-  gap: 4px;
-  padding: 8px 20px;
-  background: rgba(255, 255, 255, 0.02);
-  border-bottom: 1px solid var(--border-subtle);
-  flex-shrink: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
-.tab-btn {
-  display: inline-flex;
+/* Left Sidebar Navigation */
+.modal-sidebar {
+  width: 185px;
+  flex-shrink: 0;
+  background: var(--bg-canvas, rgba(255, 255, 255, 0.02));
+  border-right: 1px solid var(--border-subtle);
+  padding: 12px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow-y: auto;
+}
+
+.sidebar-tab-btn {
+  display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 14px;
-  border-radius: 6px;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 8px;
   background: transparent;
   border: 1px solid transparent;
   color: var(--text-secondary);
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.15s ease;
+  width: 100%;
+  text-align: left;
 }
 
-.tab-btn:hover {
+.sidebar-tab-btn:hover {
   color: var(--text-primary);
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.06);
 }
 
-.tab-btn.active {
-  color: var(--text-primary);
-  background: rgba(255, 255, 255, 0.08);
-  border-color: var(--border-subtle);
+.sidebar-tab-btn.active {
+  color: var(--accent-emerald, #10B981);
+  background: rgba(16, 185, 129, 0.12);
+  border-color: rgba(16, 185, 129, 0.25);
+  font-weight: 600;
+}
+
+[data-theme="light"] .sidebar-tab-btn:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+[data-theme="light"] .sidebar-tab-btn.active {
+  background: rgba(16, 185, 129, 0.1);
+  border-color: rgba(16, 185, 129, 0.25);
 }
 
 .tab-icon {
   display: flex;
   align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
 }
 
 .tab-label {
-  line-height: 1;
+  line-height: 1.2;
 }
 
-/* Body */
-.modal-body {
+/* Right Content Area */
+.modal-content {
   flex: 1;
+  min-width: 0;
   overflow-y: auto;
-  padding: 16px 20px;
+  padding: 20px 24px;
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -751,7 +805,7 @@ function openGithub() {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 0;
+  padding: 11px 0;
   border-bottom: 1px solid var(--border-subtle);
 }
 
@@ -760,15 +814,11 @@ function openGithub() {
   padding-bottom: 2px;
 }
 
-.setting-row:first-of-type {
-  padding-top: 2px;
-}
-
 .row-info {
   display: flex;
   flex-direction: column;
   gap: 3px;
-  max-width: 70%;
+  max-width: 62%;
 }
 
 .row-label {
@@ -780,124 +830,85 @@ function openGithub() {
 .row-desc {
   font-size: 11.5px;
   color: var(--text-secondary);
+  line-height: 1.4;
 }
 
 .mono-path {
-  font-family: monospace;
-  font-size: 11.5px;
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
   color: var(--text-muted);
 }
 
 .row-control {
-  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .custom-select {
   padding: 5px 10px;
-  font-size: 12.5px;
   background-color: var(--bg-surface);
-  color: var(--text-primary);
   border: 1px solid var(--border-subtle);
   border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-family: inherit;
   outline: none;
   cursor: pointer;
+  transition: border-color 0.15s ease;
+  min-width: 140px;
 }
 
 .custom-select:focus {
-  border-color: var(--accent-emerald);
-}
-
-.secondary-btn {
-  padding: 5px 12px;
-  font-size: 12px;
-  font-weight: 500;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid var(--border-subtle);
-  border-radius: 6px;
-  color: var(--text-primary);
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.secondary-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: var(--text-secondary);
-}
-
-.primary-btn {
-  padding: 6px 18px;
-  font-size: 12.5px;
-  font-weight: 500;
-  background: rgba(255, 255, 255, 0.1);
-  color: var(--text-primary);
-  border: 1px solid var(--border-subtle);
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.primary-btn:hover {
-  background: rgba(255, 255, 255, 0.18);
-  border-color: var(--text-muted);
+  border-color: var(--accent-emerald, #10B981);
 }
 
 .toggle-btn {
   width: 40px;
   height: 22px;
-  border-radius: 11px;
-  background: rgba(255, 255, 255, 0.1);
+  background-color: rgba(255, 255, 255, 0.12);
   border: 1px solid var(--border-subtle);
-  position: relative;
+  border-radius: 12px;
+  padding: 2px;
   cursor: pointer;
-  transition: background 0.2s ease;
+  position: relative;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  display: inline-block;
 }
 
 .toggle-btn.active {
-  background: var(--accent-emerald);
-  border-color: var(--accent-emerald);
+  background-color: var(--accent-emerald, #10B981);
+  border-color: var(--accent-emerald, #10B981);
 }
 
 .toggle-slider {
   width: 16px;
   height: 16px;
+  background-color: #fff;
   border-radius: 50%;
-  background: #ffffff;
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  transition: transform 0.2s ease;
+  display: block;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
 }
 
 .toggle-btn.active .toggle-slider {
   transform: translateX(18px);
-  background: #0b0f17;
 }
 
 .mono-badge {
-  font-family: monospace;
+  font-family: var(--font-mono, monospace);
   font-size: 12px;
   padding: 3px 8px;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
-  border-radius: 4px;
-  color: var(--text-secondary);
+  border-radius: 6px;
+  color: var(--text-primary);
 }
 
-.status-pill {
-  font-size: 11.5px;
-  font-weight: 500;
-  padding: 3px 8px;
-  border-radius: 12px;
-  background: rgba(16, 185, 129, 0.12);
-  color: var(--accent-emerald);
-  border: 1px solid rgba(16, 185, 129, 0.3);
-}
-
+/* API Key Input */
 .api-key-control-wrap {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  flex: 1;
+  width: 100%;
+  max-width: 320px;
 }
 
 .api-key-input-group {
@@ -905,69 +916,120 @@ function openGithub() {
   align-items: center;
   gap: 6px;
   width: 100%;
-  justify-content: flex-end;
 }
 
 .api-key-input-wrapper {
   position: relative;
   display: flex;
   align-items: center;
+  flex: 1;
 }
 
 .api-key-input {
-  width: 175px;
-  background: var(--bg-card, rgba(255, 255, 255, 0.04));
+  width: 100%;
+  padding: 5px 28px 5px 10px;
+  background-color: var(--bg-surface);
   border: 1px solid var(--border-subtle);
-  color: var(--text-primary);
-  font-size: 11px;
-  font-family: ui-monospace, SFMono-Regular, monospace;
-  padding: 4px 26px 4px 8px;
   border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-family: var(--font-mono, monospace);
   outline: none;
   transition: border-color 0.15s ease;
 }
 
 .api-key-input:focus {
-  border-color: var(--accent-emerald);
+  border-color: var(--accent-emerald, #10B981);
 }
 
 .eye-toggle-btn {
   position: absolute;
   right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
   background: transparent;
   border: none;
-  color: var(--text-muted);
-  cursor: pointer;
+  color: var(--text-secondary);
+  padding: 2px;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 2px;
+  cursor: pointer;
   border-radius: 4px;
-  transition: color 0.15s ease;
 }
 
 .eye-toggle-btn:hover {
   color: var(--text-primary);
 }
 
-.advanced-group {
-  margin-top: 10px;
-}
-
-.advanced-details summary {
-  list-style: none;
+.secondary-btn {
+  padding: 5px 12px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 12px;
   cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
 }
 
-.advanced-details summary::-webkit-details-marker {
-  display: none;
+.secondary-btn:hover:not(:disabled) {
+  background-color: rgba(255, 255, 255, 0.08);
+  border-color: var(--border-hover);
+}
+
+.secondary-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.status-pill {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-subtle);
+}
+
+.status-pill.active {
+  background: rgba(16, 185, 129, 0.12);
+  color: var(--accent-emerald, #10B981);
+  border-color: rgba(16, 185, 129, 0.3);
+}
+
+.disk-free-pill {
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: rgba(16, 185, 129, 0.12);
+  color: var(--accent-emerald, #10B981);
+}
+
+/* Advanced Collapsible Section */
+.advanced-group {
+  padding: 0;
+}
+
+.advanced-details {
+  border-radius: 8px;
 }
 
 .advanced-summary {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  padding: 12px 16px;
+  cursor: pointer;
   user-select: none;
+  list-style: none;
+}
+
+.advanced-summary::-webkit-details-marker {
+  display: none;
 }
 
 .summary-left {
@@ -976,15 +1038,15 @@ function openGithub() {
   gap: 2px;
 }
 
-.group-title {
-  font-size: 11.5px;
-  font-weight: 600;
+.summary-left .group-title {
+  font-size: 13px;
+  font-weight: 500;
   color: var(--text-primary);
 }
 
 .summary-desc {
-  font-size: 11px;
-  color: var(--text-muted);
+  font-size: 11.5px;
+  color: var(--text-secondary);
 }
 
 .summary-chevron {
@@ -998,23 +1060,20 @@ function openGithub() {
 }
 
 .advanced-content {
-  margin-top: 10px;
-  padding-top: 10px;
+  padding: 0 16px 12px 16px;
   border-top: 1px solid var(--border-subtle);
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
 }
 
 .slider-control {
   display: flex;
   align-items: center;
   gap: 10px;
+  min-width: 170px;
 }
 
 .range-slider {
-  width: 120px;
-  accent-color: var(--text-primary);
+  flex: 1;
+  accent-color: var(--accent-emerald, #10B981);
   cursor: pointer;
 }
 
@@ -1026,55 +1085,15 @@ function openGithub() {
 .advanced-actions {
   display: flex;
   justify-content: flex-end;
-  padding-top: 4px;
+  margin-top: 10px;
 }
 
-.disk-free-pill {
-  font-size: 11.5px;
-  font-weight: 600;
-  padding: 3px 8px;
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--text-primary);
-  border: 1px solid var(--border-subtle);
-}
-
-.info-callout {
-  padding: 10px 14px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid var(--border-subtle);
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.info-callout-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--text-secondary);
-}
-
-.callout-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.callout-desc {
-  font-size: 11.5px;
-  line-height: 1.5;
-  color: var(--text-muted);
-  margin: 0;
-}
-
-/* About Tab Styling */
+/* About Section Hero */
 .about-hero {
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 12px 16px;
+  padding: 14px 18px;
   border-radius: 8px;
   background: var(--bg-elevated);
   border: 1px solid var(--border-subtle);
@@ -1100,7 +1119,7 @@ function openGithub() {
 .about-identity {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
 }
 
 .identity-top {
@@ -1122,7 +1141,7 @@ function openGithub() {
   padding: 1px 6px;
   border-radius: 10px;
   background: rgba(16, 185, 129, 0.12);
-  color: var(--accent-emerald);
+  color: var(--accent-emerald, #10B981);
   border: 1px solid rgba(16, 185, 129, 0.3);
 }
 
@@ -1131,6 +1150,7 @@ function openGithub() {
   color: var(--text-secondary);
 }
 
+/* Modal Footer */
 .modal-footer {
   height: 50px;
   padding: 0 20px;
@@ -1143,23 +1163,30 @@ function openGithub() {
 }
 
 .footer-hint {
-  font-size: 11px;
+  font-size: 11.5px;
   color: var(--text-muted);
 }
 
-.footer-hint kbd {
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid var(--border-subtle);
-  padding: 2px 5px;
-  border-radius: 4px;
-  font-family: inherit;
-  color: var(--text-secondary);
+.primary-btn {
+  padding: 6px 16px;
+  background-color: var(--accent-emerald, #10B981);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.primary-btn:hover {
+  opacity: 0.9;
 }
 
 /* Transitions */
 .modal-fade-enter-active,
 .modal-fade-leave-active {
-  transition: opacity 0.16s ease;
+  transition: opacity 0.18s ease;
 }
 
 .modal-fade-enter-from,
@@ -1169,12 +1196,12 @@ function openGithub() {
 
 @keyframes modal-pop {
   from {
-    transform: scale(0.97);
     opacity: 0;
+    transform: scale(0.97);
   }
   to {
-    transform: scale(1);
     opacity: 1;
+    transform: scale(1);
   }
 }
 </style>
