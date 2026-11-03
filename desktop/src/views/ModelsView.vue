@@ -74,6 +74,34 @@
         >
           {{ t('modelsStatusLoaded') }} ({{ getStatusCount('loaded') }})
         </button>
+
+        <span class="sep">|</span>
+
+        <!-- Mode Filter (Streaming vs Non-Streaming) -->
+        <span class="metric-caption">{{ t('modelsModeFilter') }}:</span>
+        <button
+          class="status-tab"
+          :class="{ active: selectedMode === 'all' }"
+          @click="selectedMode = 'all'"
+        >
+          {{ t('modelsModeAll') }} ({{ modelsList.length }})
+        </button>
+        <span class="sep">•</span>
+        <button
+          class="status-tab"
+          :class="{ active: selectedMode === 'realtime' }"
+          @click="selectedMode = 'realtime'"
+        >
+          {{ t('modelsModeRealtime') }} ({{ getModeCount('realtime') }})
+        </button>
+        <span class="sep">•</span>
+        <button
+          class="status-tab"
+          :class="{ active: selectedMode === 'offline' }"
+          @click="selectedMode = 'offline'"
+        >
+          {{ t('modelsModeOffline') }} ({{ getModeCount('offline') }})
+        </button>
       </div>
 
       <div class="storage-metric-right">
@@ -493,6 +521,7 @@ function getModelLangs(model) {
 
 const selectedEngine = ref('all');
 const selectedStatus = ref('all');
+const selectedMode = ref('all');
 const searchQuery = ref('');
 const sortBy = ref('ready_first');
 const isRefreshing = ref(false);
@@ -942,6 +971,9 @@ const filteredModels = computed(() => {
       if (selectedStatus.value === 'ready' && m.status !== 'ready') return false;
       if (selectedStatus.value === 'remote' && m.status !== 'remote') return false;
       if (selectedStatus.value === 'loaded' && !m.isLoaded) return false;
+      // 3. Mode filter (Streaming vs Non-Streaming)
+      if (selectedMode.value === 'realtime' && !isRealtimeModel(m)) return false;
+      if (selectedMode.value === 'offline' && !isOfflineModel(m)) return false;
       // 3. Search query
       if (searchQuery.value.trim()) {
         const q = searchQuery.value.trim().toLowerCase();
@@ -1006,6 +1038,26 @@ function getStatusCount(st) {
   return modelsList.value.length;
 }
 
+function isRealtimeModel(m) {
+  if (Array.isArray(m.categories)) {
+    return m.categories.includes('RealtimeASR');
+  }
+  return m.engine === 'xasr' || m.id === 'sensevoice-small';
+}
+
+function isOfflineModel(m) {
+  if (Array.isArray(m.categories)) {
+    return m.categories.includes('FileASR');
+  }
+  return m.engine !== 'xasr';
+}
+
+function getModeCount(mode) {
+  if (mode === 'realtime') return modelsList.value.filter(isRealtimeModel).length;
+  if (mode === 'offline') return modelsList.value.filter(isOfflineModel).length;
+  return modelsList.value.length;
+}
+
 let syncTimer = null;
 
 watch(
@@ -1055,6 +1107,9 @@ async function fetchBackendModels() {
         if (local) {
           local.status = backendModel.status === 'ready' ? 'ready' : 'remote';
           local.isLoaded = !!backendModel.loaded;
+          if (backendModel.categories) {
+            local.categories = backendModel.categories;
+          }
           if (backendModel.size_on_disk && backendModel.size_on_disk > 0) {
             const szMb = backendModel.size_on_disk / (1024 * 1024);
             local.size = szMb >= 1000 ? `${(szMb / 1024).toFixed(1)} GB` : `${Math.round(szMb)} MB`;
@@ -1070,6 +1125,7 @@ async function fetchBackendModels() {
             params: backendModel.params || '-',
             vram: backendModel.vram || '-',
             langs: Array.isArray(backendModel.languages) ? backendModel.languages.join(' / ') : (backendModel.languages || '多语言'),
+            categories: backendModel.categories,
             size: sizeStr,
             status: backendModel.status === 'ready' ? 'ready' : 'remote',
             isLoaded: !!backendModel.loaded,

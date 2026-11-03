@@ -244,8 +244,31 @@ if _dist_dir.exists() and (_dist_dir / "index.html").exists():
 
 
 if __name__ == "__main__":
+    import json
+    import os
     import sys
     import uvicorn
+    from server.core.paths import get_settings_path
+
+    host = os.getenv("ONEASR_HOST")
+    port_env = os.getenv("ONEASR_PORT")
+    port = int(port_env) if port_env and port_env.isdigit() else 8020
+
+    if not host or not port_env:
+        settings_file = get_settings_path()
+        if settings_file.is_file():
+            try:
+                with open(settings_file, "r", encoding="utf-8") as f:
+                    data = json.load(f) or {}
+                    if not host and "host" in data:
+                        host = str(data["host"])
+                    if not port_env and "port" in data:
+                        port = int(data["port"])
+            except Exception:
+                pass
+
+    host = host or "127.0.0.1"
     reload_enabled = "--reload" in sys.argv
-    uvicorn.run("server.main:app", host="127.0.0.1", port=8020, log_level="info", reload=reload_enabled)
+    logger.info("Starting OneASR server daemon on http://%s:%d", host, port)
+    uvicorn.run("server.main:app", host=host, port=port, log_level="info", reload=reload_enabled)
 

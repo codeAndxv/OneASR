@@ -6,13 +6,7 @@
     <!-- Brand / Mascot Header -->
     <div class="brand" data-tauri-drag-region @mousedown="handleSidebarMouseDown">
       <div class="mascot-badge">
-        <svg viewBox="0 0 24 24" class="mascot-icon" fill="none" stroke="currentColor" stroke-width="2">
-          <!-- Cat Mascot Outline -->
-          <path d="M12 21a7 7 0 0 1-7-7c0-2.3 1.1-4.3 2.8-5.6l-1.3-4.4 4.5 1.8c.3-.1.7-.2 1-.2s.7.1 1 .2l4.5-1.8-1.3 4.4c1.7 1.3 2.8 3.3 2.8 5.6a7 7 0 0 1-7 7z" />
-          <!-- Headphones -->
-          <path d="M4 14a2 2 0 0 1 2-2h1v4H6a2 2 0 0 1-2-2zm16 0a2 2 0 0 0-2-2h-1v4h1a2 2 0 0 0 2-2z" />
-          <path d="M7 12V9a5 5 0 0 1 10 0v3" />
-        </svg>
+        <img :src="appLogo" alt="OneASR" class="mascot-img" />
       </div>
       <div class="brand-text">
         <div class="brand-title">OneASR</div>
@@ -82,6 +76,7 @@
 <script setup>
 import { useI18n } from '../i18n';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import appLogo from '../assets/logo.svg';
 
 const props = defineProps({
   currentTab: {
@@ -185,18 +180,21 @@ const navItems = [
   width: 34px;
   height: 34px;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid var(--border-subtle);
+  overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--accent-emerald);
   pointer-events: none;
+  flex-shrink: 0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
 
-.mascot-icon {
-  width: 20px;
-  height: 20px;
+.mascot-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 8px;
+  display: block;
 }
 
 .brand-text {

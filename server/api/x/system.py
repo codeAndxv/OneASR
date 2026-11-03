@@ -35,6 +35,36 @@ class UpdateSettingsRequest(BaseModel):
     target_chunk_duration: float | None = Field(None, description="Long audio target chunk duration in seconds (3.0 - 15.0)")
 
 
+def get_local_lan_ip() -> str:
+    """获取本机局域网 IPv4 地址（三重保险：国内外公共 DNS 路由探测 + 离线物理网卡遍历）。"""
+    import socket
+
+    # 策略 1: 探测常用公共 DNS (国内: 阿里 223.5.5.5, 114; 海外: 谷歌 8.8.8.8, Cloudflare 1.1.1.1)
+    # 仅触发 OS 路由表查询默认出口网卡，不实际握手传输网络数据包
+    for probe_ip in ["223.5.5.5", "114.114.114.114", "8.8.8.8", "1.1.1.1"]:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect((probe_ip, 80))
+            ip = s.getsockname()[0]
+            if ip and not ip.startswith("127."):
+                return ip
+        except Exception:
+            pass
+        finally:
+            s.close()
+
+    # 策略 2: 纯离线/脱网保底（即使电脑完全拔掉外网宽带，直接遍历本地物理网卡）
+    try:
+        hostname = socket.gethostname()
+        for ip in socket.gethostbyname_ex(hostname)[2]:
+            if not ip.startswith("127.") and ":" not in ip:
+                return ip
+    except Exception:
+        pass
+
+    return "127.0.0.1"
+
+
 def _detect_accelerator() -> dict[str, Any]:
     """Detect available hardware inference accelerators (MPS, CUDA, CPU)."""
     device_type = "cpu"
@@ -105,6 +135,9 @@ async def get_system_info():
             "disk_total_gb": disk_total_gb,
             "disk_free_gb": disk_free_gb,
         },
+        "network": {
+            "lan_ip": get_local_lan_ip(),
+        },
     }
 
 
@@ -123,6 +156,7 @@ async def get_system_settings():
     return {
         "host": file_settings.get("host", "127.0.0.1"),
         "port": file_settings.get("port", 8020),
+        "lan_ip": get_local_lan_ip(),
         "api_key": app_config.api_key,
         "keep_alive": app_config.model_manager.default_keep_alive,
         "keep_alive_timeout": app_config.model_manager.default_keep_alive,

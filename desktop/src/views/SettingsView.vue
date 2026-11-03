@@ -93,7 +93,7 @@
         <div class="setting-row">
           <div class="row-info">
             <span class="row-label">{{ t('lanAccessLabel') }}</span>
-            <span class="row-desc">{{ isLanExposed ? t('lanExposed') : t('lanLocalOnly') }}</span>
+            <span class="row-desc">{{ isLanExposed ? (lanIp ? `${t('lanExposed')} · http://${lanIp}:8020` : t('lanExposed')) : t('lanLocalOnly') }}</span>
           </div>
           <div class="row-control">
             <button class="toggle-btn" :class="{ active: isLanExposed }" @click="toggleLan">
@@ -331,6 +331,7 @@ const { locale, setLocale, t } = useI18n();
 
 const selectedTheme = ref(currentTheme.value);
 const isLanExposed = ref(false);
+const lanIp = ref('');
 const keepAliveTimeout = ref('300');
 const downloadSource = ref('modelscope');
 const maxLoadedModels = ref(2);
@@ -439,6 +440,7 @@ onMounted(async () => {
   try {
     const sys = await apiClient.getSystemSettings();
     if (sys) {
+      if (sys.lan_ip) lanIp.value = sys.lan_ip;
       isLanExposed.value = sys.host === '0.0.0.0';
       const val = sys.keep_alive ?? sys.default_keep_alive ?? sys.keep_alive_timeout;
       if (val !== undefined && val !== null) {

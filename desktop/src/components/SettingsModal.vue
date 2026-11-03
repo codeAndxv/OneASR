@@ -88,7 +88,9 @@
                   <div class="setting-row">
                     <div class="row-info">
                       <span class="row-label">{{ t('lanAccessLabel') }}</span>
-                      <span class="row-desc">{{ isLanExposed ? t('lanExposed') : t('lanLocalOnly') }}</span>
+                      <span class="row-desc">
+                        {{ isLanExposed ? (lanIp ? `${t('lanExposed')} · http://${lanIp}:8020` : t('lanExposed')) : t('lanLocalOnly') }}
+                      </span>
                     </div>
                     <div class="row-control">
                       <button class="toggle-btn" :class="{ active: isLanExposed }" @click="toggleLan">
@@ -418,6 +420,7 @@ const tabs = [
 
 const selectedTheme = ref(currentTheme.value);
 const isLanExposed = ref(false);
+const lanIp = ref('');
 const keepAliveTimeout = ref('600');
 const downloadSource = ref('auto');
 const modelsDirPath = ref('');
@@ -563,6 +566,9 @@ async function fetchSettings() {
   try {
     const settings = await apiClient.get('/v1/x/system/settings');
     if (settings) {
+      if (settings.lan_ip) {
+        lanIp.value = settings.lan_ip;
+      }
       if (settings.host !== undefined) {
         isLanExposed.value = settings.host === '0.0.0.0';
       }
