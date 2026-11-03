@@ -12,6 +12,7 @@ Automates the entire desktop packaging pipeline:
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import os
 import platform
 import shutil
@@ -67,6 +68,29 @@ def resolve_platform() -> str:
     return "linux"
 
 
+def find_signing_identity() -> str | None:
+    """Detect available Apple Developer ID Application signing identity on macOS."""
+    env_id = os.environ.get("APPLE_SIGNING_IDENTITY")
+    if env_id and env_id.strip():
+        return env_id.strip()
+
+    try:
+        out = subprocess.check_output(
+            ["security", "find-identity", "-p", "codesigning", "-v"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        )
+        for line in out.splitlines():
+            if "Developer ID Application:" in line:
+                start = line.find('"Developer ID Application:')
+                end = line.rfind('"')
+                if start != -1 and end != -1:
+                    return line[start + 1 : end]
+    except Exception:
+        pass
+    return None
+
+
 def copy_clean_tree(src: Path, dst: Path, ignore_patterns: tuple[str, ...] = ("__pycache__", "*.pyc", "*.pyo")):
     def _ignore(directory, contents):
         ignored = set()
@@ -81,6 +105,100 @@ def copy_clean_tree(src: Path, dst: Path, ignore_patterns: tuple[str, ...] = ("_
     if dst.exists():
         shutil.rmtree(dst)
     shutil.copytree(src, dst, ignore=_ignore)
+
+
+def sign_app_bundle_deep(app_bundle: Path, identity: str, entitlements: Path | None):
+    """
+    Recursively and concurrently signs all nested Mach-O binaries (.dylib, .so, executables)
+    with Developer ID, Hardened Runtime (--options runtime), and secure timestamps.
+    Then signs the main bundle from the inside out to satisfy Apple Notary requirements.
+    """
+    log("3/4", f"Analyzing Mach-O binaries in {app_bundle.name} for Apple Notarization...")
+    MACH_O_MAGICS = {
+        b"\xfe\xed\xfa\xce",
+        b"\xfe\xed\xfa\xcf",
+        b"\xce\xfa\xed\xfe",
+        b"\xcf\xfa\xed\xfe",
+        b"\xca\xfe\xba\xbe",
+        b"\xbe\xba\xfe\xca",
+    }
+
+    def is_macho(p: Path) -> bool:
+        if not p.is_file() or p.is_symlink():
+            return False
+        try:
+            with open(p, "rb") as f:
+                return f.read(4) in MACH_O_MAGICS
+        except Exception:
+            return False
+
+    binaries: list[Path] = []
+    # Only scan Contents/Resources and Contents/Frameworks for nested Mach-O binaries.
+    # Contents/MacOS/<CFBundleExecutable> is automatically signed when signing the outer bundle.
+    for sub in ("Resources", "Frameworks"):
+        subdir = app_bundle / "Contents" / sub
+        if not subdir.exists():
+            continue
+        for root, _, files in os.walk(subdir):
+            for f in files:
+                p = Path(root) / f
+                if is_macho(p):
+                    binaries.append(p)
+
+    # Sort from deepest to shallowest path (crucial for nested dependency signing)
+    binaries.sort(key=lambda p: len(p.parts), reverse=True)
+
+    log_sub(f"Found {len(binaries)} nested Mach-O binaries. Parallel signing with Hardened Runtime & Timestamps...")
+
+    failed_files: list[str] = []
+
+    def _sign_single(p: Path):
+        cmd = [
+            "codesign",
+            "--force",
+            "--options", "runtime",
+            "--timestamp",
+            "-s", identity,
+        ]
+        if entitlements and entitlements.exists():
+            cmd.extend(["--entitlements", str(entitlements)])
+        cmd.append(str(p))
+
+        # Retry up to 3 times to handle transient Apple timestamp server throttling
+        for attempt in range(3):
+            res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+            if res.returncode == 0:
+                return
+            time.sleep(1.0 * (attempt + 1))
+
+        failed_files.append(f"{p.name}: {res.stderr.strip()}")
+
+    t0 = time.time()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+        list(executor.map(_sign_single, binaries))
+
+    if failed_files:
+        error_exit(f"Failed to sign {len(failed_files)} binaries:\n  " + "\n  ".join(failed_files[:5]))
+
+    log_sub(f"Signed {len(binaries)} binaries in {time.time() - t0:.1f}s ✓")
+
+    # Sign the top-level bundle
+    log_sub(f"Signing outer application bundle {app_bundle.name}...")
+    outer_cmd = [
+        "codesign",
+        "--force",
+        "--options", "runtime",
+        "--timestamp",
+        "-s", identity,
+    ]
+    if entitlements and entitlements.exists():
+        outer_cmd.extend(["--entitlements", str(entitlements)])
+    outer_cmd.append(str(app_bundle))
+    run_cmd(outer_cmd)
+
+    log_sub(f"Validating bundle signature with codesign...")
+    run_cmd(["codesign", "--verify", "--deep", "--strict", "--verbose=1", str(app_bundle)])
+    log("3/4", f"OneASR.app successfully signed and verified with Developer ID ✓", GREEN)
 
 
 def main():
@@ -100,6 +218,21 @@ def main():
         choices=["mps", "cu124", "cu121", "cpu"],
         default=None,
         help="PyTorch acceleration backend (default: mps on macOS, cu124 on Windows/Linux)",
+    )
+    parser.add_argument(
+        "--sign",
+        action="store_true",
+        help="Enable Apple Developer ID code signing (default: False for fast daily debugging)",
+    )
+    parser.add_argument(
+        "--notarize",
+        action="store_true",
+        help="Submit DMG to Apple Cloud Notarization and staple ticket (requires --sign)",
+    )
+    parser.add_argument(
+        "--notary-profile",
+        default="OneASR",
+        help="Keychain profile name stored via notarytool store-credentials (default: OneASR)",
     )
     args = parser.parse_args()
 
@@ -153,7 +286,14 @@ def main():
 
     # Step 1: Standalone Backend Bundle
     if args.skip_backend:
-        log("1/3", "Skipping backend assembly (--skip-backend specified)", YELLOW)
+        log("1/3", "Skipping backend dependency install; incrementally syncing application code...", YELLOW)
+        copy_clean_tree(project_root / "server", resources_dir / "server")
+        copy_clean_tree(project_root / "cli", resources_dir / "cli")
+        for f in ["pyproject.toml"]:
+            src_f = project_root / f
+            if src_f.exists():
+                shutil.copy2(src_f, resources_dir / f)
+        log("1/3", "Application code incrementally synced ✓", GREEN)
     else:
         needs_full_rebuild = args.clean or not python_bundle_dir.exists()
 
@@ -193,9 +333,121 @@ def main():
     log("2/3", "Frontend compiled successfully ✓", GREEN)
 
     # Step 3: Native Tauri Packaging
-    log("3/3", "Packaging native desktop application (Tauri v2)...")
-    run_cmd(["npx", "tauri", "build"], cwd=desktop_dir)
-    log("3/3", "Tauri packaging completed ✓", GREEN)
+    log("3/4", "Packaging native desktop application (Tauri v2)...")
+    signing_identity = None
+    build_env = os.environ.copy()
+    if target_os == "macos":
+        if args.sign:
+            signing_identity = find_signing_identity()
+            if signing_identity:
+                log_sub(f"Detected Developer ID: {signing_identity}")
+                build_env["APPLE_SIGNING_IDENTITY"] = signing_identity
+            else:
+                log_sub("No Developer ID certificate found; using ad-hoc signing", YELLOW)
+        else:
+            log_sub("Fast dev mode: skipping Developer ID signing (pass --sign to enable)")
+
+    if target_os == "macos":
+        run_cmd(["npx", "tauri", "build", "--bundles", "app"], cwd=desktop_dir, env=build_env)
+        app_bundle = tauri_dir / "target" / "release" / "bundle" / "macos" / "OneASR.app"
+        if not app_bundle.exists():
+            error_exit(f"Expected .app bundle at {app_bundle} but not found.")
+
+        # Inside-out deep signing with Hardened Runtime and Entitlements
+        entitlements_file = tauri_dir / "Entitlements.plist"
+        if signing_identity:
+            sign_app_bundle_deep(app_bundle, signing_identity, entitlements_file)
+
+        # Step 4: Robust DMG Creation (immune to EBUSY / Resource busy)
+        log("4/4", "Creating distribution DMG installer...")
+        dmg_dir = tauri_dir / "target" / "release" / "bundle" / "dmg"
+        dmg_dir.mkdir(parents=True, exist_ok=True)
+        dmg_path = dmg_dir / "OneASR.dmg"
+        if dmg_path.exists():
+            dmg_path.unlink()
+
+        staging_dir = tauri_dir / "target" / "release" / "bundle" / "dmg_staging"
+        if staging_dir.exists():
+            shutil.rmtree(staging_dir)
+        staging_dir.mkdir(parents=True, exist_ok=True)
+
+        copy_clean_tree(app_bundle, staging_dir / "OneASR.app")
+        os.symlink("/Applications", staging_dir / "Applications")
+
+        run_cmd([
+            "hdiutil",
+            "create",
+            "-volname",
+            "OneASR",
+            "-srcfolder",
+            str(staging_dir),
+            "-ov",
+            "-format",
+            "UDZO",
+            str(dmg_path),
+        ])
+        shutil.rmtree(staging_dir, ignore_errors=True)
+
+        if signing_identity:
+            log("4/4", f"Signing DMG container with {signing_identity}...")
+            run_cmd(["codesign", "--force", "-s", signing_identity, "--timestamp", str(dmg_path)])
+
+        # Step 5: Apple Cloud Notarization & Stapling
+        notary_profile = getattr(args, "notary_profile", "OneASR")
+        if args.notarize:
+            if not signing_identity:
+                error_exit("Apple Notarization requires Developer ID signing. Please pass --sign together with --notarize.")
+            log("4/4", f"Submitting {dmg_path.name} to Apple for Notarization (profile: {notary_profile})...")
+            submit_cmd = [
+                "xcrun",
+                "notarytool",
+                "submit",
+                str(dmg_path),
+                "--keychain-profile",
+                notary_profile,
+                "--wait",
+            ]
+            log_sub(f"Running: {' '.join(submit_cmd)}")
+            proc = subprocess.Popen(
+                submit_cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+            )
+            submission_id = None
+            is_accepted = False
+            if proc.stdout:
+                for line in proc.stdout:
+                    sys.stdout.write(f"  {line}")
+                    sys.stdout.flush()
+                    if "id:" in line and not submission_id:
+                        parts = line.strip().split()
+                        if len(parts) >= 2:
+                            submission_id = parts[1]
+                    if "status: Accepted" in line:
+                        is_accepted = True
+
+            proc.wait()
+
+            if not is_accepted:
+                error_exit(
+                    f"Apple Notarization rejected! Submission ID: {submission_id or 'unknown'}.\n"
+                    f"To view detailed validation errors from Apple, run:\n"
+                    f"  xcrun notarytool log {submission_id} --keychain-profile {notary_profile}"
+                )
+
+            log("4/4", "Apple Notarization Accepted! Stapling ticket to DMG...", GREEN)
+            run_cmd(["xcrun", "stapler", "staple", str(dmg_path)])
+            log("4/4", "Validating Gatekeeper acceptance...", GREEN)
+            run_cmd(["spctl", "-a", "-t", "open", "--context", "context:primary-signature", "-v", str(dmg_path)])
+            log("4/4", "OneASR.dmg is 100% Notarized and Stapled! Ready for any Mac ✓", GREEN)
+        else:
+            log("4/4", "Fast dev mode: skipping Apple Notarization (pass --notarize to submit) ✓", GREEN)
+    else:
+        run_cmd(["npx", "tauri", "build"], cwd=desktop_dir, env=build_env)
+
+    log("✓", "All desktop packaging and certification completed ✓", GREEN)
 
     # Locate generated bundle artifacts
     target_bundle_dir = tauri_dir / "target" / "release" / "bundle"

@@ -364,3 +364,13 @@ def get_loaded_engines() -> dict[str, LoadedEngine]:
 def register_engine(name: str, engine_cls: type[ASREngine]):
     with _registry_lock:
         _engine_classes[name] = engine_cls
+
+
+def clear_standby_cache(model_id: str | None = None) -> None:
+    """Clear cached uninitialized/lazy engine shells in _standby."""
+    with _registry_lock:
+        if model_id:
+            _standby.pop(model_id, None)
+        else:
+            _standby.clear()
+

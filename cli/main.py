@@ -145,6 +145,11 @@ def cmd_rm(args: argparse.Namespace) -> int:
     model_id = args.model_id
     models_dir = get_models_dir()
     target = models_dir / model_id
+    if not target.exists():
+        if (models_dir / f"faster-{model_id}").exists():
+            target = models_dir / f"faster-{model_id}"
+        elif (models_dir / model_id.replace("faster-", "")).exists():
+            target = models_dir / model_id.replace("faster-", "")
 
     if not target.exists():
         print(f"Model '{model_id}' not found in {models_dir}")

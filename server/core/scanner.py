@@ -64,39 +64,49 @@ def find_model_dir(model_id: str, ms_repo: str = "", hf_repo: str = "") -> Path 
     ms_tail = ms_repo.split("/")[-1] if "/" in ms_repo else ms_repo
     hf_tail = hf_repo.split("/")[-1] if "/" in hf_repo else hf_repo
 
-    candidate_names = [
-        model_id,
-        ms_tail,
-        hf_tail,
-        f"faster-whisper-{model_id}",
-    ]
+    candidate_names: list[str] = []
+
+    # 严格模式：Whisper 系列模型严格且仅允许 faster-whisper-xxx 或 faster-distil-whisper-xxx 目录名
     if model_id.startswith("whisper-"):
         short = model_id.replace("whisper-", "")
-        candidate_names.extend([
-            f"faster-whisper-{short}",
-            short,
-        ])
+        candidate_names.append(f"faster-whisper-{short}")
+        if "-en" in short:
+            dotted = short.replace("-en", ".en")
+            candidate_names.append(f"faster-whisper-{dotted}")
+        if ms_tail.startswith("faster-whisper-"):
+            candidate_names.append(ms_tail)
+        if hf_tail.startswith("faster-whisper-"):
+            candidate_names.append(hf_tail)
     elif model_id.startswith("distil-whisper-"):
         short = model_id.replace("distil-whisper-", "")
-        candidate_names.extend([
-            f"faster-distil-whisper-{short}",
-            f"distil-whisper-{short}",
-        ])
-    if "-en" in model_id:
-        dotted = model_id.replace("-en", ".en")
-        candidate_names.extend([
-            dotted,
-            dotted.replace("whisper-", "faster-whisper-"),
-            dotted.replace("distil-whisper-", "faster-distil-whisper-"),
-        ])
-    # Handle X-ASR legacy directory name
-    if model_id == "xasr-zh-en":
-        candidate_names.append("chunk-160ms-model")
+        candidate_names.append(f"faster-distil-whisper-{short}")
+        if "-en" in short:
+            dotted = short.replace("-en", ".en")
+            candidate_names.append(f"faster-distil-whisper-{dotted}")
+        if ms_tail.startswith("faster-distil-whisper-"):
+            candidate_names.append(ms_tail)
+        if hf_tail.startswith("faster-distil-whisper-"):
+            candidate_names.append(hf_tail)
+    elif model_id == "xasr-zh-en":
+        candidate_names.extend(["xasr-zh-en", "chunk-160ms-model"])
+    else:
+        # 非 Whisper 模型按标准仓库后缀与模型 ID 查找
+        for name in (ms_tail, hf_tail, model_id):
+            if name:
+                candidate_names.append(name)
+
+    # 去重且保持顺序
+    seen: set[str] = set()
+    deduped_candidates: list[str] = []
+    for c in candidate_names:
+        if c not in seen:
+            seen.add(c)
+            deduped_candidates.append(c)
 
     for base in search_dirs:
         if not base.exists():
             continue
-        for name in candidate_names:
+        for name in deduped_candidates:
             target = base / name
             if target.is_dir():
                 return target
@@ -114,8 +124,12 @@ def verify_model_integrity(model_path: Path, manifest: ModelManifest | None) -> 
 
     if manifest and manifest.required_files:
         for fname in manifest.required_files:
-            if not (model_path / fname).exists():
-                return False
+            if "*" in fname:
+                if not any(model_path.glob(fname)):
+                    return False
+            else:
+                if not (model_path / fname).exists():
+                    return False
         return True
 
     # Generic check: directory must have at least one weight/config file

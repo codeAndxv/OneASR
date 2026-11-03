@@ -1,5 +1,12 @@
 #!/usr/bin/env bash
 # OneASR Desktop Quick Build Entry
+#
+# Usage:
+#   ./build.sh                     # Fast daily dev build (incremental backend, no Apple signing, no notarization)
+#   ./build.sh --skip-backend      # Fastest dev build (UI + Tauri only, ~10s)
+#   ./build.sh --sign              # Build with Apple Developer ID code signing
+#   ./build.sh --sign --notarize   # Build with Apple Developer ID signing + Apple Cloud Notarization (Release)
+#
 set -e
 
 export PATH="$HOME/.cargo/bin:$HOME/.local/bin:/opt/homebrew/bin:$PATH"

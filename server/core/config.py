@@ -227,23 +227,22 @@ class EngineConfig:
                 )
                 if not has_explicit_xasr_files and (self.model_path or self.model_name):
                     if self.model_path:
-                        x_dir = self.model_path.rstrip("/")
+                        x_dir = Path(self.model_path.rstrip("/"))
                     else:
                         raw_x = self.model_name.strip()
-                        if raw_x in (
-                            "Gilgamesh-J/X-ASR-zh-en",
-                            "GilgameshWind/X-ASR-zh-en",
-                            "xasr-zh-en",
-                            "chunk-160ms-model",
-                        ):
-                            x_dir = str(models_dir / "chunk-160ms-model")
-                        else:
-                            x_dir = str(models_dir / raw_x.split("/")[-1])
-                        self.model_path = x_dir
-                    self.tokens_path = f"{x_dir}/tokens.txt"
-                    self.encoder_path = f"{x_dir}/encoder-160ms.onnx"
-                    self.decoder_path = f"{x_dir}/decoder-160ms.onnx"
-                    self.joiner_path = f"{x_dir}/joiner-160ms.onnx"
+                        cand_x = models_dir / "xasr-zh-en"
+                        if not cand_x.exists():
+                            cand_x = models_dir / "chunk-160ms-model"
+                        x_dir = cand_x if cand_x.exists() else models_dir / "xasr-zh-en"
+                        self.model_path = str(x_dir)
+
+                    self.tokens_path = str(x_dir / "tokens.txt")
+                    enc = x_dir / "encoder-160ms.onnx"
+                    self.encoder_path = str(enc if enc.exists() else x_dir / "encoder.onnx")
+                    dec = x_dir / "decoder-160ms.onnx"
+                    self.decoder_path = str(dec if dec.exists() else x_dir / "decoder.onnx")
+                    joi = x_dir / "joiner-160ms.onnx"
+                    self.joiner_path = str(joi if joi.exists() else x_dir / "joiner.onnx")
             elif eng == "firered":
                 if not self.model_path and self.model_name:
                     raw_f = self.model_name.strip()
@@ -497,6 +496,12 @@ class AppConfig:
 
     def refresh_models(self) -> None:
         """Scan disk and built-in manifest to dynamically update providers without restart."""
+        try:
+            from server.engines.registry import clear_standby_cache
+            clear_standby_cache()
+        except ImportError:
+            pass
+
         scanned = scan_all_models()
         for model_id, res in scanned.items():
             is_ready = res.status == "ready"
@@ -518,10 +523,14 @@ class AppConfig:
 
             # Map X-ASR specific sub-paths if path is resolved
             if res.driver == "xasr" and res.model_path:
-                cfg_data["tokens_path"] = str(res.model_path / "tokens.txt")
-                cfg_data["encoder_path"] = str(res.model_path / "encoder-160ms.onnx")
-                cfg_data["decoder_path"] = str(res.model_path / "decoder-160ms.onnx")
-                cfg_data["joiner_path"] = str(res.model_path / "joiner-160ms.onnx")
+                x_dir = res.model_path
+                cfg_data["tokens_path"] = str(x_dir / "tokens.txt")
+                enc = x_dir / "encoder-160ms.onnx"
+                cfg_data["encoder_path"] = str(enc if enc.exists() else x_dir / "encoder.onnx")
+                dec = x_dir / "decoder-160ms.onnx"
+                cfg_data["decoder_path"] = str(dec if dec.exists() else x_dir / "decoder.onnx")
+                joi = x_dir / "joiner-160ms.onnx"
+                cfg_data["joiner_path"] = str(joi if joi.exists() else x_dir / "joiner.onnx")
 
             cfg = EngineConfig(
                 model_id,

@@ -145,6 +145,20 @@ class SherpaOnnxEngine(ASREngine):
         decoder_resolved = self.config.resolve_path(self._decoder_path)
         joiner_resolved = self.config.resolve_path(self._joiner_path)
 
+        # Flexibly match encoder/decoder/joiner file names (e.g. encoder-160ms.onnx vs encoder.onnx)
+        if not encoder_resolved or not encoder_resolved.exists():
+            alt = encoder_resolved.parent / "encoder.onnx" if encoder_resolved else None
+            if alt and alt.exists():
+                encoder_resolved = alt
+        if not decoder_resolved or not decoder_resolved.exists():
+            alt = decoder_resolved.parent / "decoder.onnx" if decoder_resolved else None
+            if alt and alt.exists():
+                decoder_resolved = alt
+        if not joiner_resolved or not joiner_resolved.exists():
+            alt = joiner_resolved.parent / "joiner.onnx" if joiner_resolved else None
+            if alt and alt.exists():
+                joiner_resolved = alt
+
         for label, p_raw, p_resolved in [
             ("tokens_path", self._tokens_path, tokens_resolved),
             ("encoder_path", self._encoder_path, encoder_resolved),

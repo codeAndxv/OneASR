@@ -191,10 +191,11 @@ class ModelDownloader:
                     if src == "modelscope":
                         from modelscope import snapshot_download as ms_download
 
+                        ms_patterns = None if "manyeyes" in manifest.ms_repo else allow_patterns
                         ms_download(
                             model_id=manifest.ms_repo,
                             local_dir=str(download_dest),
-                            allow_patterns=allow_patterns,
+                            allow_patterns=ms_patterns,
                         )
                     elif src in ("hf-mirror", "huggingface"):
                         from huggingface_hub import snapshot_download as hf_download
@@ -213,17 +214,21 @@ class ModelDownloader:
                     logger.warning("Download failed for %s from %s: %s", manifest.id, src, e)
 
             # Extract subfolder if required
-            if success and staging_dir and subdir:
-                extracted = staging_dir / subdir.strip("/")
-                if extracted.exists():
-                    for item in extracted.iterdir():
-                        dest_item = target_dir / item.name
-                        if dest_item.exists():
-                            if dest_item.is_dir():
-                                shutil.rmtree(dest_item)
-                            else:
-                                dest_item.unlink()
-                        shutil.move(str(item), str(dest_item))
+            if success and staging_dir:
+                extracted = (staging_dir / subdir.strip("/")) if subdir else None
+                source_folder = extracted if (extracted and extracted.exists()) else staging_dir
+                for item in source_folder.iterdir():
+                    if item.name.startswith("."):
+                        continue
+                    if item.is_dir() and item.name == "deployment":
+                        continue
+                    dest_item = target_dir / item.name
+                    if dest_item.exists():
+                        if dest_item.is_dir():
+                            shutil.rmtree(dest_item)
+                        else:
+                            dest_item.unlink()
+                    shutil.move(str(item), str(dest_item))
 
         finally:
             stop_monitor.set()
@@ -272,7 +277,12 @@ class ModelDownloader:
             }
             return
 
-        dest_dir = get_models_dir() / manifest.id
+        folder_name = (
+            manifest.ms_repo.split("/")[-1]
+            if manifest.driver in ("whisper", "faster-whisper")
+            else manifest.id
+        )
+        dest_dir = get_models_dir() / folder_name
 
         with self._lock:
             existing = self._tasks.get(manifest.id)

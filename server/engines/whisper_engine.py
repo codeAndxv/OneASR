@@ -34,6 +34,13 @@ class WhisperEngine(ASREngine):
         if self.config.model_path:
             resolved = self.config.resolve_path(self.config.model_path)
             if not resolved or not resolved.exists():
+                from server.core.scanner import find_model_dir
+                repo_id = infer_whisper_repo_id(self.config.model_name)
+                found = find_model_dir(self.config.name, repo_id, repo_id)
+                if found and found.exists():
+                    resolved = found
+
+            if not resolved or not resolved.exists():
                 repo_id = infer_whisper_repo_id(self.config.model_name)
                 err_msg = (
                     f"\n{'='*70}\n"
@@ -229,7 +236,7 @@ class WhisperEngine(ASREngine):
             vad_filter=vad_filter,
             word_timestamps=word_timestamps,
         )
-        queue: asyncio.Queue[Segment | None] = asyncio.Queue()
+        queue: asyncio.Queue[Segment | Exception | None] = asyncio.Queue()
 
         def _run():
             try:
@@ -270,6 +277,9 @@ class WhisperEngine(ASREngine):
                         ),
                         loop,
                     )
+            except Exception as e:
+                logger.error(f"[faster-whisper] 转录过程发生异常: {e}", exc_info=True)
+                asyncio.run_coroutine_threadsafe(queue.put(e), loop)
             finally:
                 asyncio.run_coroutine_threadsafe(queue.put(None), loop)
 
@@ -278,10 +288,12 @@ class WhisperEngine(ASREngine):
 
         try:
             while True:
-                seg = await queue.get()
-                if seg is None:
+                item = await queue.get()
+                if item is None:
                     break
-                yield seg
+                if isinstance(item, Exception):
+                    raise item
+                yield item
         finally:
             tmp_path.unlink(missing_ok=True)
 
