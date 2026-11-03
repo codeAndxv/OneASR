@@ -32,7 +32,10 @@ def log(msg: str):
 def run_cmd(cmd: list[str], cwd: Path | None = None, env: dict | None = None):
     cmd_str = " ".join(str(c) for c in cmd)
     log(f"Running: {cmd_str}")
-    proc = subprocess.run(cmd, cwd=cwd, env=env, text=True)
+    merged_env = os.environ.copy()
+    if env:
+        merged_env.update(env)
+    proc = subprocess.run(cmd, cwd=cwd, env=merged_env, text=True)
     if proc.returncode != 0:
         raise RuntimeError(f"Command failed with exit code {proc.returncode}: {cmd_str}")
 
@@ -104,6 +107,14 @@ def assemble_standalone_python(src_root: Path, target_dir: Path, target_os: str)
     log(f"Copying standalone Python tree to {target_dir}...")
     copy_clean_tree(src_root, target_dir)
 
+    # Remove PEP 668 EXTERNALLY-MANAGED marker if present so uv pip can install into standalone runtime
+    for ext_managed in target_dir.rglob("EXTERNALLY-MANAGED"):
+        try:
+            ext_managed.unlink()
+            log(f"Removed PEP 668 marker: {ext_managed}")
+        except OSError:
+            pass
+
     if target_os == "windows":
         py_candidates = [
             target_dir / "python.exe",
@@ -138,6 +149,7 @@ def install_python_dependencies(
         raise RuntimeError("'uv' executable not found in PATH.")
 
     log(f"Installing dependencies with torch backend '{torch_backend}' into standalone Python...")
+    pip_env = {"UV_BREAK_SYSTEM_PACKAGES": "1"}
 
     # PyTorch backend customization
     if torch_backend.startswith("cu") and target_os in ("windows", "linux"):
@@ -146,26 +158,29 @@ def install_python_dependencies(
         log(f"Installing CUDA PyTorch from {whl_index}...")
         run_cmd([
             uv_bin, "pip", "install",
+            "--break-system-packages",
             "--python", str(py_bin),
             "torch", "torchaudio",
             "--index-url", whl_index,
-        ])
+        ], env=pip_env)
     elif torch_backend == "cpu" and target_os == "linux":
         whl_index = "https://download.pytorch.org/whl/cpu"
         log(f"Installing CPU-only PyTorch from {whl_index}...")
         run_cmd([
             uv_bin, "pip", "install",
+            "--break-system-packages",
             "--python", str(py_bin),
             "torch", "torchaudio",
             "--index-url", whl_index,
-        ])
+        ], env=pip_env)
 
     # Install remaining requirements
     run_cmd([
         uv_bin, "pip", "install",
+        "--break-system-packages",
         "--python", str(py_bin),
         "-r", str(requirements_file),
-    ])
+    ], env=pip_env)
 
 
 def create_cli_launcher(target_root: Path, target_os: str):
