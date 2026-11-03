@@ -43,6 +43,7 @@ fn discover_backend_env() -> Option<(PathBuf, PathBuf)> {
 
         // macOS: OneASR.app/Contents/MacOS/exe -> OneASR.app/Contents/Resources
         if let Some(contents) = exe.parent().and_then(|p| p.parent()) {
+            candidate_resource_dirs.push(contents.join("Resources").join("resources"));
             candidate_resource_dirs.push(contents.join("Resources"));
         }
 
@@ -92,12 +93,18 @@ fn ensure_cli_installed() {
             // Determine what launcher script to point to
             let mut launcher_source: Option<PathBuf> = None;
 
-            // 1. Packaged standalone application Resources/bin/oneasr
+            // 1. Packaged standalone application Resources/bin/oneasr or Resources/resources/bin/oneasr
             if let Ok(exe) = std::env::current_exe() {
                 if let Some(contents) = exe.parent().and_then(|p| p.parent()) {
-                    let standalone_oneasr = contents.join("Resources").join("bin").join("oneasr");
-                    if standalone_oneasr.exists() {
-                        launcher_source = Some(standalone_oneasr);
+                    let standalone_candidates = [
+                        contents.join("Resources").join("resources").join("bin").join("oneasr"),
+                        contents.join("Resources").join("bin").join("oneasr"),
+                    ];
+                    for cand in standalone_candidates {
+                        if cand.exists() {
+                            launcher_source = Some(cand);
+                            break;
+                        }
                     }
                 }
             }

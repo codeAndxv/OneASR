@@ -175,6 +175,8 @@ async function handleStartService() {
       await invoke('start_backend');
     } catch (err) {
       console.error('[OneASR] Failed to invoke start_backend:', err);
+      isServerStarting.value = false;
+      return;
     }
   } else {
     console.warn('[OneASR] Web client mode; retrying backend connection...');

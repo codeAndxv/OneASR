@@ -10,10 +10,9 @@ from sqlalchemy.pool import NullPool
 
 from server.db.base import Base
 import server.db.orm_models  # noqa: F401 (ensure all models are registered to Base.metadata)
+from server.core.paths import get_database_dir
 
 logger = logging.getLogger(__name__)
-
-DATABASE_DIR = Path(__file__).parent.parent.parent / "data" / "database"
 
 # 测试环境使用独立数据库，避免污染生产数据（兼容 pytest 导入期与执行期）
 _is_testing = bool(
@@ -22,6 +21,9 @@ _is_testing = bool(
     or os.environ.get("ONEASR_TESTING")
     or "pytest" in sys.modules
 )
+_legacy_dir = Path(__file__).parent.parent.parent / "data" / "database"
+DATABASE_DIR = _legacy_dir if _is_testing else get_database_dir()
+DATABASE_DIR.mkdir(parents=True, exist_ok=True)
 _db_name = "oneasr_test.db" if _is_testing else "oneasr.db"
 DATABASE_URL = os.environ.get("ONEASR_DATABASE_URL", f"sqlite+aiosqlite:///{DATABASE_DIR / _db_name}")
 

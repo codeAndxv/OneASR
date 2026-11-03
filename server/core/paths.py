@@ -44,7 +44,15 @@ def get_downloads_dir() -> Path:
     return get_oneasr_home() / "downloads"
 
 
+def get_database_dir() -> Path:
+    """Return the directory for storing the primary SQLite database."""
+    env_db = os.getenv("ONEASR_DATABASE_DIR")
+    if env_db and env_db.strip():
+        return Path(env_db.strip()).expanduser().resolve()
+    return (get_oneasr_home() / "database").resolve()
+
+
 def ensure_directories() -> None:
     """Ensure all core runtime directories exist on startup."""
-    for directory in [get_oneasr_home(), get_models_dir(), get_logs_dir(), get_downloads_dir()]:
+    for directory in [get_oneasr_home(), get_models_dir(), get_logs_dir(), get_downloads_dir(), get_database_dir()]:
         directory.mkdir(parents=True, exist_ok=True)
