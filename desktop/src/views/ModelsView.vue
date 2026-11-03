@@ -41,76 +41,47 @@
 
     <!-- Status Filter & Storage Metric Row -->
     <div class="status-metric-row">
-      <div class="status-filters">
-        <span class="metric-caption">{{ t('modelsStatusFilter') }}:</span>
-        <button
-          class="status-tab"
-          :class="{ active: selectedStatus === 'all' }"
-          @click="selectedStatus = 'all'"
-        >
-          {{ t('modelsStatusAll') }} ({{ modelsList.length }})
-        </button>
+      <!-- Left: Summary Metrics -->
+      <div class="metric-summary-left">
+        <span class="summary-text">{{ t('modelsTotalCountPrefix') }} <strong class="summary-num">{{ modelsList.length }}</strong> {{ t('modelsTotalCountSuffix') }}</span>
         <span class="sep">•</span>
-        <button
-          class="status-tab"
-          :class="{ active: selectedStatus === 'ready' }"
-          @click="selectedStatus = 'ready'"
-        >
-          {{ t('modelsStatusReady') }} ({{ getStatusCount('ready') }})
-        </button>
-        <span class="sep">•</span>
-        <button
-          class="status-tab"
-          :class="{ active: selectedStatus === 'remote' }"
-          @click="selectedStatus = 'remote'"
-        >
-          {{ t('modelsStatusRemote') }} ({{ getStatusCount('remote') }})
-        </button>
-        <span class="sep">•</span>
-        <button
-          class="status-tab"
-          :class="{ active: selectedStatus === 'loaded' }"
-          @click="selectedStatus = 'loaded'"
-        >
-          {{ t('modelsStatusLoaded') }} ({{ getStatusCount('loaded') }})
-        </button>
-
-        <span class="sep">|</span>
-
-        <!-- Mode Filter (Streaming vs Non-Streaming) -->
-        <span class="metric-caption">{{ t('modelsModeFilter') }}:</span>
-        <button
-          class="status-tab"
-          :class="{ active: selectedMode === 'all' }"
-          @click="selectedMode = 'all'"
-        >
-          {{ t('modelsModeAll') }} ({{ modelsList.length }})
-        </button>
-        <span class="sep">•</span>
-        <button
-          class="status-tab"
-          :class="{ active: selectedMode === 'realtime' }"
-          @click="selectedMode = 'realtime'"
-        >
-          {{ t('modelsModeRealtime') }} ({{ getModeCount('realtime') }})
-        </button>
-        <span class="sep">•</span>
-        <button
-          class="status-tab"
-          :class="{ active: selectedMode === 'offline' }"
-          @click="selectedMode = 'offline'"
-        >
-          {{ t('modelsModeOffline') }} ({{ getModeCount('offline') }})
-        </button>
+        <span class="storage-text">{{ t('modelsDiskOccupied') }}: <strong class="disk-size">{{ totalDiskSize }}</strong></span>
       </div>
 
+      <!-- Right: Dropdown Filters & Actions -->
       <div class="storage-metric-right">
+        <!-- Status Dropdown Filter -->
+        <div class="filter-select-control" :class="{ 'filter-active': selectedStatus !== 'all' }">
+          <svg viewBox="0 0 24 24" class="filter-select-icon" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M12 6v6l4 2"/>
+          </svg>
+          <select v-model="selectedStatus" class="filter-select-dropdown" :title="t('modelsStatusFilter')">
+            <option value="all">{{ t('modelsStatusFilter') }}: {{ t('modelsStatusAll') }} ({{ modelsList.length }})</option>
+            <option value="ready">{{ t('modelsStatusFilter') }}: {{ t('modelsStatusReady') }} ({{ getStatusCount('ready') }})</option>
+            <option value="remote">{{ t('modelsStatusFilter') }}: {{ t('modelsStatusRemote') }} ({{ getStatusCount('remote') }})</option>
+            <option value="loaded">{{ t('modelsStatusFilter') }}: {{ t('modelsStatusLoaded') }} ({{ getStatusCount('loaded') }})</option>
+          </select>
+        </div>
+
+        <!-- Mode Dropdown Filter -->
+        <div class="filter-select-control" :class="{ 'filter-active': selectedMode !== 'all' }">
+          <svg viewBox="0 0 24 24" class="filter-select-icon" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+          </svg>
+          <select v-model="selectedMode" class="filter-select-dropdown" :title="t('modelsModeFilter')">
+            <option value="all">{{ t('modelsModeFilter') }}: {{ t('modelsModeAll') }} ({{ modelsList.length }})</option>
+            <option value="realtime">{{ t('modelsModeFilter') }}: {{ t('modelsModeRealtime') }} ({{ getModeCount('realtime') }})</option>
+            <option value="offline">{{ t('modelsModeFilter') }}: {{ t('modelsModeOffline') }} ({{ getModeCount('offline') }})</option>
+          </select>
+        </div>
+
         <!-- Sort Selector -->
-        <div class="sort-control">
-          <svg viewBox="0 0 24 24" class="sort-icon" fill="none" stroke="currentColor" stroke-width="2">
+        <div class="filter-select-control">
+          <svg viewBox="0 0 24 24" class="filter-select-icon" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M3 6h18M6 12h12M10 18h4"/>
           </svg>
-          <select v-model="sortBy" class="sort-dropdown" :title="t('modelsSortReady')">
+          <select v-model="sortBy" class="filter-select-dropdown" :title="t('modelsSortReady')">
             <option value="ready_first">{{ t('modelsSortReady') }}</option>
             <option value="name_asc">{{ t('modelsSortName') }}</option>
             <option value="size_desc">{{ t('modelsSortSizeDesc') }}</option>
@@ -119,7 +90,7 @@
         </div>
 
         <span class="sep">|</span>
-        <span>{{ t('modelsDiskOccupied') }}: <strong class="disk-size">{{ totalDiskSize }}</strong></span>
+
         <button
           class="refresh-btn"
           :class="{ refreshing: isRefreshing }"
@@ -1042,7 +1013,7 @@ function isRealtimeModel(m) {
   if (Array.isArray(m.categories)) {
     return m.categories.includes('RealtimeASR');
   }
-  return m.engine === 'xasr' || m.id === 'sensevoice-small';
+  return m.engine === 'xasr';
 }
 
 function isOfflineModel(m) {
@@ -1374,33 +1345,73 @@ async function handleOpenDir() {
   flex-shrink: 0;
 }
 
-.status-filters {
+.metric-summary-left {
   display: flex;
   align-items: center;
   gap: 8px;
   color: var(--text-muted);
+  font-size: 12px;
 }
 
-.metric-caption {
-  font-weight: 500;
-}
-
-.status-tab {
-  background: transparent;
-  border: none;
-  color: var(--text-muted);
-  font-size: 11.5px;
-  cursor: pointer;
-  transition: color 0.15s ease;
-}
-
-.status-tab:hover {
+.summary-num {
   color: var(--text-primary);
+  font-weight: 600;
 }
 
-.status-tab.active {
+.storage-text {
+  color: var(--text-secondary);
+}
+
+.filter-select-control {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  padding: 3px 8px;
+  transition: all 0.15s ease;
+}
+
+.filter-select-control:hover {
+  border-color: var(--border-hover, rgba(255, 255, 255, 0.2));
+  background: var(--bg-elevated);
+}
+
+.filter-select-control.filter-active {
+  border-color: var(--accent-emerald);
+  background: rgba(16, 185, 129, 0.08);
+}
+
+.filter-select-control.filter-active .filter-select-icon {
+  color: var(--accent-emerald);
+}
+
+.filter-select-control.filter-active .filter-select-dropdown {
   color: var(--accent-emerald);
   font-weight: 600;
+}
+
+.filter-select-icon {
+  width: 12px;
+  height: 12px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.filter-select-dropdown {
+  background: transparent;
+  border: none;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  outline: none;
+  font-family: inherit;
+}
+
+.filter-select-dropdown option {
+  background: #18181b;
+  color: #f4f4f5;
 }
 
 .sep {
@@ -1410,7 +1421,7 @@ async function handleOpenDir() {
 .storage-metric-right {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   color: var(--text-secondary);
 }
 

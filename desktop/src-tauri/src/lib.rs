@@ -254,6 +254,17 @@ fn start_backend(
     spawn_backend(&state).map(|_| true)
 }
 
+/// Tauri native command: Restart the desktop application and its backend daemon.
+#[tauri::command]
+fn restart_app(
+    app: tauri::AppHandle,
+    state: tauri::State<Arc<Mutex<Option<Child>>>>,
+) {
+    eprintln!("[OneASR] Restarting desktop companion app and backend daemon...");
+    terminate_child(&state);
+    app.restart();
+}
+
 pub fn run() {
     let child_handle: Arc<Mutex<Option<Child>>> = Arc::new(Mutex::new(None));
     let child_for_tray = child_handle.clone();
@@ -262,7 +273,7 @@ pub fn run() {
     tauri::Builder::default()
         .manage(child_handle.clone())
         .plugin(tauri_plugin_shell::init())
-        .invoke_handler(tauri::generate_handler![open_local_dir, start_backend])
+        .invoke_handler(tauri::generate_handler![open_local_dir, start_backend, restart_app])
         .setup(move |app| {
             let handle = app.handle();
             let backend_addr = "127.0.0.1:8020";

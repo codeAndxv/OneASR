@@ -230,10 +230,14 @@ class EngineConfig:
                         x_dir = Path(self.model_path.rstrip("/"))
                     else:
                         raw_x = self.model_name.strip()
-                        cand_x = models_dir / "xasr-zh-en"
-                        if not cand_x.exists():
-                            cand_x = models_dir / "chunk-160ms-model"
-                        x_dir = cand_x if cand_x.exists() else models_dir / "xasr-zh-en"
+                        raw_leaf = raw_x.split("/")[-1].lower()
+                        if raw_leaf in ("x-asr-zh-en", "xasr-zh-en"):
+                            cand_x = models_dir / "xasr-zh-en"
+                            if not cand_x.exists():
+                                cand_x = models_dir / "chunk-160ms-model"
+                            x_dir = cand_x if cand_x.exists() else models_dir / "xasr-zh-en"
+                        else:
+                            x_dir = models_dir / raw_x.split("/")[-1]
                         self.model_path = str(x_dir)
 
                     self.tokens_path = str(x_dir / "tokens.txt")

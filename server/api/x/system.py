@@ -1,5 +1,6 @@
 """OneASR system diagnostics, hardware detection, and preferences API (/v1/x/system)."""
 
+import json
 import os
 import platform
 import shutil

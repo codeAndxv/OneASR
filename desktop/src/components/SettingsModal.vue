@@ -99,6 +99,22 @@
                     </div>
                   </div>
 
+                  <!-- LAN Restart Warning Banner -->
+                  <div v-if="needsRestart" class="restart-tip-banner">
+                    <div class="tip-left">
+                      <svg viewBox="0 0 24 24" class="tip-icon" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10" />
+                        <line x1="12" y1="8" x2="12" y2="12" />
+                        <line x1="12" y1="16" x2="12.01" y2="16" />
+                      </svg>
+                      <span class="tip-text">{{ t('lanRestartNotice') }}</span>
+                    </div>
+                    <button class="restart-action-btn" :disabled="isRestarting" @click="handleRestartApp">
+                      <span v-if="!isRestarting">{{ t('btnRestartNow') }}</span>
+                      <span v-else>...</span>
+                    </button>
+                  </div>
+
                   <div class="setting-row">
                     <div class="row-info">
                       <span class="row-label">{{ t('portLabel') }}</span>
@@ -165,6 +181,20 @@
                     <div class="row-control">
                       <button class="secondary-btn" @click="openDocs">
                         {{ t('apiDocsBtn') }}
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- Persistent Restart Service & App Row -->
+                  <div class="setting-row">
+                    <div class="row-info">
+                      <span class="row-label">{{ t('restartAppLabel') }}</span>
+                      <span class="row-desc">{{ t('restartAppDesc') }}</span>
+                    </div>
+                    <div class="row-control">
+                      <button class="secondary-btn restart-primary-btn" :disabled="isRestarting" @click="handleRestartApp">
+                        <span v-if="!isRestarting">{{ t('btnRestartApp') }}</span>
+                        <span v-else>...</span>
                       </button>
                     </div>
                   </div>
@@ -371,7 +401,7 @@
 </template>
 
 <script setup>
-import { ref, watch, onMounted, onUnmounted } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { useI18n } from '../i18n';
 import { apiClient } from '../api/client';
@@ -421,6 +451,9 @@ const tabs = [
 const selectedTheme = ref(currentTheme.value);
 const isLanExposed = ref(false);
 const lanIp = ref('');
+const runningHost = ref(null);
+const hasToggledLan = ref(false);
+const isRestarting = ref(false);
 const keepAliveTimeout = ref('600');
 const downloadSource = ref('auto');
 const modelsDirPath = ref('');
@@ -435,6 +468,24 @@ const showApiKey = ref(false);
 const maxLoadedModels = ref(2);
 const vadThreshold = ref(0.50);
 const targetChunkDuration = ref(6.0);
+
+const needsRestart = computed(() => {
+  if (hasToggledLan.value) return true;
+  if (runningHost.value === null) return false;
+  const targetHost = isLanExposed.value ? '0.0.0.0' : '127.0.0.1';
+  return targetHost !== runningHost.value;
+});
+
+async function handleRestartApp() {
+  if (isRestarting.value) return;
+  isRestarting.value = true;
+  try {
+    await invoke('restart_app');
+  } catch (err) {
+    console.warn('Tauri restart_app error:', err);
+    window.location.reload();
+  }
+}
 
 function generateRandomKey() {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
@@ -490,6 +541,7 @@ async function handleApiKeyChange() {
 }
 
 async function toggleLan() {
+  hasToggledLan.value = true;
   isLanExposed.value = !isLanExposed.value;
   await saveSettings();
 }
@@ -502,11 +554,14 @@ async function resetAdvancedDefaults() {
 
 async function saveSettings() {
   try {
-    await apiClient.put('/v1/x/system/settings', {
+    const kaVal = parseInt(keepAliveTimeout.value, 10);
+    const keyVal = apiKeyInput.value.trim() || null;
+    await apiClient.updateSystemSettings({
       host: isLanExposed.value ? '0.0.0.0' : '127.0.0.1',
-      keep_alive: parseInt(keepAliveTimeout.value, 10),
+      keep_alive: kaVal,
+      keep_alive_timeout: kaVal,
       download_source: downloadSource.value,
-      api_key: apiKeyInput.value.trim(),
+      api_key: keyVal,
       max_loaded_models: maxLoadedModels.value,
       vad_threshold: vadThreshold.value,
       target_chunk_duration: targetChunkDuration.value
@@ -564,13 +619,16 @@ async function fetchSettings() {
   }
 
   try {
-    const settings = await apiClient.get('/v1/x/system/settings');
+    const settings = await apiClient.getSystemSettings();
     if (settings) {
       if (settings.lan_ip) {
         lanIp.value = settings.lan_ip;
       }
       if (settings.host !== undefined) {
         isLanExposed.value = settings.host === '0.0.0.0';
+        if (runningHost.value === null) {
+          runningHost.value = settings.host;
+        }
       }
       if (settings.keep_alive !== undefined) {
         const valStr = String(settings.keep_alive);
@@ -818,6 +876,59 @@ function openGithub() {
 .setting-row:last-child {
   border-bottom: none;
   padding-bottom: 2px;
+}
+
+.restart-tip-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 8px 0 6px 0;
+  padding: 8px 12px;
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  border-radius: 6px;
+}
+
+.tip-left {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #f59e0b;
+  font-size: 11.5px;
+}
+
+.tip-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.tip-text {
+  line-height: 1.35;
+}
+
+.restart-action-btn {
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  color: #fbbf24;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.restart-action-btn:hover {
+  background: rgba(245, 158, 11, 0.25);
+  border-color: rgba(245, 158, 11, 0.6);
+}
+
+.restart-action-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .row-info {

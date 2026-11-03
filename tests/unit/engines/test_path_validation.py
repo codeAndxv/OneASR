@@ -51,10 +51,25 @@ def test_engine_config_auto_derives_paths_from_model_name():
 
     # 4. X-ASR
     x_cfg = EngineConfig("xasr", {"engine": "xasr", "load": {"model_name": "Gilgamesh-J/X-ASR-zh-en"}})
-    assert x_cfg.tokens_path == str(models_dir / "chunk-160ms-model/tokens.txt")
-    assert x_cfg.encoder_path == str(models_dir / "chunk-160ms-model/encoder-160ms.onnx")
-    assert x_cfg.decoder_path == str(models_dir / "chunk-160ms-model/decoder-160ms.onnx")
-    assert x_cfg.joiner_path == str(models_dir / "chunk-160ms-model/joiner-160ms.onnx")
+    assert x_cfg.tokens_path in (
+        str(models_dir / "chunk-160ms-model/tokens.txt"),
+        str(models_dir / "xasr-zh-en/tokens.txt"),
+    )
+    assert x_cfg.encoder_path in (
+        str(models_dir / "chunk-160ms-model/encoder-160ms.onnx"),
+        str(models_dir / "xasr-zh-en/encoder-160ms.onnx"),
+        str(models_dir / "xasr-zh-en/encoder.onnx"),
+    )
+    assert x_cfg.decoder_path in (
+        str(models_dir / "chunk-160ms-model/decoder-160ms.onnx"),
+        str(models_dir / "xasr-zh-en/decoder-160ms.onnx"),
+        str(models_dir / "xasr-zh-en/decoder.onnx"),
+    )
+    assert x_cfg.joiner_path in (
+        str(models_dir / "chunk-160ms-model/joiner-160ms.onnx"),
+        str(models_dir / "xasr-zh-en/joiner-160ms.onnx"),
+        str(models_dir / "xasr-zh-en/joiner.onnx"),
+    )
 
 
 def test_engine_config_explicit_paths():

@@ -7,6 +7,7 @@
       :is-starting="isServerStarting"
       :has-checked="hasInitialCheckCompleted"
       :history-count="historyItems.length"
+      :service-address="serviceAddress"
       @select-tab="handleSelectTab"
       @open-settings="isSettingsOpen = true"
       @start-service="handleStartService"
@@ -70,6 +71,15 @@ const isServerOnline = ref(false);
 const isServerStarting = ref(false);
 const hasInitialCheckCompleted = ref(false);
 const historyItems = ref([]);
+const serviceHost = ref('127.0.0.1');
+const lanIp = ref('');
+
+const serviceAddress = computed(() => {
+  if (serviceHost.value === '0.0.0.0' && lanIp.value) {
+    return `${lanIp.value}:8020`;
+  }
+  return '127.0.0.1:8020';
+});
 
 const tabMeta = {
   dictate: { titleKey: 'dictateTitle', subtitleKey: 'dictateSubtitle' },
@@ -163,6 +173,10 @@ onUnmounted(() => {
 async function checkHealth() {
   const info = await apiClient.checkHealth();
   isServerOnline.value = !!(info && (info.status === 'ok' || info.online));
+  if (info) {
+    if (info.host) serviceHost.value = info.host;
+    if (info.lan_ip) lanIp.value = info.lan_ip;
+  }
 }
 
 async function handleStartService() {

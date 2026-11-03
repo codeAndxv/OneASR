@@ -38,7 +38,7 @@
           <div class="status-title">
             {{ isOnline ? t('statusOnline') : (isStarting ? t('statusStarting') : t('statusOffline')) }}
           </div>
-          <div class="status-host">127.0.0.1:8020</div>
+          <div class="status-host">{{ isOnline ? (serviceAddress || '127.0.0.1:8020') : '127.0.0.1:8020' }}</div>
         </div>
         <!-- Manual Start Ghost Button: shown when initial check fails or offline -->
         <button
@@ -98,6 +98,10 @@ const props = defineProps({
   historyCount: {
     type: Number,
     default: 0
+  },
+  serviceAddress: {
+    type: String,
+    default: '127.0.0.1:8020'
   }
 });
 

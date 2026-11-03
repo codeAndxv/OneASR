@@ -143,9 +143,10 @@ export class OneASRClient {
     }
   }
 
-  async getModels() {
+  async getModels(all = true) {
     try {
-      const res = await fetch(`${this.baseUrl}/v1/x/models`, {
+      const url = all ? `${this.baseUrl}/v1/x/models?all=true` : `${this.baseUrl}/v1/x/models`;
+      const res = await fetch(url, {
         headers: this.getHeaders()
       });
       if (res.ok) {

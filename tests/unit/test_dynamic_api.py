@@ -11,21 +11,31 @@ pytestmark = pytest.mark.unit
 
 
 def test_list_extended_models(client, auth_headers):
-    """Verify that GET /v1/x/models returns all catalog models with real-time status."""
+    """Verify that GET /v1/x/models returns ready models by default, and all catalog models with ?all=true."""
+    # Default: only ready models (for DuRT)
     response = client.get("/v1/x/models", headers=auth_headers)
     assert response.status_code == 200
     data = response.json()
     assert data["object"] == "list"
     assert "data" in data
+    for item in data["data"]:
+        assert item["status"] in ("ready", "downloading", "pending", "verifying")
 
-    model_ids = [m["id"] for m in data["data"]]
-    # Verify core built-in models exist in the catalog listing
+    # With ?all=true: full catalog
+    response_all = client.get("/v1/x/models?all=true", headers=auth_headers)
+    assert response_all.status_code == 200
+    data_all = response_all.json()
+    assert data_all["object"] == "list"
+    assert "data" in data_all
+
+    model_ids = [m["id"] for m in data_all["data"]]
+    # Verify core built-in models exist in the full catalog listing
     assert "sensevoice-small" in model_ids
     assert "whisper-large-v3-turbo" in model_ids
     assert "xasr-zh-en" in model_ids
 
     # Verify status fields exist on every item
-    for item in data["data"]:
+    for item in data_all["data"]:
         assert "status" in item
         assert item["status"] in ("ready", "not_downloaded", "downloading", "corrupted")
         assert "size_on_disk" in item

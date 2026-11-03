@@ -44,21 +44,14 @@ class CancelPullRequest(BaseModel):
 
 
 @router.get("")
-async def list_extended_models():
-    """Return all models in catalog (ready, not downloaded, and downloading) with full capability matrix."""
+async def list_extended_models(
+    all: bool = Query(False, description="Whether to include un-downloaded catalog models (default: False, ready only)"),
+):
+    """Return models in catalog. By default (all=False) returns only ready/downloaded models for external clients like DuRT."""
     scanned = scan_all_models()
     models: list[dict[str, Any]] = []
 
     for model_id, scan_res in scanned.items():
-        base_config = app_config.models.get(model_id)
-        rt_status = get_model_runtime_status(model_id) if base_config else {
-            "loaded": False,
-            "active_tasks": 0,
-            "keep_alive": scan_res.keep_alive,
-            "preload": scan_res.preload,
-            "last_used_at": None,
-        }
-
         # Check if an active download task is in progress
         active_task = model_downloader.get_task(model_id)
         current_status = scan_res.status
@@ -73,6 +66,19 @@ async def list_extended_models():
                 "speed": active_task.speed_str,
                 "eta_seconds": active_task.eta_seconds,
             }
+
+        # When all=False, only return models that are downloaded and ready
+        if not all and current_status not in ("ready", "downloading", "pending", "verifying"):
+            continue
+
+        base_config = app_config.models.get(model_id)
+        rt_status = get_model_runtime_status(model_id) if base_config else {
+            "loaded": False,
+            "active_tasks": 0,
+            "keep_alive": scan_res.keep_alive,
+            "preload": scan_res.preload,
+            "last_used_at": None,
+        }
 
         models.append({
             "id": model_id,

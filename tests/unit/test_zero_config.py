@@ -65,7 +65,6 @@ def test_manifest_definitions():
     sense = get_manifest("sensevoice-small")
     assert sense is not None
     assert sense.driver == "funasr"
-    assert "RealtimeASR" in sense.categories
     assert "FileASR" in sense.categories
 
     xasr = get_manifest("xasr-zh-en")

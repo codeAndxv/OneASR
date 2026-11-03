@@ -17,9 +17,11 @@ router = APIRouter(prefix="/v1/models", tags=["models"], dependencies=[Depends(g
 
 @router.get("")
 async def list_models():
-    """返回可用的模型列表及基础状态（兼容 OpenAI GET /v1/models）。"""
+    """返回可用的模型列表及基础状态（兼容 OpenAI GET /v1/models，仅返回本地已就绪模型）。"""
     models = []
     for name, engine_config in app_config.models.items():
+        if not getattr(engine_config, "enable", False):
+            continue
         rt = get_model_runtime_status(name)
         models.append({
             "id": name,
@@ -27,7 +29,7 @@ async def list_models():
             "created": int(time.time()),
             "owned_by": engine_config.type,
             "shutdown_date": None,
-            "enable": getattr(engine_config, "enable", True),
+            "enable": True,
             "loaded": rt["loaded"],
             "active_tasks": rt["active_tasks"],
             "keep_alive": rt["keep_alive"],
