@@ -172,61 +172,53 @@ curl -H "Authorization: Bearer sk-oneasr-v1-p_L3kXm9QZ8sT2vA4wE7rY1u" \
 
 ---
 
+## 模型支持与对接状态 (Model Support Status)
+
+OneASR 采用统一模型调度与生命周期架构。为保障生产与日常使用的稳定性，各系列模型的对接与实测状态如下：
+
+| 模型系列 / 架构 | 代表模型 ID | 业务形态 | 对接状态 | 实测验证与说明 |
+| :--- | :--- | :--- | :---: | :--- |
+| **X-ASR (Sherpa-ONNX)** | `xasr` (`chunk-160ms-model`) | 实时流式 ASR | ✅ **已完成 (已验证)** | 基于 Zipformer2 换能器架构，端侧毫秒级流式听写，**已通过全量实测与多平台端到端验证** |
+| **Faster-Whisper 全系列** | `whisper-tiny` / `base` / `small` / `medium` / `large-v3` / `large-v3-turbo` / `distil-*` | 文件离线转录 | ✅ **已完成 (已验证)** | 基于 CTranslate2 加速引擎，支持 99+ 全球主流语言高精度音视频字幕转写，**已通过全量实测验证** |
+| **FunASR** | `sensevoice-small` / `paraformer-zh` | 实时听写 / 离线转录 | 🚧 **实验中 (对接中)** | 已实现驱动适配层与清单元数据，目前处于深入测试调优阶段，尚未完成生产级验证 |
+| **Qwen ASR** | `qwen-audio-0.6b` / `qwen-audio-chat` | 语音理解与对齐 | 🚧 **实验中 (对接中)** | 紧凑型音频大模型与时间戳对齐模型，底层对接进行中 |
+| **FireRed ASR** | `firered-asr-aed` / `firered-asr-llm` | 复杂场景 / 大方言转录 | 🚧 **实验中 (规划中)** | 针对方言和重口音场景，适配层已搭建，待后续集成测试 |
+
+> 💡 **使用推荐**：
+> 当前日常使用与业务集成推荐优先选用已通过全量实测的 **`X-ASR`**（用于麦克风实时听写，延迟极低、资源极轻）和 **`Faster-Whisper` 全系列**（用于长音频与视频文件离线转写与字幕导出）。
+
+---
+
 ## 模型下载与管理指南
 
-OneASR 默认将所有本地模型统一存放在 `~/.oneasr/models/` 目录下（可通过环境变量 `ONEASR_MODELS_DIR` 自定义）。推荐使用内置的 `oneasr` CLI 或 `cli.model` 工具进行管理。
+OneASR 默认将所有本地模型统一存放在 `~/.oneasr/models/` 目录下（可通过环境变量 `ONEASR_MODELS_DIR` 自定义）。
 
-### 1. 推荐方式：使用内置 CLI 工具 (`cli.model`)
+### 1. 桌面客户端一键下载（图形化）
+直接打开 OneASR 桌面端应用的 **「模型管理」** 标签页，点击对应模型右侧的 **【一键下载】** 即可。界面提供国内专线（ModelScope）、镜像加速（HF-Mirror）及海外直连（HuggingFace）切换，全自动处理网络故障转移与实时进度显示。
 
-`cli.model` 会自动读取 `config.yaml` 中的模型配置与路径，支持 **ModelScope -> HF-Mirror -> HuggingFace** 自动降级、断点续传、子目录自动提取（如 `xasr`）以及权重分片完整性校验：
+### 2. 终端 CLI 命令行下载 (`oneasr` 或 `cli.model`)
+
+内置模型管理工具支持 **ModelScope -> HF-Mirror -> HuggingFace** 自动降级、断点续传、子目录自动提取解构（如 `xasr`）以及权重分片完整性校验：
 
 ```bash
 # 1. 查看所有本地模型的状态（Ready / Incomplete / Missing）、启用状态与磁盘占用
 uv run python -m cli.model list
 
-# 2. 一键下载 config.yaml 中所有已启用 (enable: true) 且缺失的模型
+# 2. 一键下载内置清单中所有默认启用 (enable: true) 且缺失的模型
 uv run python -m cli.model pull
 
-# 3. 按名称下载指定模型（即使 enable: false 也可提前下载）
-uv run python -m cli.model pull xasr faster-whisper
+# 3. 按名称下载指定模型
+uv run python -m cli.model pull xasr
+uv run python -m cli.model pull whisper-large-v3-turbo
 uv run python -m cli.model pull qwen --include-aligner
 
-# 4. 下载全部配置的本地模型，或指定下载源 / 强制重下
+# 4. 指定下载源（modelscope / hf-mirror / huggingface）或强制重新校验下载
 uv run python -m cli.model pull --all --source modelscope
-uv run python -m cli.model pull faster-whisper --source hf-mirror --force
+uv run python -m cli.model pull whisper-medium --source hf-mirror --force
 
 # 5. 离线校验已启用模型的文件完整性（可用于 Docker / CI 启动前检查）
 uv run python -m cli.model check
 ```
-
-### 2. 手动使用 Hugging Face / ModelScope CLI 下载（可选）
-
-如果希望手动执行下载命令，请在 `OneASR/` 根目录下运行：
-
-- **① X-ASR（`sherpa-onnx` 流式实时模型）**：
-  ```bash
-  modelscope download --model Gilgamesh-J/X-ASR-zh-en \
-    --include "deployment/models/chunk-160ms-model/*" \
-    --local_dir data/models
-  mv data/models/deployment/models/chunk-160ms-model data/models/chunk-160ms-model
-  rm -rf data/models/deployment
-  ```
-- **② Faster-Whisper（`medium` / `large-v3`）**：
-  ```bash
-  modelscope download --model Systran/faster-whisper-medium --local_dir data/models/faster-whisper-medium
-  # 或使用 hf:
-  hf download Systran/faster-whisper-medium --local-dir data/models/faster-whisper-medium
-  ```
-- **③ Qwen3-ASR（主模型与 `ForcedAligner` 时间戳对齐模型）**：
-  ```bash
-  modelscope download --model Qwen/Qwen3-ASR-1.7B --local_dir data/models/Qwen3-ASR-1.7B
-  modelscope download --model Qwen/Qwen3-ForcedAligner-0.6B --local_dir data/models/Qwen3-ForcedAligner-0.6B
-  ```
-- **④ FunASR（`iic/SenseVoiceSmall` + `fsmn-vad`）**：
-  ```bash
-  modelscope download --model iic/SenseVoiceSmall --local_dir data/models/SenseVoiceSmall
-  modelscope download --model iic/speech_fsmn_vad_zh-cn-16k-common-pytorch --local_dir data/models/speech_fsmn_vad_zh-cn-16k-common-pytorch
-  ```
 
 ---
 

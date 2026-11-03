@@ -170,59 +170,53 @@ curl -H "Authorization: Bearer sk-oneasr-v1-p_L3kXm9QZ8sT2vA4wE7rY1u" \
 
 ---
 
+## Model Support Status
+
+OneASR employs a unified model lifecycle management architecture. To ensure reliability for production and everyday use, the current support and verification status for each model family is as follows:
+
+| Model Family / Architecture | Representative Model ID | Form Factor | Status | Verification & Notes |
+| :--- | :--- | :--- | :---: | :--- |
+| **X-ASR (Sherpa-ONNX)** | `xasr` (`chunk-160ms-model`) | Real-time Streaming ASR | ✅ **Ready (Verified)** | Zipformer2 transducer architecture, millisecond-level streaming dictation on edge devices. **Fully tested and verified across platforms.** |
+| **Faster-Whisper Series** | `whisper-tiny` / `base` / `small` / `medium` / `large-v3` / `large-v3-turbo` / `distil-*` | Offline File Transcription | ✅ **Ready (Verified)** | CTranslate2-accelerated, high-precision transcription & subtitle export in 99+ languages. **Fully tested and verified.** |
+| **FunASR** | `sensevoice-small` / `paraformer-zh` | Real-time / Offline | 🚧 **In Progress (Experimental)** | Driver adapters and metadata implemented; ongoing fine-tuning and benchmark verification. |
+| **Qwen ASR** | `qwen-audio-0.6b` / `qwen-audio-chat` | Speech Understanding & Alignment | 🚧 **In Progress (Experimental)** | Compact speech foundation models and forced alignment, driver integration in progress. |
+| **FireRed ASR** | `firered-asr-aed` / `firered-asr-llm` | Complex Accents & Dialects | 🚧 **In Progress (Experimental)** | Geared toward heavy accents and dialects; adapter architecture ready, pending comprehensive integration tests. |
+
+> 💡 **Recommended Usage**:
+> For production and daily workflows, we strongly recommend using the verified models: **`X-ASR`** for real-time microphone dictation (ultra-low latency & resource consumption) and the **`Faster-Whisper` series** for batch audio/video transcription and subtitle generation.
+
+---
+
 ## Model Management & Download Guide
 
-Local ASR models are stored in `~/.oneasr/models/` by default (configurable via `ONEASR_MODELS_DIR`). OneASR provides a built-in CLI tool (`cli.model` or `oneasr`) that reads `config.yaml` and automatically downloads, extracts, and verifies model weights.
+Local ASR models are stored in `~/.oneasr/models/` by default (configurable via `ONEASR_MODELS_DIR`).
 
-### 1. Recommended: Built-in Model CLI (`cli.model`)
+### 1. Graphical One-Click Download (Desktop App)
+Open the companion desktop interface, navigate to the **Model Management** tab, and click **Download** on the desired model card. The app provides source switching (ModelScope, HF-Mirror, HuggingFace), real-time progress bars, and automatic retry/failover.
+
+### 2. Built-in Terminal CLI (`cli.model` or `oneasr`)
+
+OneASR includes a built-in CLI management tool supporting automated source failover (**ModelScope -> HF-Mirror -> HuggingFace**), resume on interrupt, archive unpacking, and file integrity verification:
 
 ```bash
-# 1. List all configured local models, status (Ready / Incomplete / Missing), and disk size
+# 1. List all local models, runtime status (Ready / Incomplete / Missing), and disk size
 uv run python -m cli.model list
 
-# 2. Pull all enabled (enable: true) models configured in config.yaml
+# 2. Pull all default-enabled missing models
 uv run python -m cli.model pull
 
-# 3. Pull specific provider models (even if enable: false in config.yaml)
-uv run python -m cli.model pull xasr faster-whisper
+# 3. Pull a specific model by identifier
+uv run python -m cli.model pull xasr
+uv run python -m cli.model pull whisper-large-v3-turbo
 uv run python -m cli.model pull qwen --include-aligner
 
-# 4. Pull all configured local models using a specific hub source
+# 4. Pull using a specific hub source or force redownload
 uv run python -m cli.model pull --all --source modelscope
-uv run python -m cli.model pull faster-whisper --source hf-mirror --force
+uv run python -m cli.model pull whisper-medium --source hf-mirror --force
 
-# 5. Offline integrity verification (checks required .onnx / model.bin / .safetensors shards)
+# 5. Offline integrity verification (useful for pre-flight checks in Docker / CI)
 uv run python -m cli.model check
 ```
-
-### 2. Manual CLI Download (Optional)
-
-If you prefer using `hf` or `modelscope` CLI directly, run from the `OneASR/` root directory:
-
-- **X-ASR (`sherpa-onnx` streaming model)**:
-  ```bash
-  modelscope download --model Gilgamesh-J/X-ASR-zh-en \
-    --include "deployment/models/chunk-160ms-model/*" \
-    --local_dir data/models
-  mv data/models/deployment/models/chunk-160ms-model data/models/chunk-160ms-model
-  rm -rf data/models/deployment
-  ```
-- **Faster-Whisper (`medium` / `large-v3`)**:
-  ```bash
-  hf download Systran/faster-whisper-medium --local-dir data/models/faster-whisper-medium
-  # or via ModelScope:
-  modelscope download --model Systran/faster-whisper-medium --local_dir data/models/faster-whisper-medium
-  ```
-- **Qwen3-ASR (`Qwen/Qwen3-ASR-1.7B` & `ForcedAligner`)**:
-  ```bash
-  modelscope download --model Qwen/Qwen3-ASR-1.7B --local_dir data/models/Qwen3-ASR-1.7B
-  modelscope download --model Qwen/Qwen3-ForcedAligner-0.6B --local_dir data/models/Qwen3-ForcedAligner-0.6B
-  ```
-- **FunASR (`iic/SenseVoiceSmall` + `fsmn-vad`)**:
-  ```bash
-  modelscope download --model iic/SenseVoiceSmall --local_dir data/models/SenseVoiceSmall
-  modelscope download --model iic/speech_fsmn_vad_zh-cn-16k-common-pytorch --local_dir data/models/speech_fsmn_vad_zh-cn-16k-common-pytorch
-  ```
 
 ---
 
