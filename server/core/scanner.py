@@ -12,8 +12,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from server.core.manifest import BUILTIN_MODELS, ModelManifest, get_manifest
-from server.core.paths import get_models_dir
+from server.core.manifest import BUILTIN_MODELS, ModelManifest, WHISPER_LANGUAGES, get_manifest
+from server.core.paths import get_models_dir, get_settings_path
 
 
 @dataclass
@@ -34,6 +34,7 @@ class ModelScanResult:
     features: list[str] = field(default_factory=list)
     preload: bool = False
     keep_alive: int = 600
+    is_custom: bool = False
     extra: dict[str, Any] = field(default_factory=dict)
 
 
@@ -87,8 +88,9 @@ def find_model_dir(model_id: str, ms_repo: str = "", hf_repo: str = "") -> Path 
             candidate_names.append(ms_tail)
         if hf_tail.startswith("faster-distil-whisper-"):
             candidate_names.append(hf_tail)
-    elif model_id == "xasr-zh-en":
-        candidate_names.extend(["xasr-zh-en", "chunk-160ms-model"])
+    elif model_id.startswith("xasr-zh-en-"):
+        chunk = model_id.replace("xasr-zh-en-", "")
+        candidate_names.extend([model_id, f"chunk-{chunk}-model"])
     else:
         # 非 Whisper 模型按标准仓库后缀与模型 ID 查找
         for name in (ms_tail, hf_tail, model_id):
@@ -182,68 +184,72 @@ def scan_all_models() -> dict[str, ModelScanResult]:
             extra=manifest.extra,
         )
 
-    # 2. Discover custom models dropped manually into models directory
-    search_dirs = _get_search_paths()
-    known_paths = {r.model_path.resolve() for r in results.values() if r.model_path}
-
-    for base in search_dirs:
-        if not base.exists():
-            continue
+    # 2. Load user explicitly registered custom models from settings.json
+    settings_file = get_settings_path()
+    custom_models_list: list[dict[str, Any]] = []
+    if settings_file.is_file():
         try:
-            for entry in base.iterdir():
-                if not entry.is_dir() or entry.resolve() in known_paths or entry.name in results:
-                    continue
-                # Determine driver based on contained files
-                has_bin = (entry / "model.bin").exists()
-                has_onnx = any(entry.glob("*.onnx"))
-                has_pt = (entry / "model.pt").exists()
-
-                # Filter out auxiliary non-ASR models (VAD, Punctuation, etc.)
-                entry_name_lower = entry.name.lower()
-                is_auxiliary = any(
-                    kw in entry_name_lower
-                    for kw in ("vad", "punc", "punctuation", "fsmn", "voice_activity", "text_postprocess")
-                )
-                if is_auxiliary:
-                    continue
-
-                driver = "whisper" if has_bin else ("funasr" if has_pt else ("xasr" if has_onnx else "unknown"))
-                if driver == "unknown":
-                    continue
-
-                custom_id = entry.name
-                results[custom_id] = ModelScanResult(
-                    id=custom_id,
-                    name=f"Custom ({custom_id})",
-                    driver=driver,
-                    repo=f"local/{custom_id}",
-                    categories=["FileASR"],
-                    languages=["multilingual"],
-                    status="ready" if verify_model_integrity(entry, None) else "corrupted",
-                    model_path=entry,
-                    size_on_disk=_calc_dir_size(entry),
-                    size_expected=_calc_dir_size(entry),
-                    features=["asrAutoLanguageDetect"],
-                    preload=False,
-                    keep_alive=600,
-                )
-        except (PermissionError, FileNotFoundError):
+            import json
+            with open(settings_file, "r", encoding="utf-8") as f:
+                s_data = json.load(f)
+                if isinstance(s_data, dict):
+                    custom_models_list = [
+                        c for c in s_data.get("custom_models", [])
+                        if isinstance(c, dict) and c.get("id")
+                    ]
+        except Exception:
             pass
 
-    # 3. Include any explicitly configured models from app_config
+    for c_cfg in custom_models_list:
+        cid = str(c_cfg.get("id", "")).strip()
+        if not cid or cid in results:
+            continue
+        c_path_str = c_cfg.get("model_path") or ""
+        c_path = Path(c_path_str).expanduser().resolve() if c_path_str else None
+        c_driver = str(c_cfg.get("driver") or "funasr").lower()
+        c_name = str(c_cfg.get("name") or cid)
+
+        is_ready = bool(c_path and c_path.exists() and verify_model_integrity(c_path, None))
+        status = "ready" if is_ready else ("not_found" if not (c_path and c_path.exists()) else "corrupted")
+
+        categories = c_cfg.get("categories") or (["RealtimeASR"] if c_driver == "xasr" else ["FileASR"])
+        languages = c_cfg.get("languages") or list(WHISPER_LANGUAGES)
+        features = c_cfg.get("features") or ["asrAutoLanguageDetect"]
+
+        results[cid] = ModelScanResult(
+            id=cid,
+            name=c_name,
+            driver=c_driver,
+            ms_repo=f"custom/{cid}",
+            hf_repo=f"custom/{cid}",
+            categories=categories,
+            languages=languages,
+            status=status,
+            model_path=c_path if is_ready else None,
+            size_on_disk=_calc_dir_size(c_path) if is_ready and c_path else 0,
+            size_expected=0,
+            features=features,
+            preload=bool(c_cfg.get("preload", False)),
+            keep_alive=int(c_cfg.get("keep_alive", 600)),
+            is_custom=True,
+            extra={"is_custom": True, **c_cfg.get("extra", {})},
+        )
+
+    # 3. Include any explicitly configured static models from app_config (if not already present and not custom)
     try:
         from server.core.config import app_config
         for pid, pcfg in app_config.models.items():
-            if pid not in results:
+            if pid not in results and not getattr(pcfg, "is_custom", False):
                 p_path = Path(pcfg.model_path) if pcfg.model_path else None
                 is_ready = bool(p_path and p_path.exists())
                 results[pid] = ModelScanResult(
                     id=pid,
                     name=pcfg.name or pid,
                     driver=pcfg.driver,
-                    repo=f"config/{pid}",
+                    ms_repo=f"config/{pid}",
+                    hf_repo=f"config/{pid}",
                     categories=["FileASR"] if pcfg.driver != "xasr" else ["RealtimeASR"],
-                    languages=pcfg.languages or ["multilingual"],
+                    languages=pcfg.languages or list(WHISPER_LANGUAGES),
                     status="ready" if is_ready else "not_downloaded",
                     model_path=p_path if is_ready else None,
                     size_on_disk=_calc_dir_size(p_path) if is_ready and p_path else 0,

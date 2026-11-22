@@ -229,24 +229,36 @@ class EngineConfig:
                     if self.model_path:
                         x_dir = Path(self.model_path.rstrip("/"))
                     else:
-                        raw_x = self.model_name.strip()
-                        raw_leaf = raw_x.split("/")[-1].lower()
-                        if raw_leaf in ("x-asr-zh-en", "xasr-zh-en"):
-                            cand_x = models_dir / "xasr-zh-en"
-                            if not cand_x.exists():
-                                cand_x = models_dir / "chunk-160ms-model"
-                            x_dir = cand_x if cand_x.exists() else models_dir / "xasr-zh-en"
+                        manifest = get_manifest(self.name)
+                        if manifest:
+                            target_id = manifest.id
+                            x_dir = models_dir / target_id
+                            if not x_dir.exists() and target_id.startswith("xasr-zh-en-"):
+                                chunk = target_id.replace("xasr-zh-en-", "")
+                                legacy_c = models_dir / f"chunk-{chunk}-model"
+                                if legacy_c.exists():
+                                    x_dir = legacy_c
+                        elif self.name and (models_dir / self.name.lower()).exists():
+                            x_dir = models_dir / self.name.lower()
+                        elif self.model_name:
+                            leaf = self.model_name.strip().split("/")[-1]
+                            x_dir = models_dir / leaf
                         else:
-                            x_dir = models_dir / raw_x.split("/")[-1]
+                            x_dir = models_dir / self.name.lower()
                         self.model_path = str(x_dir)
 
                     self.tokens_path = str(x_dir / "tokens.txt")
-                    enc = x_dir / "encoder-160ms.onnx"
-                    self.encoder_path = str(enc if enc.exists() else x_dir / "encoder.onnx")
-                    dec = x_dir / "decoder-160ms.onnx"
-                    self.decoder_path = str(dec if dec.exists() else x_dir / "decoder.onnx")
-                    joi = x_dir / "joiner-160ms.onnx"
-                    self.joiner_path = str(joi if joi.exists() else x_dir / "joiner.onnx")
+                    enc_files = list(x_dir.glob("encoder*.onnx"))
+                    self.encoder_path = str(enc_files[0] if enc_files else x_dir / "encoder.onnx")
+                    dec_files = list(x_dir.glob("decoder*.onnx"))
+                    self.decoder_path = str(dec_files[0] if dec_files else x_dir / "decoder.onnx")
+                    joi_files = list(x_dir.glob("joiner*.onnx"))
+                    manifest = get_manifest(self.name)
+                    has_joiner = any("joiner" in r for r in manifest.required_files) if (manifest and manifest.required_files) else (True if not manifest else False)
+                    if joi_files or has_joiner:
+                        self.joiner_path = str(joi_files[0] if joi_files else x_dir / "joiner.onnx")
+                    else:
+                        self.joiner_path = ""
             elif eng == "firered":
                 if not self.model_path and self.model_name:
                     raw_f = self.model_name.strip()
@@ -301,6 +313,10 @@ class EngineConfig:
         self.api_key = _get_val("api_key", "")
         self.base_url = _get_val("base_url", "")
         self.sample_rate = _get_val("sample_rate", 16000)
+        self.is_custom = bool(
+            _get_val("is_custom", False)
+            or (isinstance(_get_val("extra", {}), dict) and _get_val("extra", {}).get("is_custom"))
+        )
 
     def resolve_path(self, path_str: str | None) -> Path | None:
         """Resolve a path against get_models_dir() or PROJECT_ROOT, or return absolute path."""
@@ -507,6 +523,7 @@ class AppConfig:
             pass
 
         scanned = scan_all_models()
+        new_models: dict[str, EngineConfig] = {}
         for model_id, res in scanned.items():
             is_ready = res.status == "ready"
             model_path_str = str(res.model_path) if res.model_path else ""
@@ -529,12 +546,12 @@ class AppConfig:
             if res.driver == "xasr" and res.model_path:
                 x_dir = res.model_path
                 cfg_data["tokens_path"] = str(x_dir / "tokens.txt")
-                enc = x_dir / "encoder-160ms.onnx"
-                cfg_data["encoder_path"] = str(enc if enc.exists() else x_dir / "encoder.onnx")
-                dec = x_dir / "decoder-160ms.onnx"
-                cfg_data["decoder_path"] = str(dec if dec.exists() else x_dir / "decoder.onnx")
-                joi = x_dir / "joiner-160ms.onnx"
-                cfg_data["joiner_path"] = str(joi if joi.exists() else x_dir / "joiner.onnx")
+                enc_files = list(x_dir.glob("encoder*.onnx"))
+                cfg_data["encoder_path"] = str(enc_files[0] if enc_files else x_dir / "encoder.onnx")
+                dec_files = list(x_dir.glob("decoder*.onnx"))
+                cfg_data["decoder_path"] = str(dec_files[0] if dec_files else x_dir / "decoder.onnx")
+                joi_files = list(x_dir.glob("joiner*.onnx"))
+                cfg_data["joiner_path"] = str(joi_files[0] if joi_files else x_dir / "joiner.onnx")
 
             cfg = EngineConfig(
                 model_id,
@@ -543,7 +560,9 @@ class AppConfig:
                 default_keep_alive=self.model_manager.default_keep_alive,
                 is_cloud=False,
             )
-            self.models[model_id] = cfg
+            new_models[model_id] = cfg
+
+        self.models = new_models
 
     def get_model_config(self, name: str) -> EngineConfig:
         """Find model config by direct ID, alias, or driver matching."""
@@ -565,7 +584,7 @@ class AppConfig:
             if cfg.driver == name or cfg.engine_name == name:
                 return cfg
 
-        raise ValueError(f"Unknown Model: {name}, available: {list(self.models)}")
+        raise ValueError(f"Model '{name}' not found")
 
     def get_provider_config(self, name: str) -> EngineConfig:
         """Deprecated backward-compatible alias for get_model_config."""

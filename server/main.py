@@ -11,14 +11,13 @@ from server.api.standard import (
     models as std_models,
     realtime as std_realtime,
 )
+from server.api.system import router as system_router
 from server.api.x import (
     audio as x_audio,
     files as x_files,
-    info as x_info,
     media as x_media,
     models as x_models,
     realtime as x_realtime,
-    system as x_system,
 )
 from server.core.config import settings
 
@@ -114,8 +113,9 @@ app.include_router(x_files.router)           # POST /v1/x/files (upload, dedup &
 app.include_router(x_models.router)          # GET  /v1/x/models (capability matrix & load/unload)
 app.include_router(x_realtime.router)        # WS   /v1/x/realtime (sentence events & timestamps)
 app.include_router(x_media.router)           # POST /v1/x/media (yt-dlp parsing & download)
-app.include_router(x_info.router)            # GET  /v1/x/info (service version & status)
-app.include_router(x_system.router)          # GET/POST /v1/x/system (info & settings)
+
+# ── 系统宿主与运维管理层 (/v1/system) ─────────────────────────────────
+app.include_router(system_router)            # GET/POST /v1/system (info, settings, open-path, check-update)
 
 
 # ── 全局错误处理（兼容 FastAPI detail 与 OpenAI error.message）──────

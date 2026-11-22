@@ -47,15 +47,25 @@ curl http://localhost:8020/v1/audio/transcriptions \
 
 - **[下载 OneASR for macOS (Apple Silicon .dmg)](https://github.com/codeAndxv/OneASR/releases/latest/download/OneASR.dmg)**
 
-### 2. macOS / Linux 纯命令行模式（无头终端）
+### 2. macOS / Linux 纯命令行模式（无头终端 / 云服务器）
 
-在终端中通过单行脚本一键安装并自动注入 `oneasr` 全局命令：
+在终端中通过单行脚本一键安装并自动注入 `oneasr` 全局命令（支持 macOS Apple Silicon 与 Linux x86_64）：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/codeAndxv/OneASR/main/install.sh | sh
 ```
 
-*自包含独立的精简 Python 3.12 运行时、PyTorch 科学计算加速与原生 PyAV 全格式解码器，用户电脑无需预装任何 Python、pip 或系统 FFmpeg 环境。*
+- **零环境依赖**：内嵌便携式 Python 3.12 运行时、全格式音频硬解库（PyAV）与 PyTorch 运行环境，**无需预装 Python、gcc 编译器、CUDA Toolkit 或系统 FFmpeg**。
+- **自动硬件探测**：在 Linux 上自动探测 NVIDIA 显卡驱动，具备 GPU 时自动启用 CUDA 加速；纯 CPU 主机则自动下载轻量化 CPU 包（节省带宽）。
+- **后台常驻运行（systemd）**：脚本自动生成用户级 systemd 配置，支持开机自启与故障自愈：
+  ```bash
+  # 启用并立即启动开机自启后台守护服务
+  systemctl --user enable --now oneasr
+
+  # 查看运行状态与实时日志
+  systemctl --user status oneasr
+  journalctl --user -u oneasr -f
+  ```
 
 ---
 

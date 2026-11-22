@@ -125,8 +125,6 @@ class SherpaOnnxEngine(ASREngine):
             missing_fields.append("encoder_path")
         if not self._decoder_path:
             missing_fields.append("decoder_path")
-        if not self._joiner_path:
-            missing_fields.append("joiner_path")
 
         if missing_fields:
             err_msg = (
@@ -143,27 +141,38 @@ class SherpaOnnxEngine(ASREngine):
         tokens_resolved = self.config.resolve_path(self._tokens_path)
         encoder_resolved = self.config.resolve_path(self._encoder_path)
         decoder_resolved = self.config.resolve_path(self._decoder_path)
-        joiner_resolved = self.config.resolve_path(self._joiner_path)
+        joiner_resolved = self.config.resolve_path(self._joiner_path) if self._joiner_path else None
 
-        # Flexibly match encoder/decoder/joiner file names (e.g. encoder-160ms.onnx vs encoder.onnx)
-        if not encoder_resolved or not encoder_resolved.exists():
-            alt = encoder_resolved.parent / "encoder.onnx" if encoder_resolved else None
-            if alt and alt.exists():
-                encoder_resolved = alt
-        if not decoder_resolved or not decoder_resolved.exists():
-            alt = decoder_resolved.parent / "decoder.onnx" if decoder_resolved else None
-            if alt and alt.exists():
-                decoder_resolved = alt
-        if not joiner_resolved or not joiner_resolved.exists():
-            alt = joiner_resolved.parent / "joiner.onnx" if joiner_resolved else None
-            if alt and alt.exists():
-                joiner_resolved = alt
+        # 在模型目录下匹配文件（优先取 int8 量化文件）
+        parent_dir = Path(self.config.model_path) if self.config.model_path else (
+            encoder_resolved.parent if encoder_resolved else None
+        )
+        if parent_dir and parent_dir.exists():
+            if not encoder_resolved or not encoder_resolved.exists():
+                enc_matches = sorted(list(parent_dir.glob("encoder*.onnx")), key=lambda p: 0 if "int8" in p.name else 1)
+                if enc_matches:
+                    encoder_resolved = enc_matches[0]
+                    self._encoder_path = str(encoder_resolved)
+            if not decoder_resolved or not decoder_resolved.exists():
+                dec_matches = sorted(list(parent_dir.glob("decoder*.onnx")), key=lambda p: 0 if "int8" in p.name else 1)
+                if dec_matches:
+                    decoder_resolved = dec_matches[0]
+                    self._decoder_path = str(decoder_resolved)
+            if not joiner_resolved or not joiner_resolved.exists():
+                joi_matches = sorted(list(parent_dir.glob("joiner*.onnx")), key=lambda p: 0 if "int8" in p.name else 1)
+                if joi_matches:
+                    joiner_resolved = joi_matches[0]
+                    self._joiner_path = str(joiner_resolved)
+            if not tokens_resolved or not tokens_resolved.exists():
+                tok_cand = parent_dir / "tokens.txt"
+                if tok_cand.exists():
+                    tokens_resolved = tok_cand
+                    self._tokens_path = str(tokens_resolved)
 
         for label, p_raw, p_resolved in [
             ("tokens_path", self._tokens_path, tokens_resolved),
             ("encoder_path", self._encoder_path, encoder_resolved),
             ("decoder_path", self._decoder_path, decoder_resolved),
-            ("joiner_path", self._joiner_path, joiner_resolved),
         ]:
             if not p_resolved or not p_resolved.exists():
                 err_msg = (
@@ -176,7 +185,8 @@ class SherpaOnnxEngine(ASREngine):
                 logger.error(err_msg)
                 raise RuntimeError(err_msg)
 
-        self._resolved_paths = (tokens_resolved, encoder_resolved, decoder_resolved, joiner_resolved)
+        has_joiner = bool(joiner_resolved and joiner_resolved.exists())
+        self._resolved_paths = (tokens_resolved, encoder_resolved, decoder_resolved, joiner_resolved if has_joiner else None)
 
     def load(self) -> None:
         """幂等加载 sherpa-onnx OnlineRecognizer。"""
@@ -193,20 +203,37 @@ class SherpaOnnxEngine(ASREngine):
             encoder_resolved, tokens_resolved, decoder_resolved, joiner_resolved,
         )
         try:
-            self._recognizer = sherpa_onnx.OnlineRecognizer.from_transducer(
-                tokens=str(tokens_resolved),
-                encoder=str(encoder_resolved),
-                decoder=str(decoder_resolved),
-                joiner=str(joiner_resolved),
-                num_threads=self._num_threads,
-                sample_rate=self.sample_rate,
-                provider=self._provider,
-                decoding_method=self._decoding_method,
-                enable_endpoint_detection=self._enable_endpoint_detection,
-                rule1_min_trailing_silence=self._rule1_min_trailing_silence,
-                rule2_min_trailing_silence=self._rule2_min_trailing_silence,
-                rule3_min_utterance_length=self._rule3_min_utterance_length,
-            )
+            if joiner_resolved and joiner_resolved.exists():
+                logger.info("[SherpaOnnx] 初始化流式 Transducer 识别器")
+                self._recognizer = sherpa_onnx.OnlineRecognizer.from_transducer(
+                    tokens=str(tokens_resolved),
+                    encoder=str(encoder_resolved),
+                    decoder=str(decoder_resolved),
+                    joiner=str(joiner_resolved),
+                    num_threads=self._num_threads,
+                    sample_rate=self.sample_rate,
+                    provider=self._provider,
+                    decoding_method=self._decoding_method,
+                    enable_endpoint_detection=self._enable_endpoint_detection,
+                    rule1_min_trailing_silence=self._rule1_min_trailing_silence,
+                    rule2_min_trailing_silence=self._rule2_min_trailing_silence,
+                    rule3_min_utterance_length=self._rule3_min_utterance_length,
+                )
+            else:
+                logger.info("[SherpaOnnx] 初始化流式 Paraformer 识别器")
+                self._recognizer = sherpa_onnx.OnlineRecognizer.from_paraformer(
+                    tokens=str(tokens_resolved),
+                    encoder=str(encoder_resolved),
+                    decoder=str(decoder_resolved),
+                    num_threads=self._num_threads,
+                    sample_rate=self.sample_rate,
+                    provider=self._provider,
+                    decoding_method=self._decoding_method,
+                    enable_endpoint_detection=self._enable_endpoint_detection,
+                    rule1_min_trailing_silence=self._rule1_min_trailing_silence,
+                    rule2_min_trailing_silence=self._rule2_min_trailing_silence,
+                    rule3_min_utterance_length=self._rule3_min_utterance_length,
+                )
             logger.info("[SherpaOnnx] 模型加载完成")
         except Exception as e:
             err_msg = f"[SherpaOnnx] 模型初始化失败: {e}"

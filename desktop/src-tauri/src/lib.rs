@@ -233,15 +233,61 @@ fn spawn_backend(child_handle: &Arc<Mutex<Option<Child>>>) -> Result<(), String>
     }
 }
 
+/// Locate the effective models directory according to environment and settings.json.
+fn get_effective_models_dir() -> PathBuf {
+    if let Ok(env_models) = std::env::var("ONEASR_MODELS_DIR") {
+        if !env_models.trim().is_empty() {
+            return PathBuf::from(env_models.trim());
+        }
+    }
+    if let Some(home) = dirs::home_dir() {
+        let settings_path = home.join(".oneasr").join("settings.json");
+        if settings_path.exists() {
+            if let Ok(content) = std::fs::read_to_string(&settings_path) {
+                if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
+                    if let Some(m_dir) = val.get("models_dir").and_then(|v| v.as_str()) {
+                        if !m_dir.trim().is_empty() {
+                            let resolved = if m_dir.starts_with("~/") {
+                                home.join(&m_dir[2..])
+                            } else {
+                                PathBuf::from(m_dir)
+                            };
+                            return resolved;
+                        }
+                    }
+                }
+            }
+        }
+        return home.join(".oneasr").join("models");
+    }
+    PathBuf::from(".oneasr/models")
+}
+
 /// Tauri native command: Open local application directories in macOS Finder.
 /// Bypasses HTTP server completely for robust, offline-capable desktop UX.
 #[tauri::command]
 fn open_local_dir(target: String) -> Result<(), String> {
-    if let Some(home) = dirs::home_dir() {
-        let sub = if target == "logs" { "logs" } else { "models" };
-        let path = home.join(".oneasr").join(sub);
+    if target == "logs" {
+        if let Some(home) = dirs::home_dir() {
+            let path = home.join(".oneasr").join("logs");
+            let _ = std::fs::create_dir_all(&path);
+            let _ = open::that(path);
+        }
+    } else if target == "models" {
+        let path = get_effective_models_dir();
         let _ = std::fs::create_dir_all(&path);
         let _ = open::that(path);
+    } else {
+        let resolved = if target.starts_with("~/") {
+            if let Some(home) = dirs::home_dir() {
+                home.join(&target[2..])
+            } else {
+                PathBuf::from(&target)
+            }
+        } else {
+            PathBuf::from(&target)
+        };
+        let _ = open::that(resolved);
     }
     Ok(())
 }
@@ -296,6 +342,7 @@ pub fn run() {
             let api_item = MenuItem::with_id(handle, "api", "Open Swagger API Docs...", true, None::<&str>)?;
             let models_item = MenuItem::with_id(handle, "models", "Models Directory...", true, None::<&str>)?;
             let logs_item = MenuItem::with_id(handle, "logs", "View Logs...", true, None::<&str>)?;
+            let update_item = MenuItem::with_id(handle, "update", "Check for Updates...", true, None::<&str>)?;
             let separator1 = PredefinedMenuItem::separator(handle)?;
             let separator2 = PredefinedMenuItem::separator(handle)?;
             let quit_item = MenuItem::with_id(handle, "quit", "Quit OneASR", true, None::<&str>)?;
@@ -309,6 +356,7 @@ pub fn run() {
                     &api_item,
                     &models_item,
                     &logs_item,
+                    &update_item,
                     &separator2,
                     &quit_item,
                 ],
@@ -333,17 +381,24 @@ pub fn run() {
                         let _ = open::that("http://127.0.0.1:8020/docs");
                     }
                     "models" => {
-                        if let Some(home) = dirs::home_dir() {
-                            let models_path = home.join(".oneasr").join("models");
-                            let _ = std::fs::create_dir_all(&models_path);
-                            let _ = open::that(models_path);
-                        }
+                        let models_path = get_effective_models_dir();
+                        let _ = std::fs::create_dir_all(&models_path);
+                        let _ = open::that(models_path);
                     }
                     "logs" => {
                         if let Some(home) = dirs::home_dir() {
                             let logs_path = home.join(".oneasr").join("logs");
                             let _ = std::fs::create_dir_all(&logs_path);
                             let _ = open::that(logs_path);
+                        }
+                    }
+                    "update" => {
+                        use tauri::Emitter;
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.unminimize();
+                            let _ = window.set_focus();
+                            let _ = window.emit("open-settings-tab", "about");
                         }
                     }
                     "quit" => {

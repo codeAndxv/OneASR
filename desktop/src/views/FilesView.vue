@@ -14,7 +14,7 @@
             :key="m.id"
             :value="m.id"
           >
-            {{ m.name }}{{ m.isLoaded ? t('modelResidentBadge') : '' }} · {{ getEngineDisplayName(m.engine) }}
+            [{{ t('modelsModeOffline') }}] {{ m.name }}{{ m.isLoaded ? t('modelResidentBadge') : '' }} · {{ getEngineDisplayName(m.engine) }}
           </option>
         </select>
       </div>
@@ -185,11 +185,17 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, watch, onMounted, onUnmounted } from 'vue';
 import { useI18n } from '../i18n';
 import { apiClient } from '../api/client';
 
 const emit = defineEmits(['add-history']);
+const props = defineProps({
+  active: {
+    type: Boolean,
+    default: true
+  }
+});
 const { t } = useI18n();
 
 const fileInput = ref(null);
@@ -200,11 +206,17 @@ const activeTaskId = ref('');
 let pollTimer = null;
 let unlistenDragDrop = null;
 
-const selectedModel = ref('');
+const selectedModel = ref(localStorage.getItem('oneasr_selected_file_model') || '');
 const readyModels = ref([]);
 const selectedLanguage = ref('auto');
 const isDragging = ref(false);
 const isTranscribing = ref(false);
+
+watch(selectedModel, (val) => {
+  if (val) {
+    localStorage.setItem('oneasr_selected_file_model', val);
+  }
+});
 const progressPercent = ref(0);
 const currentStageText = ref('');
 const fullText = ref('');
@@ -241,6 +253,19 @@ async function loadAvailableModels() {
 
       // Set default selected model
       if (readyModels.value.length > 0) {
+        // 1. 若当前选中的模型仍然在可用列表中，严格保持用户的主动选择，绝不被其他驻留模型强行覆盖
+        if (selectedModel.value && readyModels.value.some((m) => m.id === selectedModel.value)) {
+          return;
+        }
+
+        // 2. 尝试从本地持久化中恢复用户之前记住的选择
+        const savedModel = localStorage.getItem('oneasr_selected_file_model');
+        if (savedModel && readyModels.value.some((m) => m.id === savedModel)) {
+          selectedModel.value = savedModel;
+          return;
+        }
+
+        // 3. 兜底策略：内存驻留模型 -> SenseVoice -> Turbo -> 列表第一个模型
         const loadedModel = readyModels.value.find((m) => m.isLoaded);
         const senseVoice = readyModels.value.find((m) => m.id === 'sensevoice-small');
         const turbo = readyModels.value.find((m) => m.id === 'whisper-large-v3-turbo');
@@ -250,7 +275,7 @@ async function loadAvailableModels() {
           selectedModel.value = senseVoice.id;
         } else if (turbo) {
           selectedModel.value = turbo.id;
-        } else if (!readyModels.value.some((m) => m.id === selectedModel.value)) {
+        } else {
           selectedModel.value = readyModels.value[0].id;
         }
       } else {
@@ -264,6 +289,15 @@ async function loadAvailableModels() {
     console.warn('[FilesView] Failed to load ready models:', err);
   }
 }
+
+watch(
+  () => props.active,
+  (isActive) => {
+    if (isActive) {
+      loadAvailableModels();
+    }
+  }
+);
 
 onMounted(async () => {
   await loadAvailableModels();

@@ -22,10 +22,30 @@ def get_oneasr_home() -> Path:
 
 
 def get_models_dir() -> Path:
-    """Return the root directory where downloaded ASR model weights are stored."""
+    """Return the root directory where downloaded ASR model weights are stored.
+    
+    Resolution order:
+    1. ONEASR_MODELS_DIR environment variable
+    2. ~/.oneasr/settings.json user configured 'models_dir'
+    3. Default ~/.oneasr/models
+    """
     env_models = os.getenv("ONEASR_MODELS_DIR")
     if env_models and env_models.strip():
         return Path(env_models.strip()).expanduser().resolve()
+
+    settings_file = get_settings_path()
+    if settings_file.is_file():
+        try:
+            import json
+            with open(settings_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, dict):
+                    configured_dir = data.get("models_dir")
+                    if configured_dir and isinstance(configured_dir, str) and configured_dir.strip():
+                        return Path(configured_dir.strip()).expanduser().resolve()
+        except Exception:
+            pass
+
     return (get_oneasr_home() / "models").resolve()
 
 

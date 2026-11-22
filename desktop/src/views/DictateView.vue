@@ -203,20 +203,32 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useI18n } from '../i18n';
 import { AudioEngine } from '../utils/audio';
 import { apiClient } from '../api/client';
 
-const emit = defineEmits(['add-history']);
+const emit = defineEmits(['add-history', 'recording-change']);
+const props = defineProps({
+  active: {
+    type: Boolean,
+    default: true
+  }
+});
 const { t } = useI18n();
 
-const selectedModel = ref('');
+const selectedModel = ref(localStorage.getItem('oneasr_selected_dictate_model') || '');
 const selectedLanguage = ref('auto');
 const selectedMicId = ref('');
 const microphones = ref([]);
 const isRecording = ref(false);
 const isTranscribing = ref(false);
+
+watch(selectedModel, (val) => {
+  if (val) {
+    localStorage.setItem('oneasr_selected_dictate_model', val);
+  }
+});
 const volume = ref(0);
 const durationSec = ref(0);
 const transcribedText = ref('');
@@ -233,6 +245,10 @@ const modelOptions = ref([]);
 let realtimeWs = null;
 const finalizedSentences = ref([]);
 const liveSentencePreview = ref('');
+
+watch(isRecording, (val) => {
+  emit('recording-change', val);
+});
 
 function connectRealtimeWebSocket() {
   return new Promise((resolve) => {
@@ -332,18 +348,53 @@ async function loadAvailableModels() {
         (m) => m.status === 'ready' && Array.isArray(m.categories) && m.categories.includes('RealtimeASR')
       );
       if (ready.length > 0) {
-        modelOptions.value = ready.map((m) => ({
-          id: m.id,
-          name: `${m.name || m.id}${m.loaded ? t('modelResidentBadge') : ''}`,
-          isLoaded: !!m.loaded
-        }));
+        modelOptions.value = ready.map((m) => {
+          const rawName = (m.name || m.id).replace(/^Streaming\s+/i, '');
+          const isStream = (Array.isArray(m.features) && m.features.includes('realtimeStreaming')) ||
+            m.owned_by === 'xasr' || m.id.startsWith('xasr') || m.id.startsWith('streaming-') || m.id.startsWith('sherpa-onnx-');
+          const modeTag = isStream ? `[${t('modelsModeRealtime')}]` : `[${t('modelsModeOffline')}]`;
+          const residentBadge = m.loaded ? t('modelResidentBadge') : '';
+          let langSuffix = '';
+          if (m.languages && m.languages.length === 1 && !rawName.toLowerCase().includes(m.languages[0].toLowerCase())) {
+            const langKeyMap = {
+              es: 'modelsLangEs',
+              fr: 'modelsLangFr',
+              de: 'modelsLangDe',
+              ru: 'modelsLangRu',
+              yue: 'modelsLangYue',
+              ja: 'modelsLangJa'
+            };
+            const key = langKeyMap[m.languages[0]];
+            const lName = key ? t(key) : m.languages[0];
+            langSuffix = ` · ${lName}`;
+          }
+          return {
+            id: m.id,
+            name: `${modeTag} ${rawName}${langSuffix}${residentBadge}`,
+            isLoaded: !!m.loaded
+          };
+        });
+
+        // 1. 若当前选中的模型仍然在可用列表中，严格保持用户的主动选择，绝不被其他驻留模型强行覆盖
+        if (selectedModel.value && modelOptions.value.some((m) => m.id === selectedModel.value)) {
+          return;
+        }
+
+        // 2. 尝试从本地持久化中恢复用户之前记住的选择
+        const savedModel = localStorage.getItem('oneasr_selected_dictate_model');
+        if (savedModel && modelOptions.value.some((m) => m.id === savedModel)) {
+          selectedModel.value = savedModel;
+          return;
+        }
+
+        // 3. 兜底策略：内存驻留模型 -> SenseVoice -> 列表第一个模型
         const loadedModel = modelOptions.value.find((m) => m.isLoaded);
         const senseVoice = modelOptions.value.find((m) => m.id === 'sensevoice-small');
         if (loadedModel) {
           selectedModel.value = loadedModel.id;
         } else if (senseVoice) {
           selectedModel.value = senseVoice.id;
-        } else if (!modelOptions.value.some((m) => m.id === selectedModel.value)) {
+        } else {
           selectedModel.value = modelOptions.value[0].id;
         }
       } else {
@@ -389,6 +440,15 @@ const currentStatusText = computed(() => {
   }
   return t('statusDictateReady');
 });
+
+watch(
+  () => props.active,
+  (isActive) => {
+    if (isActive) {
+      loadAvailableModels();
+    }
+  }
+);
 
 onMounted(async () => {
   audioEngine = new AudioEngine();

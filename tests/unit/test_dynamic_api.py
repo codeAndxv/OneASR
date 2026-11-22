@@ -32,7 +32,8 @@ def test_list_extended_models(client, auth_headers):
     # Verify core built-in models exist in the full catalog listing
     assert "sensevoice-small" in model_ids
     assert "whisper-large-v3-turbo" in model_ids
-    assert "xasr-zh-en" in model_ids
+    assert "xasr-zh-en-160ms" in model_ids
+    assert "xasr-zh-en-480ms" in model_ids
 
     # Verify status fields exist on every item
     for item in data_all["data"]:
@@ -60,8 +61,8 @@ def test_retrieve_single_extended_model(client, auth_headers):
 
 
 def test_system_info_endpoint(client, auth_headers):
-    """Verify that GET /v1/x/system/info returns platform, hardware, accelerator, and storage stats."""
-    response = client.get("/v1/x/system/info", headers=auth_headers)
+    """Verify that GET /v1/system/info returns platform, hardware, accelerator, and storage stats."""
+    response = client.get("/v1/system/info", headers=auth_headers)
     assert response.status_code == 200
     info = response.json()
 
@@ -79,19 +80,19 @@ def test_system_info_endpoint(client, auth_headers):
 
 
 def test_system_settings_get_and_update(client, auth_headers, tmp_path, monkeypatch):
-    """Verify that GET/POST /v1/x/system/settings reads and updates preferences atomically."""
+    """Verify that GET/POST /v1/system/settings reads and updates preferences atomically."""
     fake_home = tmp_path / "fake_home"
     monkeypatch.setenv("ONEASR_HOME", str(fake_home))
 
     # Read current settings
-    get_res = client.get("/v1/x/system/settings", headers=auth_headers)
+    get_res = client.get("/v1/system/settings", headers=auth_headers)
     assert get_res.status_code == 200
     settings_data = get_res.json()
     assert "default_keep_alive" in settings_data
 
     # Update settings
     post_res = client.post(
-        "/v1/x/system/settings",
+        "/v1/system/settings",
         json={"default_model": "whisper-large-v3-turbo", "keep_alive": 1200},
         headers=auth_headers,
     )

@@ -70,18 +70,96 @@ jobs:
           cp src-tauri/target/release/bundle/dmg/*.dmg ../OneASR.dmg
           cd ..
 
-      - name: Generate sha256sum.txt
-        run: |
-          shasum -a 256 OneASR.dmg oneasr-darwin-arm64.tar.gz install.sh > sha256sum.txt
-          echo "Generated SHA-256 Checksums:"
-          cat sha256sum.txt
+      - name: Upload macOS Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-artifacts
+          path: |
+            OneASR.dmg
+            oneasr-darwin-arm64.tar.gz
 
-      - name: Upload Release Assets
+  build-linux-x86_64:
+    name: Build Linux (x86_64 Standalone)
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv package manager
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Cache uv wheel packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/uv
+          key: ${{ runner.os }}-uv-${{ hashFiles('requirements.txt', 'pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-uv-
+
+      - name: Build Linux Universal CUDA Package (GPU / Auto-fallback)
+        run: |
+          python3 desktop/scripts/prepare_standalone.py \
+            --target-os linux \
+            --torch-backend cu124 \
+            --output-dir dist/oneasr-linux-gpu
+          cd dist/oneasr-linux-gpu
+          tar -czvf ../../oneasr-linux-x86_64.tar.gz .
+          cd ../..
+
+      - name: Build Linux Lightweight CPU-Only Package
+        run: |
+          python3 desktop/scripts/prepare_standalone.py \
+            --target-os linux \
+            --torch-backend cpu \
+            --output-dir dist/oneasr-linux-cpu
+          cd dist/oneasr-linux-cpu
+          tar -czvf ../../oneasr-linux-x86_64-cpu.tar.gz .
+          cd ../..
+
+      - name: Upload Linux Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-artifacts
+          path: |
+            oneasr-linux-x86_64.tar.gz
+            oneasr-linux-x86_64-cpu.tar.gz
+
+  publish-release:
+    name: Publish GitHub Release
+    needs: [build-macos, build-linux-x86_64]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download macOS Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-artifacts
+          path: release-assets
+
+      - name: Download Linux Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-artifacts
+          path: release-assets
+
+      - name: Copy install.sh and Generate Checksums
+        run: |
+          cp install.sh release-assets/install.sh
+          cd release-assets
+          sha256sum * > sha256sum.txt
+          echo "Release Assets Checksums:"
+          cat sha256sum.txt
+          cd ..
+
+      - name: Upload All Release Assets
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            OneASR.dmg
-            oneasr-darwin-arm64.tar.gz
-            install.sh
-            sha256sum.txt
+            release-assets/*
           generate_release_notes: true

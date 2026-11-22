@@ -45,15 +45,25 @@ Download the self-contained macOS application (with built-in native UI, system t
 
 - **[Download OneASR for macOS (Apple Silicon)](https://github.com/codeAndxv/OneASR/releases/latest/download/OneASR.dmg)**
 
-### 2. macOS / Linux (Headless CLI)
+### 2. macOS / Linux (Headless CLI / Cloud Servers)
 
-Install the standalone command-line engine with a single terminal command:
+Install the standalone command-line engine with a single terminal command (supports macOS Apple Silicon and Linux x86_64):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/codeAndxv/OneASR/main/install.sh | sh
 ```
 
-*Bundles an isolated Python runtime, PyTorch (Apple MPS/CUDA), and native C-extension audio decoder (`PyAV`). Zero external environment setup required.*
+- **Zero External Dependencies**: Bundles an isolated portable Python 3.12 runtime, PyTorch (Apple MPS/CUDA auto-detection), and native C-extension audio decoder (`PyAV`). **No Python, gcc compiler, CUDA Toolkit, or system FFmpeg required**.
+- **Automatic Hardware Sensing**: On Linux, automatically detects NVIDIA drivers to enable CUDA acceleration; falls back to an ultra-lightweight CPU build on standard VPS servers.
+- **Background Daemon (systemd)**: Generates a systemd user service unit out-of-the-box:
+  ```bash
+  # Enable and immediately start the background service
+  systemctl --user enable --now oneasr
+
+  # Check service status and live logs
+  systemctl --user status oneasr
+  journalctl --user -u oneasr -f
+  ```
 
 ---
 

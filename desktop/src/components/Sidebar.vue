@@ -25,6 +25,7 @@
       >
         <span class="nav-icon" v-html="item.icon"></span>
         <span class="nav-label">{{ t(item.labelKey) }}</span>
+        <span v-if="item.id === 'dictate' && isRecording" class="nav-rec-dot" :title="t('recordingStatus') || 'Recording in progress'"></span>
         <span v-if="item.id === 'history' && historyCount > 0" class="nav-badge">{{ historyCount }}</span>
       </button>
     </nav>
@@ -82,6 +83,10 @@ const props = defineProps({
   currentTab: {
     type: String,
     required: true
+  },
+  isRecording: {
+    type: Boolean,
+    default: false
   },
   isOnline: {
     type: Boolean,
@@ -264,6 +269,21 @@ const navItems = [
   background: var(--bg-elevated);
   color: var(--text-secondary);
   border: 1px solid var(--border-subtle);
+}
+
+.nav-rec-dot {
+  margin-left: auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: #ef4444;
+  box-shadow: 0 0 6px rgba(239, 68, 68, 0.65);
+  animation: recPulse 1.4s infinite ease-in-out;
+}
+
+@keyframes recPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.35; transform: scale(0.85); }
 }
 
 .nav-item.active .nav-badge {

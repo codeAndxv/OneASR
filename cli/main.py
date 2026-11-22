@@ -123,8 +123,11 @@ def cmd_pull(args: argparse.Namespace) -> int:
                         status = data.get("status")
                         percent = data.get("percent", 0)
                         speed = data.get("speed", "")
-                        print(f"\rpulling {model_id}: {percent}% [{speed}]", end="", flush=True)
-                        if status == "ready":
+                        if status == "verifying":
+                            print(f"\rverifying {model_id} integrity...               ", end="", flush=True)
+                        else:
+                            print(f"\rpulling {model_id}: {percent}% [{speed}]", end="", flush=True)
+                        if status in ("ready", "completed"):
                             print(f"\rsuccess: model '{model_id}' is ready!               ")
                             return 0
                         elif status == "failed":

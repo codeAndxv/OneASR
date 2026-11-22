@@ -209,11 +209,24 @@ def create_cli_launcher(target_root: Path, target_os: str):
             "SCRIPT_DIR=\"$(cd \"$(dirname \"${BASH_SOURCE[0]}\")/..\" && pwd)\"\n"
             "export PYTHONPATH=\"$SCRIPT_DIR:$PYTHONPATH\"\n"
             "export PATH=\"$SCRIPT_DIR/bin:$SCRIPT_DIR/python/bin:$PATH\"\n"
+            "# Automatically prepend bundled NVIDIA runtime dynamic libraries if present (Linux CUDA)\n"
+            "if [ -d \"$SCRIPT_DIR/python/lib\" ]; then\n"
+            "    for nvd in \"$SCRIPT_DIR\"/python/lib/python*/site-packages/nvidia/*/lib; do\n"
+            "        if [ -d \"$nvd\" ]; then\n"
+            "            export LD_LIBRARY_PATH=\"$nvd:${LD_LIBRARY_PATH:-}\"\n"
+            "        fi\n"
+            "    done\n"
+            "fi\n"
             "exec \"$SCRIPT_DIR/python/bin/python3\" -m cli.main \"$@\"\n"
         )
         script_path.write_text(content, encoding="utf-8")
         script_path.chmod(0o755)
         log(f"Created Unix CLI launcher at {script_path}")
+
+        # Ensure python executable permissions
+        py_bin = target_root / "python" / "bin" / "python3"
+        if py_bin.exists():
+            py_bin.chmod(0o755)
 
 
 def prune_unneeded_files(target_dir: Path):

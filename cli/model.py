@@ -43,6 +43,7 @@ from server.core.config import (  # noqa: E402
     EngineConfig,
     infer_whisper_repo_id,
 )
+from server.core.manifest import get_manifest  # noqa: E402
 
 CLOUD_ENGINES = {"openai"}
 
@@ -212,12 +213,22 @@ def resolve_provider_specs(
             local_dir = PROJECT_ROOT / "data/models/chunk-160ms-model"
 
         chunk_dir_name = local_dir.name if local_dir.name.startswith("chunk-") else "chunk-160ms-model"
-        req_files = []
-        for path_attr in (cfg.tokens_path, cfg.encoder_path, cfg.decoder_path, cfg.joiner_path):
-            if path_attr:
-                req_files.append(Path(path_attr).name)
-        if not req_files:
-            req_files = ["tokens.txt", "encoder*.onnx", "decoder*.onnx", "joiner*.onnx"]
+        manifest = get_manifest(cfg.name)
+        if manifest:
+            hf_repo = manifest.hf_repo
+            ms_repo = manifest.ms_repo
+            subdir = manifest.extra.get("subdir_in_repo") if manifest.extra else ""
+            req_files = list(manifest.required_files) if manifest.required_files else []
+        else:
+            hf_repo = "GilgameshWind/X-ASR-zh-en"
+            ms_repo = "Gilgamesh-J/X-ASR-zh-en"
+            subdir = f"deployment/models/{chunk_dir_name}"
+            req_files = []
+            for path_attr in (cfg.tokens_path, cfg.encoder_path, cfg.decoder_path, cfg.joiner_path):
+                if path_attr:
+                    req_files.append(Path(path_attr).name)
+            if not req_files:
+                req_files = ["tokens.txt", "encoder*.onnx", "decoder*.onnx", "joiner*.onnx"]
 
         specs.append(
             ModelArtifactSpec(
@@ -226,9 +237,9 @@ def resolve_provider_specs(
                 label="main",
                 enable=cfg.enable,
                 local_dir=local_dir,
-                hf_repo_id="GilgameshWind/X-ASR-zh-en",
-                ms_repo_id="Gilgamesh-J/X-ASR-zh-en",
-                subdir_in_repo=f"deployment/models/{chunk_dir_name}",
+                hf_repo_id=hf_repo,
+                ms_repo_id=ms_repo,
+                subdir_in_repo=subdir,
                 required_files=req_files,
             )
         )

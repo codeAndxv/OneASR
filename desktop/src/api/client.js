@@ -113,7 +113,7 @@ export class OneASRClient {
 
   async checkHealth() {
     try {
-      const res = await fetch(`${this.baseUrl}/v1/x/info`, {
+      const res = await fetch(`${this.baseUrl}/v1/system/info`, {
         method: 'GET',
         headers: this.getHeaders()
       });
@@ -129,7 +129,7 @@ export class OneASRClient {
   async testConnection(targetUrl = null) {
     const base = (targetUrl || this.baseUrl).replace(/\/+$/, '');
     try {
-      const res = await fetch(`${base}/v1/x/info`, {
+      const res = await fetch(`${base}/v1/system/info`, {
         method: 'GET',
         headers: this.getHeaders()
       });
@@ -194,7 +194,7 @@ export class OneASRClient {
     return await res.json();
   }
 
-  async downloadModel(modelId, source = null) {
+  async downloadModel(modelId, source = null, onProgress = null) {
     const payload = { model_id: modelId };
     if (source) {
       payload.source = source;
@@ -204,12 +204,46 @@ export class OneASRClient {
       headers: this.getHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify(payload)
     });
-    return await res.json();
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      throw new Error(`Download failed (${res.status}): ${errText}`);
+    }
+
+    if (!res.body || typeof res.body.getReader !== 'function') {
+      return { ok: true };
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith('data:')) {
+          try {
+            const data = JSON.parse(trimmed.slice(5).trim());
+            if (onProgress && typeof onProgress === 'function') {
+              onProgress(data);
+            }
+          } catch (e) {
+            // Ignore parse errors on malformed lines
+          }
+        }
+      }
+    }
+    return { ok: true };
   }
 
   async getSystemSettings() {
     try {
-      const res = await fetch(`${this.baseUrl}/v1/x/system/settings`, {
+      const res = await fetch(`${this.baseUrl}/v1/system/settings`, {
         headers: this.getHeaders()
       });
       if (res.ok) {
@@ -222,12 +256,20 @@ export class OneASRClient {
   }
 
   async updateSystemSettings(settings) {
-    const res = await fetch(`${this.baseUrl}/v1/x/system/settings`, {
+    const res = await fetch(`${this.baseUrl}/v1/system/settings`, {
       method: 'POST',
       headers: this.getHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify(settings)
     });
     return await res.json();
+  }
+
+  async getSystemInfo() {
+    return await this.get('/v1/system/info');
+  }
+
+  async openPath(path) {
+    return await this.post('/v1/system/open-path', { path });
   }
 
   /**
@@ -356,6 +398,73 @@ export class OneASRClient {
       console.warn('[OneASR API] cancel task error:', err);
       return null;
     }
+  }
+
+  /**
+   * Check for OneASR desktop/server updates via /v1/system/check-update
+   */
+  async checkUpdate() {
+    try {
+      const res = await fetch(`${this.baseUrl}/v1/system/check-update`, {
+        headers: this.getHeaders()
+      });
+      if (res.ok) {
+        return await res.json();
+      }
+      return null;
+    } catch (err) {
+      console.warn('[OneASR API] check update error:', err);
+      return null;
+    }
+  }
+
+  /**
+   * List custom registered models via /v1/system/custom-models
+   */
+  async listCustomModels() {
+    try {
+      const res = await fetch(`${this.baseUrl}/v1/system/custom-models`, {
+        headers: this.getHeaders()
+      });
+      if (res.ok) {
+        return await res.json();
+      }
+      return { custom_models: [] };
+    } catch (err) {
+      console.warn('[OneASR API] list custom models error:', err);
+      return { custom_models: [] };
+    }
+  }
+
+  /**
+   * Register a local custom model via /v1/system/custom-models
+   */
+  async registerCustomModel(payload) {
+    const res = await fetch(`${this.baseUrl}/v1/system/custom-models`, {
+      method: 'POST',
+      headers: this.getHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.detail || data.message || `Registration failed with status ${res.status}`);
+    }
+    return data;
+  }
+
+  /**
+   * Unregister a custom model via /v1/system/custom-models/{modelId}
+   */
+  async unregisterCustomModel(modelId) {
+    const res = await fetch(`${this.baseUrl}/v1/system/custom-models/${encodeURIComponent(modelId)}`, {
+      method: 'DELETE',
+      headers: this.getHeaders()
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.detail || data.message || `Unregister failed with status ${res.status}`);
+    }
+    return data;
   }
 }
 

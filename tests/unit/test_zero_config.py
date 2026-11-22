@@ -67,8 +67,45 @@ def test_manifest_definitions():
     assert sense.driver == "funasr"
     assert "FileASR" in sense.categories
 
-    xasr = get_manifest("xasr-zh-en")
+    xasr = get_manifest("xasr-zh-en-160ms")
     assert xasr is not None
     assert xasr.driver == "xasr"
     assert xasr.preload is False
     assert xasr.keep_alive == 600
+
+    xasr_480 = get_manifest("xasr-zh-en-480ms")
+    assert xasr_480 is not None
+    assert xasr_480.driver == "xasr"
+
+
+def test_models_dir_configuration_resolution(tmp_path, monkeypatch):
+    """Verify that get_models_dir correctly resolves user-configured models_dir from settings.json."""
+    fake_home = tmp_path / "fake_home"
+    custom_models = tmp_path / "custom_models_storage"
+    monkeypatch.setenv("ONEASR_HOME", str(fake_home))
+    monkeypatch.delenv("ONEASR_MODELS_DIR", raising=False)
+
+    # 1. Default when settings.json does not exist
+    default_dir = get_models_dir()
+    assert default_dir == (fake_home / "models").resolve()
+
+    # 2. Write custom models_dir to settings.json
+    app_cfg = AppConfig()
+    app_cfg.save_settings({"models_dir": str(custom_models)})
+
+    resolved_dir = get_models_dir()
+    assert resolved_dir == custom_models.resolve()
+
+
+@pytest.mark.asyncio
+async def test_system_check_update_endpoint():
+    """Verify that check_system_update returns a valid payload with version strings and booleans."""
+    from server.api.system.system import check_system_update
+
+    result = await check_system_update()
+    assert isinstance(result, dict)
+    assert "current_version" in result
+    assert "latest_version" in result
+    assert "has_update" in result
+    assert isinstance(result["has_update"], bool)
+    assert "release_url" in result

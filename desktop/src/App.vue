@@ -3,6 +3,7 @@
     <!-- Left Navigation Sidebar -->
     <Sidebar
       :current-tab="currentTab"
+      :is-recording="isDictateRecording"
       :is-online="isServerOnline"
       :is-starting="isServerStarting"
       :has-checked="hasInitialCheckCompleted"
@@ -22,19 +23,22 @@
 
       <div class="view-container">
         <DictateView
-          v-if="currentTab === 'dictate'"
+          v-show="currentTab === 'dictate'"
+          :active="currentTab === 'dictate'"
           @add-history="addHistoryItem"
+          @recording-change="handleRecordingChange"
         />
         <FilesView
-          v-else-if="currentTab === 'files'"
+          v-show="currentTab === 'files'"
+          :active="currentTab === 'files'"
           @add-history="addHistoryItem"
         />
         <ModelsView
-          v-else-if="currentTab === 'models'"
+          v-show="currentTab === 'models'"
           :is-online="isServerOnline"
         />
         <HistoryView
-          v-else-if="currentTab === 'history'"
+          v-show="currentTab === 'history'"
           :items="historyItems"
           @delete-item="deleteHistoryItem"
           @clear-all="clearHistory"
@@ -45,6 +49,7 @@
     <!-- Preferences / Settings Modal -->
     <SettingsModal
       :is-open="isSettingsOpen"
+      :initial-tab="settingsInitialTab"
       @close="isSettingsOpen = false"
     />
   </div>
@@ -52,6 +57,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { listen } from '@tauri-apps/api/event';
 import { useI18n } from './i18n';
 import { apiClient } from './api/client';
 import { isTauri } from './utils/env';
@@ -66,7 +72,9 @@ import HistoryView from './views/HistoryView.vue';
 const { t } = useI18n();
 
 const currentTab = ref(localStorage.getItem('oneasr_current_tab') || 'models');
+const isDictateRecording = ref(false);
 const isSettingsOpen = ref(false);
+const settingsInitialTab = ref('general');
 const isServerOnline = ref(false);
 const isServerStarting = ref(false);
 const hasInitialCheckCompleted = ref(false);
@@ -103,6 +111,10 @@ function handleSelectTab(tabId) {
   localStorage.setItem('oneasr_current_tab', tabId);
 }
 
+function handleRecordingChange(isRec) {
+  isDictateRecording.value = !!isRec;
+}
+
 function handleGlobalKeydown(e) {
   if ((e.metaKey || e.ctrlKey) && e.key === ',') {
     e.preventDefault();
@@ -136,6 +148,15 @@ let healthInterval = null;
 
 onMounted(async () => {
   window.addEventListener('keydown', handleGlobalKeydown);
+
+  if (isTauri) {
+    listen('open-settings-tab', (event) => {
+      if (event.payload) {
+        settingsInitialTab.value = event.payload;
+      }
+      isSettingsOpen.value = true;
+    }).catch(err => console.warn('Could not register Tauri event listener:', err));
+  }
 
   // Load saved history
   try {

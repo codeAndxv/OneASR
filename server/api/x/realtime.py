@@ -423,7 +423,7 @@ async def realtime_transcription_ext(ws: WebSocket):
         try:
             eng = get_engine(engine_name)
         except Exception as e:
-            await _send_error("engine_error", f"Failed to load engine: {e}")
+            await _send_error("engine_error", str(e))
             return False
 
         # ── X-ASR 原生流式模式 ──

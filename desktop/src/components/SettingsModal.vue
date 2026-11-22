@@ -312,12 +312,36 @@
               <!-- Tab 4: Storage (存储管理) -->
               <div v-else-if="activeTab === 'storage'" class="tab-pane">
                 <div class="settings-group">
-                  <div class="setting-row">
-                    <div class="row-info">
+                  <div class="setting-row model-dir-setting-row">
+                    <div class="row-info model-dir-info">
                       <span class="row-label">{{ t('storageUserModels') }}</span>
-                      <span class="row-desc mono-path">{{ modelsDirPath || '~/.oneasr/models' }}</span>
+                      <span class="row-desc">{{ t('storageUserModelsDesc') }}</span>
+                      <div class="model-dir-input-group">
+                        <input
+                          v-model="modelsDirPath"
+                          type="text"
+                          class="model-dir-input mono-path"
+                          placeholder="~/.oneasr/models"
+                          @keydown.enter="saveModelsDir"
+                        />
+                      </div>
+                      <span class="model-dir-hint">{{ t('modelDirHint') }}</span>
                     </div>
-                    <div class="row-control">
+                    <div class="row-control model-dir-actions">
+                      <button
+                        class="secondary-btn save-dir-btn"
+                        :disabled="isSavingModelsDir"
+                        @click="saveModelsDir"
+                      >
+                        {{ isSavingModelsDir ? '...' : (modelsDirSaved ? '✓ ' + t('modelDirSaveBtn') : t('modelDirSaveBtn')) }}
+                      </button>
+                      <button
+                        class="secondary-btn"
+                        :disabled="isSavingModelsDir"
+                        @click="resetModelsDir"
+                      >
+                        {{ t('modelDirResetBtn') }}
+                      </button>
                       <button class="secondary-btn" @click="openFolder">
                         {{ t('btnOpenDir') }}
                       </button>
@@ -364,6 +388,50 @@
                 </div>
 
                 <div class="settings-group">
+                  <!-- Check Updates Row -->
+                  <div class="setting-row">
+                    <div class="row-info">
+                      <span class="row-label">{{ t('aboutCheckUpdate') }}</span>
+                      <span class="row-desc">
+                        <template v-if="isCheckingUpdate">
+                          {{ t('checkingUpdate') }}
+                        </template>
+                        <template v-else-if="updateInfo">
+                          <span v-if="updateInfo.has_update" class="update-found-text">
+                            {{ t('newVersionAvailable') }}: {{ updateInfo.latest_version }}
+                          </span>
+                          <span v-else class="update-latest-text">
+                            ✓ {{ t('alreadyLatest') }} (v{{ updateInfo.current_version }})
+                          </span>
+                        </template>
+                        <template v-else-if="updateError">
+                          <span class="update-error-text">{{ t('checkUpdateFailed') }}</span>
+                        </template>
+                        <template v-else>
+                          {{ t('aboutVersion') }}: v0.1.0
+                        </template>
+                      </span>
+                    </div>
+                    <div class="row-control">
+                      <button
+                        v-if="updateInfo && updateInfo.has_update"
+                        class="secondary-btn update-action-btn"
+                        @click="openReleaseUrl"
+                      >
+                        {{ t('btnDownloadUpdate') }}
+                      </button>
+                      <button
+                        v-else
+                        class="secondary-btn"
+                        :disabled="isCheckingUpdate"
+                        @click="handleCheckUpdate"
+                      >
+                        <span v-if="isCheckingUpdate">...</span>
+                        <span v-else>{{ t('btnCheckUpdate') }}</span>
+                      </button>
+                    </div>
+                  </div>
+
                   <div class="setting-row">
                     <div class="row-info">
                       <span class="row-label">{{ t('aboutArch') }}</span>
@@ -412,6 +480,10 @@ const props = defineProps({
   isOpen: {
     type: Boolean,
     default: false
+  },
+  initialTab: {
+    type: String,
+    default: 'general'
   }
 });
 
@@ -457,6 +529,13 @@ const isRestarting = ref(false);
 const keepAliveTimeout = ref('600');
 const downloadSource = ref('auto');
 const modelsDirPath = ref('');
+const isSavingModelsDir = ref(false);
+const modelsDirSaved = ref(false);
+
+const isCheckingUpdate = ref(false);
+const updateInfo = ref(null);
+const updateError = ref(false);
+
 const hardwareAccel = ref('mps');
 const deviceDesc = ref('');
 const diskFreeGb = ref(null);
@@ -583,22 +662,89 @@ function onKeydown(e) {
 
 watch(() => props.isOpen, (open) => {
   if (open) {
+    if (props.initialTab) {
+      activeTab.value = props.initialTab;
+    }
     fetchSettings();
+    if (activeTab.value === 'about' && !updateInfo.value && !isCheckingUpdate.value) {
+      handleCheckUpdate();
+    }
+  }
+});
+
+watch(activeTab, (tab) => {
+  if (tab === 'about' && !updateInfo.value && !isCheckingUpdate.value) {
+    handleCheckUpdate();
   }
 });
 
 onMounted(() => {
   window.addEventListener('keydown', onKeydown);
   fetchSettings();
+  if (props.initialTab) {
+    activeTab.value = props.initialTab;
+  }
 });
 
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeydown);
 });
 
+async function saveModelsDir() {
+  if (isSavingModelsDir.value) return;
+  isSavingModelsDir.value = true;
+  try {
+    const raw = modelsDirPath.value.trim();
+    const res = await apiClient.updateSystemSettings({
+      models_dir: raw
+    });
+    if (res && res.saved_settings && res.saved_settings.models_dir) {
+      modelsDirPath.value = res.saved_settings.models_dir;
+    }
+    modelsDirSaved.value = true;
+    setTimeout(() => {
+      modelsDirSaved.value = false;
+    }, 2000);
+  } catch (err) {
+    console.error('Failed to save models directory:', err);
+    alert(t('modelDirInvalidAlert'));
+  } finally {
+    isSavingModelsDir.value = false;
+  }
+}
+
+async function resetModelsDir() {
+  modelsDirPath.value = '';
+  await saveModelsDir();
+}
+
+async function handleCheckUpdate() {
+  if (isCheckingUpdate.value) return;
+  isCheckingUpdate.value = true;
+  updateError.value = false;
+  try {
+    const res = await apiClient.checkUpdate();
+    if (res) {
+      updateInfo.value = res;
+    } else {
+      updateError.value = true;
+    }
+  } catch (err) {
+    console.error('Check update failed:', err);
+    updateError.value = true;
+  } finally {
+    isCheckingUpdate.value = false;
+  }
+}
+
+function openReleaseUrl() {
+  const url = (updateInfo.value && updateInfo.value.release_url) || 'https://github.com/codeAndxv/OneASR/releases/latest';
+  window.open(url, '_blank');
+}
+
 async function fetchSettings() {
   try {
-    const data = await apiClient.get('/v1/x/system/info');
+    const data = await apiClient.get('/v1/system/info');
     if (data) {
       if (data.system) {
         hardwareAccel.value = data.system.device || 'mps';
@@ -657,12 +803,13 @@ async function fetchSettings() {
 }
 
 async function openFolder() {
+  const targetPath = modelsDirPath.value.trim() || 'models';
   try {
-    await invoke('open_local_dir', { target: 'models' });
+    await invoke('open_local_dir', { target: targetPath });
   } catch (err) {
     console.warn('Tauri open_local_dir failed, fallback to server:', err);
     try {
-      await apiClient.post('/v1/x/system/open-folder', { target: 'models' });
+      await apiClient.post('/v1/system/open-path', { path: targetPath });
     } catch (e) {
       console.error('Failed to open models folder:', e);
     }
@@ -675,7 +822,7 @@ async function openLogs() {
   } catch (err) {
     console.warn('Tauri open_local_dir failed, fallback to server:', err);
     try {
-      await apiClient.post('/v1/x/system/open-folder', { target: 'logs' });
+      await apiClient.post('/v1/system/open-path', { path: 'logs' });
     } catch (e) {
       console.error('Failed to open logs folder:', e);
     }
@@ -1265,6 +1412,84 @@ function openGithub() {
 .about-tagline {
   font-size: 12px;
   color: var(--text-secondary);
+}
+
+/* Model Directory Customization */
+.model-dir-setting-row {
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.model-dir-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.model-dir-input-group {
+  margin-top: 6px;
+  width: 100%;
+}
+
+.model-dir-input {
+  width: 100%;
+  padding: 6px 10px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 11.5px;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.model-dir-input:focus {
+  border-color: var(--accent-emerald, #10B981);
+}
+
+.model-dir-hint {
+  display: block;
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 5px;
+  line-height: 1.4;
+}
+
+.model-dir-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.save-dir-btn {
+  font-weight: 500;
+}
+
+/* Updates Row */
+.update-found-text {
+  color: var(--accent-emerald, #10B981);
+  font-weight: 500;
+}
+
+.update-latest-text {
+  color: var(--text-secondary);
+}
+
+.update-error-text {
+  color: #ef4444;
+}
+
+.update-action-btn {
+  background: rgba(16, 185, 129, 0.15);
+  border-color: var(--accent-emerald, #10B981);
+  color: var(--accent-emerald, #10B981);
+  font-weight: 600;
+}
+
+.update-action-btn:hover {
+  background: var(--accent-emerald, #10B981);
+  color: #ffffff;
 }
 
 /* Modal Footer */

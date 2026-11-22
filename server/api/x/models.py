@@ -95,6 +95,7 @@ async def list_extended_models(
             "size_on_disk": scan_res.size_on_disk,
             "size_expected": scan_res.size_expected,
             "model_path": str(scan_res.model_path) if scan_res.model_path else None,
+            "is_custom": getattr(scan_res, "is_custom", False),
             "loaded": rt_status["loaded"],
             "active_tasks": rt_status["active_tasks"],
             "keep_alive": rt_status["keep_alive"],
@@ -233,6 +234,14 @@ async def delete_model_endpoint(model_id: str):
     # 2. Locate directory on disk
     scanned = scan_all_models()
     scan_res = scanned.get(target_id)
+    if scan_res and getattr(scan_res, "is_custom", False):
+        raise OpenAIAPIException(
+            status_code=400,
+            message=f"Model '{model_id}' is a custom registered model. Use DELETE /v1/system/custom-models/{model_id} to unregister without deleting local files.",
+            error_type="invalid_request_error",
+            param="model",
+            code="custom_model_cannot_delete",
+        )
     if not scan_res or not scan_res.model_path or not scan_res.model_path.exists():
         raise OpenAIAPIException(
             status_code=404,

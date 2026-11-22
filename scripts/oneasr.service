@@ -1,0 +1,22 @@
+[Unit]
+Description=OneASR Speech Recognition Daemon
+Documentation=https://github.com/codeAndxv/OneASR
+After=network.target
+
+[Service]
+Type=simple
+# If installed system-wide via install.sh (/usr/local/bin/oneasr):
+ExecStart=/usr/local/bin/oneasr serve
+# Or for user-level installation without root, replace with:
+# ExecStart=%h/.local/bin/oneasr serve
+
+Restart=always
+RestartSec=3
+KillMode=process
+LimitNOFILE=65535
+
+# Ensure output is unbuffered for journalctl logging
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
